@@ -1,0 +1,26 @@
+# systemd unit - copy to /etc/systemd/system/premier-erp.service
+# then: systemctl daemon-reload && systemctl enable --now premier-erp
+# Reads backend/.env for DB_HOST/DB_USER/DB_PASSWORD/DB_NAME/JWT_KEY —
+# set those there instead of (or in addition to) the Environment= lines
+# below.
+[Unit]
+Description=Premier ERP Node.js server (shares the ISO/LMS MySQL database)
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/premier-erp/backend
+ExecStart=/usr/bin/node /opt/premier-erp/backend/server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=5050
+Environment=JWT_KEY=CHANGE-ME-long-random-secret
+Environment=DB_HOST=localhost
+Environment=DB_USER=root
+Environment=DB_PASSWORD=CHANGE-ME
+Environment=DB_NAME=ptis_erp_db
+
+[Install]
+WantedBy=multi-user.target

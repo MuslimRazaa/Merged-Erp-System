@@ -1,0 +1,15 @@
+# dependencies
+node_modules/
+backend/node_modules/
+
+# secrets — never commit real DB passwords / JWT keys
+.env
+backend/.env
+*.env.local
+
+# old JSON-file backend's runtime data (superseded by backend/, kept only for reference)
+data/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

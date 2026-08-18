@@ -1,0 +1,13 @@
+{
+  "name": "premier-erp-server",
+  "version": "1.0.0",
+  "description": "Premier Tubular Services ERP - Node.js live server (zero dependencies)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

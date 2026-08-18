@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Premier ERP — Operations, Compliance & Accounting</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F5F7FB; --card:#FFFFFF; --ink:#0F1728; --soft:#51607A; --faint:#94A3B8;
+  --line:#E4E9F1; --line2:#EEF2F7;
+  --side:#0B1524; --side2:#101E33;
+  --brand:#0E6FDB; --brand-d:#0A57AC; --brand-t:#E8F1FD;
+  --teal:#0D9488; --teal-t:#E6F7F5;
+  --amber:#B45309; --amber-t:#FEF6E7;
+  --rose:#C2372B; --rose-t:#FCECEA;
+  --violet:#6D4FC4; --violet-t:#F1EDFB;
+  --disp:'Space Grotesk',sans-serif; --body:'Inter',sans-serif; --mono:'JetBrains Mono',monospace;
+  --r:12px; --shadow:0 1px 2px rgba(15,23,40,.05),0 10px 30px -18px rgba(15,23,40,.18);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:13.5px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+#app{display:flex;min-height:100vh}
+/* ---------- sidebar ---------- */
+aside{width:236px;flex:none;background:var(--side);color:#E7EDF5;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.brand{display:flex;gap:10px;align-items:center;padding:20px 16px 16px}
+.brand .mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--teal));display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:15px;flex:none}
+.brand b{font-family:var(--disp);font-size:15.5px;letter-spacing:-.01em}
+.brand span{display:block;font-size:10px;color:#7E8CA3;margin-top:1px;letter-spacing:.06em;text-transform:uppercase}
+.ngrp{padding:10px 10px 2px}
+.ngrp h5{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6C85;padding:6px 8px 4px;font-weight:700}
+.nitem{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:7.5px 10px;border-radius:8px;color:#B9C4D6;font-size:13px;font-weight:500;margin-bottom:1px}
+.nitem:hover{background:var(--side2);color:#fff}
+.nitem.on{background:var(--brand);color:#fff;font-weight:600}
+.nitem .ic{width:16px;text-align:center;font-size:13px;flex:none;opacity:.85}
+.sidefoot{margin-top:auto;padding:12px 16px 16px;font-size:10.5px;color:#5D6C85;border-top:1px solid #1B2A42}
+/* ---------- main ---------- */
+main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:14px;padding:14px 26px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap;position:sticky;top:0;z-index:20}
+.topbar h1{font-family:var(--disp);font-size:17px;font-weight:700;letter-spacing:-.01em}
+.topbar .crumb{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+.top-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip-sync{display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:11.5px;font-weight:600;color:var(--soft)}
+.chip-sync .dot{width:8px;height:8px;border-radius:50%;background:#94A3B8;flex:none}
+.chip-sync.online .dot{background:#16A34A}.chip-sync.offline .dot{background:#D97706}.chip-sync.err .dot{background:#DC2626}
+.btn{background:var(--brand);color:#fff;border-radius:9px;padding:8px 15px;font-weight:600;font-size:12.5px;box-shadow:0 1px 2px rgba(15,23,40,.08)}
+.btn:hover{background:var(--brand-d)}
+.btn.ghost{background:#fff;border:1px solid var(--line);color:var(--soft);box-shadow:none}
+.btn.ghost:hover{border-color:#C6D0DE}
+.btn.small{padding:6px 11px;font-size:11.5px}
+.content{padding:20px 26px 70px;flex:1}
+/* ---------- cards / kpis ---------- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;box-shadow:var(--shadow)}
+.kpi span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
+.kpi b{display:block;font-size:19px;font-family:var(--disp);margin-top:3px;letter-spacing:-.01em}
+.kpi b.warn{color:var(--rose)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px}
+.card-h{padding:12px 17px;border-bottom:1px solid var(--line);font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--disp)}
+.card-h .sp{margin-left:auto}
+.card-b{padding:15px 17px}
+/* ---------- forms ---------- */
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:11px}
+.field label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:4px}
+.field input,.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.field textarea{resize:vertical}
+.field.full{grid-column:1/-1}
+.actions{display:flex;gap:9px;margin-top:13px;flex-wrap:wrap}
+/* ---------- tables ---------- */
+.tblwrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{padding:9px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);border-bottom:1px solid var(--line);background:#FAFBFD;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+td.num,th.num{text-align:right;font-family:var(--mono);font-size:12px;white-space:nowrap}
+tr.rowlink{cursor:pointer}
+tr.rowlink:hover td{background:#F6F9FE}
+tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
+.pill{display:inline-block;font-size:9.5px;font-weight:700;padding:2px 9px;border-radius:999px;letter-spacing:.02em}
+.pill.b{background:var(--brand-t);color:var(--brand)}
+.pill.g{background:var(--teal-t);color:var(--teal)}
+.pill.a{background:var(--amber-t);color:var(--amber)}
+.pill.r{background:var(--rose-t);color:var(--rose)}
+.pill.v{background:var(--violet-t);color:var(--violet)}
+.del{color:var(--rose);font-size:13px;padding:2px 7px;border-radius:6px}
+.del:hover{background:var(--rose-t)}
+.searchrow{margin-bottom:11px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.searchrow input[type=search]{padding:8px 12px;border:1px solid var(--line);border-radius:9px;min-width:220px;background:#fff}
+.hint{font-size:11.5px;color:var(--faint);margin-top:8px}
+.empty{color:var(--faint);padding:14px 0;font-size:13px}
+/* ---------- gl journal lines ---------- */
+.jl{display:grid;grid-template-columns:130px 1fr 105px 105px 28px;gap:7px;align-items:center;margin-bottom:6px}
+.jl input,.jl select{padding:7px 9px;border:1px solid var(--line);border-radius:7px;width:100%}
+.jl-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--faint)}
+.balbar{padding:9px 13px;border-radius:9px;font-weight:600;font-size:12.5px;margin-top:10px}
+.balbar.ok{background:var(--teal-t);color:var(--teal)}
+.balbar.bad{background:var(--rose-t);color:var(--rose)}
+/* ---------- modal ---------- */
+.modal{position:fixed;inset:0;background:rgba(8,14,25,.5);display:none;align-items:center;justify-content:center;z-index:100}
+.modal.open{display:flex}
+.modal .box{background:#fff;border-radius:14px;max-width:520px;width:92%;padding:22px 24px;box-shadow:0 24px 70px rgba(0,0,0,.35);max-height:88vh;overflow:auto}
+.modal h3{font-family:var(--disp);font-size:16px;margin-bottom:4px}
+.modal p{font-size:12.5px;color:var(--soft);margin-bottom:12px}
+.synclog{margin-top:12px;font-size:11px;color:var(--soft);max-height:130px;overflow:auto;background:#F6F8FB;border-radius:8px;padding:8px 10px;font-family:var(--mono)}
+/* ---------- photos ---------- */
+.dropzone{border:2px dashed var(--line);border-radius:11px;padding:20px;text-align:center;color:var(--soft);cursor:pointer;background:#FAFBFD}
+.dropzone.drag{border-color:var(--brand);background:var(--brand-t)}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:12px}
+.photo{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.photo img{width:100%;height:130px;object-fit:cover;display:block}
+.photo .pm{padding:8px}
+.photo input{width:100%;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:11.5px}
+/* ---------- dim table ---------- */
+.dimtable th,.dimtable td{white-space:nowrap}
+.dimtable input{min-width:0;border:1px solid var(--line);border-radius:6px;padding:5px 7px}
+.dimtable input.dim{width:64px;text-align:center}
+#login{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0B1220 0%,#12203C 55%,#1A2F55 100%)}
+#login .lbox{width:360px;max-width:92vw;background:#fff;border-radius:14px;padding:30px 28px;box-shadow:0 24px 70px rgba(0,0,0,.45)}
+#login .lbrand{font-weight:800;letter-spacing:.14em;font-size:13px;color:#12203C}
+#login .lsub{color:#6B7280;font-size:12px;margin:4px 0 20px}
+#login label{display:block;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 4px}
+#login input,#login select{width:100%;border:1px solid #D1D5DB;border-radius:8px;padding:9px 11px;font-size:14px}
+#login .lbtn{width:100%;margin-top:18px;background:#12203C;color:#fff;border:0;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer}
+#login .lbtn:hover{background:#1A2F55}
+#login .lerr{background:#FDE8E8;color:#B91C1C;border:1px solid #F5B5B5;border-radius:8px;padding:8px 10px;font-size:12.5px;margin-top:12px;display:none}
+#login .lfoot{margin-top:16px;font-size:11px;color:#9CA3AF;text-align:center}
+body.locked #app{display:none}
+.userchip{display:flex;align-items:center;gap:7px;background:var(--bg2,#F3F4F6);border:1px solid var(--line,#E5E7EB);border-radius:999px;padding:4px 12px 4px 6px;font-size:12px}
+.userchip .uav{width:22px;height:22px;border-radius:50%;background:#12203C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.dimtable input.oor{background:#FDE8E8!important;border:1.5px solid #E02424!important;color:#B91C1C;font-weight:700}
+.dimtable input.inr{background:#F0FDF4}
+.dimtable thead .grp th{text-align:center;background:#EEF2F8;font-size:9.5px;letter-spacing:.08em}
+/* ---------- responsive / print ---------- */
+#menu-toggle{display:none}
+@media(max-width:900px){
+  aside{position:fixed;left:-240px;transition:left .2s;z-index:60}
+  aside.open{left:0}
+  #menu-toggle{display:inline-flex}
+}
+@media print{aside,.topbar,.btn,.del,.searchrow,.no-print{display:none!important}body{background:#fff}.card{box-shadow:none;border-color:#bbb}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body class="locked">
+<div id="login">
+ <div class="lbox">
+  <div class="lbrand">PREMIER TUBULAR SERVICES</div>
+  <div class="lsub" id="l-sub">Sign in to Premier ERP</div>
+  <div id="l-form">
+   <label>Employee ID</label><input id="l-user" autocomplete="username" placeholder="Same ID you use on the ISO/LMS portal" onkeydown="if(event.key==='Enter')document.getElementById('l-pass').focus()">
+   <label>Password</label><input id="l-pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+   <button class="lbtn" onclick="doLogin()">Sign in</button>
+  </div>
+  <div id="l-setup" style="display:none">
+   <label>Your Employee ID</label><input id="s-user" placeholder="Same ID you use on the ISO/LMS portal">
+   <label>Your ISO/LMS password</label><input id="s-pass" type="password" onkeydown="if(event.key==='Enter')doSetup()">
+   <label>Designation (optional)</label><input id="s-desig" placeholder="General Manager">
+   <button class="lbtn" onclick="doSetup()">Claim administrator &amp; sign in</button>
+  </div>
+  <div class="lerr" id="l-err"></div>
+  <div class="lfoot">Same login as the ISO/LMS portal. Contact your ERP administrator for access.</div>
+ </div>
+</div>
+<div id="app">
+<aside id="sidebar">
+  <div class="brand"><div class="mark">P</div><div><b>Premier ERP</b><span>Tubular Services</span></div></div>
+  <div id="nav"></div>
+  <div class="sidefoot">Offline-first · all work saves locally and syncs when online.<br>© Premier Tubular</div>
+</aside>
+<main>
+  <div class="topbar">
+    <button class="btn ghost small" id="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+    <div><div class="crumb" id="crumb">HOME</div><h1 id="title">Dashboard</h1></div>
+    <div class="top-actions">
+      <span id="userchip"></span>
+      <div class="chip-sync offline" id="syncchip"><div class="dot"></div><span id="synctext">Local only</span></div>
+      <button class="btn ghost small" onclick="syncNow()">Sync now</button>
+      <button class="btn ghost small" onclick="openModal('syncmodal')" title="Server settings">⚙</button>
+      <button class="btn ghost small" onclick="backup()">Backup</button>
+      <button class="btn ghost small" onclick="document.getElementById('restore-file').click()">Restore</button>
+      <input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreFile(event)">
+    </div>
+  </div>
+  <div class="content" id="content"></div>
+</main>
+</div>
+
+<div class="modal" id="syncmodal"><div class="box">
+  <h3>Server sync settings</h3>
+  <p>All work is always saved in this browser first. With a server URL set, changes push automatically when online and pull on load. Point at the tubular-suite backend <code>/api</code> base URL.</p>
+  <div class="field"><label>Server API base URL</label><input id="sync-url" placeholder="https://your-server.example.com/api"></div>
+  <div class="field" style="margin-top:9px"><label>API token</label><input id="sync-token" placeholder="Bearer token"></div>
+  <div class="field" style="margin-top:9px"><label>Auto-sync interval (minutes, 0 = manual)</label><input id="sync-interval" type="number" value="5" min="0"></div>
+  <div class="synclog" id="synclog">No sync activity yet.</div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('syncmodal')">Close</button><button class="btn" onclick="saveSyncSettings()">Save settings</button></div>
+</div></div>
+
+<script>
+/* ================================================================
+   PREMIER ERP — single-file, offline-first
+   Storage: one localStorage key per collection (perp_*) so the
+   sync engine can push/pull each set independently.
+   ================================================================ */
+const P='perp_';
+function lsGet(k,d){try{const v=JSON.parse(localStorage.getItem(P+k));return v==null?d:v;}catch(e){return d;}}
+function lsSet(k,v){try{localStorage.setItem(P+k,JSON.stringify(v));}catch(e){alert('Save failed: '+e.message);}}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function uid(){return 'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function today(){return new Date().toISOString().slice(0,10);}
+function fmt(n){n=+n||0;return (n<0?'-':'')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+/* ============ field helpers ============ */
+const T=(k,l,ph)=>({k,l,t:'text',ph});
+const N=(k,l)=>({k,l,t:'number'});
+const D=(k,l)=>({k,l,t:'date'});
+const S=(k,l,o)=>({k,l,t:'select',o});
+const A=(k,l)=>({k,l,t:'area'});
+const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
+
+/* ============ generic collection modules ============ */
+/* Each: key, name, group, icon, fields, list (cols in table), badge, kpi */
+const MODULES={
+/* ---------------- CRM ---------------- */
+customers:{g:'CRM',ic:'◆',name:'Customers',fields:[T('code','Code','CUST-001'),T('name','Company name'),T('contact','Contact person'),T('email','Email'),T('phone','Phone'),S('ctype','Type',['Customer','Vendor','Both']),T('trn','Tax reg. no.'),T('terms','Payment terms','Net 30'),A('addr','Address')],list:['code','name','contact','phone','ctype','terms'],badge:r=>r.ctype},
+services:{g:'CRM',ic:'⚙',name:'Service Catalogue',fields:[T('code','Service code','SVC-001'),T('name','Service description'),S('cat','Category',['Tubular Inspection','NDT Services','Calibration','Rig Inspection','Lifting Gear Survey','Machine Shop / Repair','Storage & Yard Services','Rental','Consultancy / Audit','Other']),T('std','Standard / method','DS-1 Vol 3 / API RP 7G-2'),T('unit','UoM','per joint'),N('price','Standard rate'),T('cur','Currency','AED'),N('mindur','Min. qty / charge'),S('status','Status',['Active','On request','Discontinued']),A('scope','Scope / inclusions')],list:['code','name','cat','unit','price','cur','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active services'}]},
+leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
+rfqs:{g:'CRM',ic:'✉',name:'RFQs',fields:[T('no','RFQ no.','RFQ-2026-001'),D('date','Received'),REF('customer','Customer','customers','name'),T('subject','Subject / scope'),D('due','Quote due'),S('status','Status',['Open','Quoted','Declined','Closed']),A('detail','Details')],list:['no','date','customer','subject','due','status'],badge:r=>r.status},
+quotes:{g:'CRM',ic:'▤',name:'Quotations',lines:true,fields:[T('no','Quotation no.','QTN-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),T('subject','Subject'),T('cur','Currency','AED'),N('vat','VAT %'),S('status','Status',['Draft','Sent','Accepted','Rejected','Expired']),D('validity','Valid until'),T('terms','Payment terms','Net 30'),T('delivery','Delivery / lead time'),A('scope','Scope / notes')],list:['no','date','customer','subject','amount','cur','status'],badge:r=>r.status},
+salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[T('no','SO no.','SO-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
+activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type','Type',['Call','Meeting','Email','Site visit','Follow-up']),REF('customer','Customer','customers','name'),T('who','By'),A('notes','Summary / outcome'),D('next','Next follow-up')],list:['date','type','customer','who','next'],badge:r=>r.type},
+/* ---------------- SALES / AR ---------------- */
+invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
+receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
+/* ---------------- INVENTORY ---------------- */
+items:{g:'Inventory',ic:'▦',name:'Item Master',fields:[T('code','Item code','ITM-001'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),T('unit','UoM','ea'),N('reorder','Reorder level'),N('cost','Std. cost'),T('loc','Default location'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc'],badge:r=>r.cat},
+stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',fields:[D('date','Date'),REF('item','Item','items','name'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),N('qty','Quantity'),T('from','From location'),T('to','To location'),T('ref','Reference (PO/WO)'),T('who','By')],list:['date','item','type','qty','from','to','ref'],badge:r=>r.type},
+/* ---------------- PROCUREMENT ---------------- */
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',fields:[T('no','PO no.','PO-2026-001'),D('date','Date'),REF('vendor','Vendor','customers','name'),T('subject','Subject / items'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','subject','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','customers','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
+vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','customers','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
+payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','customers','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
+/* ---------------- FIXED ASSETS ---------------- */
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
+/* ---------------- HR ---------------- */
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},employees:{g:'Human Resources',ic:'♟',name:'Employees',att:1,photo:1,fields:[T('empno','Employee no.','EMP-001'),T('name','Full name'),T('desig','Designation'),REF('dept','Department','shared_departments','name'),REF('loc','Location','shared_locations','name'),T('initpw','Initial ISO/LMS password (new employee only — blank = same as Employee no.)'),D('join','Join date'),T('nation','Nationality'),T('passport','Passport / ID no.'),D('visaexp','Visa / permit expiry'),A('homeaddr','Home address'),A('mailaddr','Mailing address'),S('shift','Shift',['Day (08:00-17:00)','Night (19:00-04:00)','Rotational 12 hr','Rotational 8 hr','On call / field','Office hours']),T('shiftnotes','Shift details / roster notes'),N('salary','Basic salary'),N('utility','Utility allowance'),N('hra','House rent allowance'),N('fieldallow','Field allowance'),{k:'gross',l:'Gross salary',t:'computed',fn:r=>((+r.salary||0)+(+r.utility||0)+(+r.hra||0)+(+r.fieldallow||0)).toFixed(2)},T('cur','Currency','AED'),T('phone','Phone'),T('email','Email'),S('status','Status',['Active','On leave','Resigned','Terminated'])],list:['empno','name','desig','dept','shift','gross','visaexp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active employees'}]},
+attendance:{g:'Human Resources',ic:'▱',name:'Attendance',fields:[D('date','Date'),REF('emp','Employee','employees','name'),S('status','Status',['Present','Absent','Half day','Site / field','Remote','Holiday']),T('site','Site / location'),T('hours','Hours'),A('notes','Notes')],list:['date','emp','status','site','hours'],badge:r=>r.status},
+leave:{g:'Human Resources',ic:'✈',name:'Leave',fields:[REF('emp','Employee','employees','name'),S('type','Type',['Annual','Sick','Unpaid','Emergency','Maternity/Paternity','Hajj']),D('from','From'),D('to','To'),N('days','Days'),S('status','Status',['Requested','Approved','Rejected','Taken']),A('notes','Notes')],list:['emp','type','from','to','days','status'],badge:r=>r.status},
+payroll:{g:'Human Resources',ic:'₪',name:'Payroll',fields:[T('period','Period','2026-08'),REF('emp','Employee','employees','name'),N('basic','Basic'),N('allow','Allowances'),N('ot','Overtime'),N('ded','Deductions'),C_NET(),T('cur','Currency','AED'),S('status','Status',['Draft','Approved','Paid'])],list:['period','emp','basic','allow','ot','ded','net','status'],badge:r=>r.status},
+trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Completed'),D('expiry','Expiry'),T('certno','Certificate no.'),S('status','Status',['Valid','Expiring','Expired','Planned'])],list:['emp','course','provider','date','expiry','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Expired').length,l:'Expired certs',warn:1}]},
+/* ---------------- COMPLIANCE ---------------- */
+docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),S('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
+audits:{g:'Compliance',ic:'☑',name:'Audits',fields:[T('no','Audit no.','AUD-2026-01'),S('atype','Type',['Internal','External / CB','Client','Supplier']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Integrated']),D('date','Date'),T('auditor','Auditor(s)'),T('scope','Scope / area'),N('findings','Findings count'),S('status','Status',['Planned','In progress','Report issued','Closed']),A('summary','Summary')],list:['no','atype','std','date','auditor','findings','status'],badge:r=>r.status},
+ncrs:{g:'Compliance',ic:'⚠',name:'NCR / CAPA',fields:[T('no','NCR no.','NCR-2026-01'),D('date','Raised'),S('source','Source',['Internal audit','External audit','Customer complaint','Inspection','Process','Supplier','HSE incident']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','N/A']),A('desc','Nonconformity description'),A('rootcause','Root cause'),A('correction','Correction'),A('ca','Corrective action'),T('owner','Owner'),D('due','CA due date'),S('status','Status',['Open','CA in progress','Verification','Closed']),D('closed','Closed date')],list:['no','date','source','std','owner','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status!=='Closed').length,l:'Open NCRs',warn:1}]},
+risks:{g:'Compliance',ic:'◮',name:'Risk & Opportunity',fields:[T('no','Risk no.','RSK-01'),S('cat','Category',['Quality','Environment','OH&S','Business','Impartiality (17020/17025)','Legal']),A('desc','Risk / opportunity description'),S('like','Likelihood',['1 - Rare','2 - Unlikely','3 - Possible','4 - Likely','5 - Almost certain']),S('sev','Severity',['1 - Negligible','2 - Minor','3 - Moderate','4 - Major','5 - Severe']),A('controls','Existing controls'),A('actions','Planned actions'),T('owner','Owner'),D('review','Review date'),S('status','Status',['Open','Mitigating','Accepted','Closed'])],list:['no','cat','like','sev','owner','review','status'],badge:r=>r.status},
+hse:{g:'Compliance',ic:'✚',name:'HSE Incidents',fields:[T('no','Incident no.','HSE-2026-01'),D('date','Date'),S('itype','Type',['Near miss','First aid','Medical treatment','LTI','Property damage','Environmental','Observation']),T('loc','Location'),A('desc','Description'),A('cause','Immediate cause'),A('action','Action taken'),S('status','Status',['Reported','Under investigation','Closed'])],list:['no','date','itype','loc','status'],badge:r=>r.itype,kpi:d=>[{n:d.filter(r=>r.itype==='LTI').length,l:'LTIs',warn:1}]},
+mgtreviews:{g:'Compliance',ic:'◫',name:'Management Reviews',fields:[D('date','Date'),T('ref','Reference','MR-2026-01'),S('std','Scope',['Integrated IMS','ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025']),T('chair','Chaired by'),A('inputs','Key inputs discussed'),A('outputs','Decisions / actions'),D('next','Next review')],list:['date','ref','std','chair','next'],badge:r=>r.std},
+calibrations:{g:'Compliance',ic:'◎',name:'M&TE / Calibration',fields:[T('eqid','Equipment ID','MTE-001'),T('name','Equipment / instrument'),T('make','Make / model'),T('sn','Serial no.'),T('certno','Cal. cert no.'),T('provider','Calibrated by'),D('caldate','Cal. date'),D('due','Cal. due'),T('trace','Traceability (NMI/SI route)'),S('status','Status',['In service','Due soon','Overdue','Out of service'])],list:['eqid','name','sn','certno','caldate','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Overdue').length,l:'Calibration overdue',warn:1}]},
+apiq2:{g:'Compliance',ic:'✦',name:'API Q2 Clause Matrix',fields:[S('clause','API Spec Q2 clause',['4.1 Quality Management System','4.2 Management Responsibility','4.3 Organization Capability','4.4 Documentation Requirements','4.5 Control of Records','5.1 Contract Review','5.2 Planning','5.3 Risk Assessment and Management','5.4 Design and Development','5.5 Contingency Planning','5.6 Purchasing','5.7 Execution of Service','5.7.3 Identification and Traceability','5.7.4 Product Inspection / Testing','5.7.5 Preservation of Product','5.7.6 Customer-Supplied Property','5.8 Control of Testing, Measuring & Monitoring Equipment','5.9 Product Release','5.10 Control of Nonconformities','5.11 Management of Change (MOC)','6.1 Monitoring, Measuring & Improvement — General','6.2.1 Customer Satisfaction','6.2.2 Internal Audit','6.2.3 Process Evaluation','6.3 Analysis of Data','6.4.2 Corrective Action','6.4.3 Preventive Action','6.5 Management Review']),A('req','Requirement summary'),T('docref','Implementing document / procedure','QMS-PR-__'),T('evidence','Evidence / records'),T('owner','Process owner'),S('status','Implementation status',['Implemented','Partially implemented','Not implemented','Not applicable']),D('lastaudit','Last audited'),A('notes','Gaps / remarks')],list:['clause','docref','owner','status','lastaudit'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Implemented').length,l:'Q2 clauses implemented'},{n:d.filter(r=>r.status==='Not implemented'||r.status==='Partially implemented').length,l:'Q2 gaps open',warn:d.some(r=>r.status==='Not implemented')}]}
+};
+function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(+r.allow||0)+(+r.ot||0)-(+r.ded||0)).toFixed(2)};}
+
+/* ---- migration: calibration equipment id field renamed to eqid ---- */
+(function(){
+  const rows=lsGet('calibrations',[]);let changed=false;
+  rows.forEach(r=>{
+    if(r.eqid===undefined&&r.id!==undefined&&!/^r[a-z0-9]{9,}$/.test(String(r.id))){
+      r.eqid=r.id;r.id=uid();changed=true;
+    }else if(r.eqid===undefined){r.eqid='';}
+  });
+  if(changed)lsSet('calibrations',rows);
+})();
+
+/* ============ navigation / routing ============ */
+const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
+const EXTRA_NAV={
+  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'}],
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
+  'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
+};
+let route=lsGet('ui_route','dashboard');
+function nav(){
+  const el=document.getElementById('nav');
+  el.innerHTML=GROUPS.filter(g=>canSee(g)).map(g=>{
+    let items='';
+    (EXTRA_NAV[g]||[]).forEach(x=>{items+='<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')"><span class="ic">'+x.ic+'</span>'+x.name+'</button>';});
+    Object.entries(MODULES).filter(([k,m])=>m.g===g).forEach(([k,m])=>{
+      items+='<button class="nitem'+(route==='m_'+k?' on':'')+'" onclick="go(\'m_'+k+'\')"><span class="ic">'+m.ic+'</span>'+m.name+'</button>';});
+    return items?'<div class="ngrp"><h5>'+g+'</h5>'+items+'</div>':'';
+  }).join('')+
+  (isAdmin()?'<div class="ngrp"><h5>Administration</h5><button class="nitem'+(route==='users'?' on':'')+'" onclick="go(\'users\')"><span class="ic">\u26bf</span>Users &amp; Roles</button></div>':'');
+}
+function go(r){if(r!=='users'&&!canSee(routeGroup(r))){alert('Your role ('+(SESSION?SESSION.role:'none')+') does not have access to this section.');return;}if(r==='users'&&!isAdmin()){alert('Administrator access required.');return;}route=r;lsSet('ui_route',r);editId=null;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
+
+/* ============ generic module screens ============ */
+let editId=null,filterQ='';
+function modKey(){return route.slice(2);}
+/* ================================================================
+   AUTH & ROLE-BASED ACCESS
+   Users stored hashed (SHA-256 + salt) in this browser / synced DB.
+   ================================================================ */
+const ROLES={
+ 'Administrator':{desc:'Full access + user management',groups:'*'},
+ 'Management':{desc:'All modules, read/write, no user admin',groups:['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection']},
+ 'Accounts':{desc:'Finance: sales, procurement, accounting',groups:['Home','CRM','Sales & AR','Procurement','Accounting']},
+ 'HR Officer':{desc:'Human resources only',groups:['Home','Human Resources']},
+ 'Inspector':{desc:'Inspection reporting + compliance view',groups:['Home','Inspection','Compliance']},
+ 'QHSE / Quality':{desc:'Compliance hub + inspection',groups:['Home','Compliance','Inspection']},
+ 'Sales / CRM':{desc:'CRM, quotations, sales & AR',groups:['Home','CRM','Sales & AR']},
+ 'Store / Logistics':{desc:'Inventory + procurement',groups:['Home','Inventory','Procurement']},
+ 'Viewer':{desc:'Dashboard only (read)',groups:['Home']}
+};
+let SESSION=null;
+/* ---------------- backend API (shares the ISO/LMS MySQL database) ---------------- */
+async function api(path,opts={}){
+  const token=localStorage.getItem('erp_jwt');
+  const res=await fetch(path,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
+  const body=await res.json().catch(()=>({}));
+  if(res.status===401){localStorage.removeItem('erp_jwt');throw new Error(body.error||'Session expired — please log in again.');}
+  if(!res.ok)throw new Error(body.error||res.statusText);
+  return body;
+}
+function lerr(msg){const e=document.getElementById('l-err');e.textContent=msg;e.style.display='block';}
+async function showLogin(){
+  document.body.classList.add('locked');
+  let setup=false;
+  try{setup=!(await api('/api/auth/status')).setup;}catch(e){/* backend/DB unreachable — fall back to the sign-in form */}
+  document.getElementById('l-form').style.display=setup?'none':'block';
+  document.getElementById('l-setup').style.display=setup?'block':'none';
+  document.getElementById('l-sub').textContent=setup?'First run — sign in with your ISO/LMS employee ID to become ERP Administrator':'Sign in to Premier ERP';
+  document.getElementById('l-err').style.display='none';
+  document.getElementById('login').style.display='flex';
+}
+async function doSetup(){
+  const employeeId=document.getElementById('s-user').value.trim(),pw=document.getElementById('s-pass').value,desig=document.getElementById('s-desig').value.trim();
+  if(!employeeId||!pw)return lerr('Employee ID and password are required.');
+  try{applySession(await api('/api/auth/claim-admin',{method:'POST',body:JSON.stringify({employeeId,password:pw,desig})}));}
+  catch(e){lerr(e.message);}
+}
+async function doLogin(){
+  const employeeId=document.getElementById('l-user').value.trim(),pw=document.getElementById('l-pass').value;
+  if(!employeeId||!pw)return lerr('Employee ID and password are required.');
+  try{applySession(await api('/api/auth/login',{method:'POST',body:JSON.stringify({employeeId,password:pw})}));}
+  catch(e){lerr(e.message);}
+}
+function applySession(r){
+  localStorage.setItem('erp_jwt',r.token);
+  SESSION={uid:r.user.id,user:r.user.employeeId,name:r.user.name,role:r.user.role,desig:r.user.desig||'',at:new Date().toISOString()};
+  lsSet('session',SESSION);
+  const cfg=syncCfg();cfg.url=cfg.url||window.location.origin;cfg.token=r.token;cfg.interval=cfg.interval||5;
+  localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
+  document.getElementById('login').style.display='none';
+  document.body.classList.remove('locked');
+  if(!canSee(routeGroup(route)))route='dashboard';
+  const chip=document.getElementById('userchip');
+  if(chip)chip.outerHTML=userChip();
+  nav();render();
+  pullSharedMaster();
+  updateSyncBar();scheduleAutoSync();
+  if(navigator.onLine)setTimeout(syncNow,800);
+}
+function logout(){
+  SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');
+  const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
+  document.getElementById('l-user').value='';document.getElementById('l-pass').value='';showLogin();
+}
+/* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
+async function pullSharedMaster(){
+  try{
+    const [emps,deps,locs]=await Promise.all([api('/api/shared/employees'),api('/api/shared/departments'),api('/api/shared/locations')]);
+    collSet('shared_departments',deps);
+    collSet('shared_locations',locs);
+    const local=coll('employees');
+    const byEmpno=Object.fromEntries(local.map(r=>[r.empno,r]));
+    emps.forEach(e=>{
+      const row=byEmpno[e.employeeId]||{id:uid(),empno:e.employeeId};
+      row.name=e.name;row.dept=e.department;row.loc=e.location;row.status=e.status;if(e.email)row.email=e.email;row._iso=true;row.isoId=e.id;
+      byEmpno[e.employeeId]=row;
+    });
+    collSet('employees',Object.values(byEmpno));
+    if(route==='m_employees')render();
+  }catch(e){console.warn('shared master data pull failed:',e.message);}
+}
+function canSee(group){
+  if(!SESSION)return false;
+  const r=ROLES[SESSION.role];if(!r)return false;
+  return r.groups==='*'||r.groups.includes(group);
+}
+function isAdmin(){return SESSION&&SESSION.role==='Administrator';}
+function routeGroup(r){
+  if(r&&r.startsWith('m_')){const m=MODULES[r.slice(2)];return m?m.g:'Home';}
+  const t=TITLES&&TITLES[r];if(t)return t[0]==='Accounting'?'Accounting':t[0]==='Inspection'?'Inspection':'Home';
+  return 'Home';
+}
+function userChip(){
+  if(!SESSION)return '<span id="userchip"></span>';
+  const ini=SESSION.name.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  return '<span class="userchip" id="userchip"><span class="uav">'+esc(ini)+'</span><span><b>'+esc(SESSION.name)+'</b> · '+esc(SESSION.role)+'</span>'+
+   '<button class="btn ghost small" onclick="logout()" title="Sign out">⎋</button></span>';
+}
+/* ---------- ERP access management page (admin only) — grants a role to an existing ISO/LMS employee ---------- */
+async function uaGrant(id){
+  const role=document.getElementById('ua-role-'+id).value,desig=document.getElementById('ua-desig-'+id).value.trim();
+  if(!role)return uaRevoke(id);
+  try{await api('/api/auth/erp-users/'+id+'/role',{method:'POST',body:JSON.stringify({role,desig})});renderUsers();}
+  catch(e){alert(e.message);}
+}
+async function uaRevoke(id){
+  if(String(id)===String(SESSION.uid))return alert('You cannot revoke your own ERP access.');
+  if(!confirm('Revoke ERP access for this employee?'))return;
+  try{await api('/api/auth/erp-users/'+id+'/revoke',{method:'POST'});renderUsers();}
+  catch(e){alert(e.message);}
+}
+async function renderUsers(){
+  if(!isAdmin()){document.getElementById('content').innerHTML='<div class="empty">Administrator access required.</div>';return;}
+  document.getElementById('content').innerHTML='<div class="empty">Loading…</div>';
+  let list=[];
+  try{list=await api('/api/auth/erp-users');}catch(e){document.getElementById('content').innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';return;}
+  const roleOpts=r=>'<option value="">— no ERP access —</option>'+Object.keys(ROLES).map(x=>'<option'+(x===r?' selected':'')+'>'+x+'</option>').join('');
+  document.getElementById('content').innerHTML=
+  '<div class="hint" style="margin-bottom:10px">ERP access is granted to existing ISO/LMS employees — the same Employee ID + password signs into both systems. To add a brand-new person, add them as an employee first (Human Resources), then grant a role here.</div>'+
+  '<div class="card"><div class="card-h">Employees <span class="pill b">'+list.length+'</span></div><div class="card-b tblwrap">'+
+  '<table><thead><tr><th>Employee ID</th><th>Name</th><th>Dept / Location</th><th>ERP role</th><th>Designation</th><th class="no-print"></th></tr></thead><tbody>'+
+  list.map(u=>'<tr><td><b>'+esc(u.employeeId)+'</b></td><td>'+esc(u.name)+'</td><td>'+esc(u.department||'')+' · '+esc(u.location||'')+'</td>'+
+   '<td><select id="ua-role-'+u.id+'">'+roleOpts(u.role)+'</select></td>'+
+   '<td><input id="ua-desig-'+u.id+'" value="'+esc(u.desig||'')+'" placeholder="Designation" style="width:120px"></td>'+
+   '<td class="no-print"><button class="btn ghost small" onclick="uaGrant('+u.id+')">Save</button></td></tr>').join('')+
+  '</tbody></table></div></div>';
+}
+function coll(k){return lsGet(k,[]);}
+function collSet(k,v){lsSet(k,v);}
+function refOptions(collName,dk,sel){
+  return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
+}
+function fieldInput(f,v){
+  v=v==null?'':v;
+  if(f.t==='select')return '<select id="f-'+f.k+'">'+f.o.map(o=>'<option'+(o===v?' selected':'')+'>'+o+'</option>').join('')+'</select>';
+  if(f.t==='ref')return '<select id="f-'+f.k+'">'+refOptions(f.coll,f.dk,v)+'</select>';
+  if(f.t==='area')return '<textarea id="f-'+f.k+'" rows="2">'+esc(v)+'</textarea>';
+  if(f.t==='computed')return '<input id="f-'+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
+  return '<input id="f-'+f.k+'" type="'+(f.t==='number'?'number':f.t==='date'?'date':'text')+'"'+(f.t==='number'?' step="0.01"':'')+' value="'+esc(v)+'"'+(f.ph?' placeholder="'+esc(f.ph)+'"':'')+'>';
+}
+function renderModule(){
+  const k=modKey(),m=MODULES[k],data=coll(k);
+  const rec=editId?data.find(r=>r.id===editId)||{}:{};
+  let kpis='';
+  if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
+  if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
+  if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
+  renderModule._lk=false;
+  const form='<div class="card"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
+    '<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'?' full':'')+'"><label>'+f.l+'</label>'+fieldInput(f,rec[f.k])+'</div>').join('')+'</div>'+
+    (m.lines?'<div id="ql-zone">'+qlGrid(rec)+'</div>':'')+
+    (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
+    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
+    (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
+    (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
+    '</div></div></div>'+
+    (m.photo?photoPanel(k,editId):'')+
+    ((m.g==='Compliance'||m.att)?attPanel(k,editId):'');
+  const q=filterQ.toLowerCase();
+  const rows=data.filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
+  const list='<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
+    expBtns('list-zone',k)+'</div><div class="card-b">'+
+    '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
+    '<div class="tblwrap" id="list-zone">'+listTable(m,rows)+'</div></div></div>';
+  document.getElementById('content').innerHTML=kpis+form+list;
+}
+function listTable(m,rows){
+  if(!rows.length)return '<div class="empty">No records yet — add the first one above.</div>';
+  const cols=m.list;
+  const label=k2=>{const f=m.fields.find(f=>f.k===k2);return f?f.l:({amount:'Amount'}[k2]||k2);};
+  return '<table><thead><tr>'+cols.map(c=>'<th>'+esc(label(c))+'</th>').join('')+'<th class="no-print"></th></tr></thead><tbody>'+
+    rows.slice().reverse().map(r=>'<tr class="rowlink" onclick="editRec(\''+r.id+'\')">'+cols.map(c=>{
+      const f=m.fields.find(f=>f.k===c);let v=r[c];
+      if(f&&f.t==='computed')v=f.fn(r);
+      if(m.badge&&v!=null&&v!==''&&String(v)===String(m.badge(r))){
+        return '<td><span class="pill '+pillCls(v)+'">'+esc(v||'')+'</span></td>';}
+      if((f&&f.t==='number')||(!f&&c==='amount'))return '<td class="num">'+(v?fmt(+v):'')+'</td>';
+      return '<td>'+esc(v||'')+'</td>';
+    }).join('')+'<td class="no-print"><button class="del" onclick="event.stopPropagation();delRec(\''+r.id+'\')">✕</button></td></tr>').join('')+'</tbody></table>';
+}
+function pillCls(v){
+  v=String(v||'').toLowerCase();
+  if(/(paid|closed|won|approved|accepted|active|valid|received|present|in service|done)/.test(v))return 'g';
+  if(/(overdue|rejected|lost|expired|open ncr|lti|out of|terminated|obsolete|absent|disputed|quarantine)/.test(v))return 'r';
+  if(/(draft|open|new|planned|requested|reported|idle)/.test(v))return 'b';
+  if(/(progress|review|due|expiring|mitigat|verification|partial|under)/.test(v))return 'a';
+  return 'v';
+}
+function renderListOnly(){
+  const k=modKey(),m=MODULES[k];
+  const q=filterQ.toLowerCase();
+  const rows=coll(k).filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
+  document.getElementById('list-zone').innerHTML=listTable(m,rows);
+}
+async function saveRec(){
+  const k=modKey(),m=MODULES[k];const data=coll(k);
+  const wasNew=!editId;
+  const rec=editId?data.find(r=>r.id===editId):{id:uid()};
+  m.fields.forEach(f=>{if(f.t==='computed')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
+  m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
+  if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
+  if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
+  if(wasNew)data.push(rec);
+  collSet(k,data);editId=null;render();
+  if(k==='employees')await pushEmployeeToIso(rec,wasNew);
+}
+function editRec(id){editId=id;renderModule._lk=false;render();window.scrollTo({top:0,behavior:'smooth'});}
+async function delRec(id){
+  if(!confirm('Delete this record?'))return;
+  const k=modKey();const rec=coll(k).find(r=>r.id===id);
+  collSet(k,coll(k).filter(r=>r.id!==id));try{localStorage.removeItem(P+'att_'+id);localStorage.removeItem(P+'pic_'+id);}catch(e){}render();
+  if(k==='employees'&&rec&&rec.isoId){
+    try{await api('/api/shared/employees/'+rec.isoId,{method:'DELETE'});}
+    catch(e){alert('Deleted locally, but could NOT delete from ISO/LMS: '+e.message+'\nAsk an ERP Administrator to remove it from there too.');}
+  }
+}
+/* Push an Employees-module add/edit into the shared ISO `employees` table
+   so both apps stay in sync (not just local storage). */
+async function pushEmployeeToIso(rec,wasNew){
+  try{
+    if(wasNew||!rec.isoId){
+      const created=await api('/api/shared/employees',{method:'POST',body:JSON.stringify({
+        employeeId:rec.empno,name:rec.name,email:rec.email||null,
+        password:rec.initpw||rec.empno,department:rec.dept,location:rec.loc,
+        status:rec.status||'Active'
+      })});
+      rec.isoId=created.id;rec._iso=true;
+      const data=coll('employees');const i=data.findIndex(r=>r.id===rec.id);if(i>=0){data[i]=rec;collSet('employees',data);}
+    }else{
+      await api('/api/shared/employees/'+rec.isoId,{method:'PUT',body:JSON.stringify({
+        name:rec.name,email:rec.email||null,department:rec.dept,location:rec.loc,status:rec.status
+      })});
+    }
+  }catch(e){
+    alert('Saved locally, but could NOT sync to ISO/LMS: '+e.message+'\n(Employee no. must be unique, and Department/Location must exist in the shared list.)');
+  }
+}
+/* ============ document attachments (Compliance) ============ */
+function attGet(id){return lsGet('att_'+id,[]);}
+function attSet(id,v){lsSet('att_'+id,v);}
+function attPanel(k,id){
+  if(!id)return '<div class="card no-print"><div class="card-h">Attached documents</div><div class="card-b"><div class="hint">Save the record first, then re-open it to attach supporting documents (PDF, images, Office files).</div></div></div>';
+  const files=attGet(id);
+  const rows=files.length?'<table><thead><tr><th>File</th><th>Type</th><th class="num">Size</th><th>Attached</th><th class="no-print"></th></tr></thead><tbody>'+
+    files.map((f,i)=>'<tr><td><b>'+esc(f.name)+'</b></td><td>'+esc((f.type||'').split('/').pop()||'file')+'</td><td class="num">'+attSize(f.size)+'</td><td>'+esc(f.at||'')+'</td>'+
+    '<td class="no-print"><button class="btn ghost small" onclick="attDl(\''+id+'\','+i+')">↓ Download</button> <button class="del" onclick="attDel(\''+id+'\','+i+')">✕</button></td></tr>').join('')+'</tbody></table>'
+    :'<div class="empty">No documents attached yet.</div>';
+  return '<div class="card"><div class="card-h">Attached documents <span class="pill b">'+files.length+'</span></div><div class="card-b">'+
+   '<div class="dropzone no-print" onclick="document.getElementById(\'att-file\').click()"><b>Click to attach documents</b> — certificates, reports, evidence (max ~2 MB each, stored in this browser)</div>'+
+   '<input type="file" id="att-file" multiple style="display:none" onchange="attUpload(\''+id+'\',this.files)">'+
+   '<div class="tblwrap">'+rows+'</div></div></div>';
+}
+function attSize(n){n=+n||0;return n>1048576?(n/1048576).toFixed(1)+' MB':n>1024?Math.round(n/1024)+' KB':n+' B';}
+function attUpload(id,list){
+  const files=Array.from(list||[]);if(!files.length)return;
+  let pend=files.length;
+  files.forEach(f=>{
+    if(f.size>2*1048576){alert(f.name+' is larger than 2 MB — attach a compressed copy instead.');if(--pend===0)render();return;}
+    const r=new FileReader();
+    r.onload=()=>{
+      const cur=attGet(id);
+      cur.push({name:f.name,type:f.type,size:f.size,at:today(),data:r.result});
+      try{attSet(id,cur);}catch(e){alert('Could not store '+f.name+' — browser storage is full. Remove old attachments or export a backup first.');}
+      if(--pend===0)render();
+    };
+    r.readAsDataURL(f);
+  });
+}
+function attDl(id,i){
+  const f=attGet(id)[i];if(!f)return;
+  const a=document.createElement('a');a.href=f.data;a.download=f.name;a.click();
+}
+function attDel(id,i){
+  if(!confirm('Remove this attachment?'))return;
+  const cur=attGet(id);cur.splice(i,1);attSet(id,cur);render();
+}
+/* ============ profile photo (Employees) ============ */
+function photoPanel(k,id){
+  if(!id)return '';
+  const p=lsGet('pic_'+id,null);
+  return '<div class="card"><div class="card-h">Photograph</div><div class="card-b">'+
+   (p?'<figure class="photo" style="max-width:180px"><img src="'+p+'" alt="employee photo" style="width:100%;border-radius:6px"><div class="pm no-print" style="margin-top:6px"><button class="btn ghost small" onclick="document.getElementById(\'emp-pic\').click()">Replace</button> <button class="del" onclick="if(confirm(\'Remove photo?\')){lsSet(\'pic_'+id+'\',null);render()}">✕</button></div></figure>'
+     :'<div class="dropzone no-print" onclick="document.getElementById(\'emp-pic\').click()"><b>Click to upload a photograph</b> — passport-style photo, compressed and stored in this browser</div>')+
+   '<input type="file" id="emp-pic" accept="image/*" style="display:none" onchange="empPic(\''+id+'\',this.files)">'+
+  '</div></div>';
+}
+function empPic(id,list){
+  const f=list&&list[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      const mx=480,sc=Math.min(1,mx/Math.max(img.width,img.height));
+      const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+      try{lsSet('pic_'+id,cv.toDataURL('image/jpeg',0.82));}catch(e){alert('Could not store photo — browser storage is full.');}
+      render();
+    };
+    img.src=r.result;
+  };
+  r.readAsDataURL(f);
+}
+
+function exportCsv(k){
+  const m=MODULES[k],data=coll(k);
+  const cols=m.fields.map(f=>f.k);
+  const csv=[m.fields.map(f=>f.l).join(',')].concat(data.map(r=>cols.map(c=>{
+    const f=m.fields.find(f2=>f2.k===c);let v=f&&f.t==='computed'?f.fn(r):(r[c]||'');
+    return '"'+String(v).replace(/"/g,'""')+'"';}).join(','))).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=k+'.csv';a.click();
+}
+
+/* ---- quotation line grid ---- */
+let QL=[{}];
+function qlTotals(rec){
+  const vat=+(document.getElementById('f-vat')?document.getElementById('f-vat').value:(rec&&rec.vat)||0)||0;
+  let sub=0;QL.forEach(l=>{sub+=qlLineTotal(l);});
+  const vamt=sub*vat/100;return {sub,vat,vamt,grand:sub+vamt};
+}
+function qlLineTotal(l){const q=+l.qty||0,p=+l.price||0,d=+l.disc||0;return q*p*(1-d/100);}
+function qlGrid(rec){
+  const svc=coll('services');
+  const itemOpts=svc.map(x=>'<option value="'+esc(x.name)+'">'+esc((x.code?x.code+' · ':'')+(x.cat||'Service')+(x.price?' — '+x.price+' '+(x.cur||'')+'/'+(x.unit||''):''))+'</option>').join('')+
+    coll('items').map(x=>'<option value="'+esc(x.name)+'">'+esc((x.code?x.code+' · ':'')+'Inventory item')+'</option>').join('');
+  const t=qlTotals(rec);
+  const cur=(document.getElementById('f-cur')?document.getElementById('f-cur').value:(rec&&rec.cur)||'AED');
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Line items <button class="btn ghost small" style="margin-left:8px" onclick="QL.push({});qlRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Type to search the Service Catalogue &amp; Item Master — rates auto-fill</span></div>'+
+  '<div class="tblwrap"><table><thead><tr><th style="width:26px">#</th><th>Item / service description</th><th style="width:70px">Qty</th><th style="width:70px">Unit</th><th style="width:100px">Unit price</th><th style="width:70px">Disc %</th><th style="width:110px" class="num">Line total</th><th style="width:30px"></th></tr></thead><tbody>'+
+  QL.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
+   '<td><input list="dl-items" style="width:100%" value="'+esc(l.desc||'')+'" oninput="QL['+i+'].desc=this.value" onchange="qlPickItem('+i+',this.value)"></td>'+
+   '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="QL['+i+'].qty=this.value;qlRefreshTotals()"></td>'+
+   '<td><input value="'+esc(l.unit||'')+'" oninput="QL['+i+'].unit=this.value" placeholder="ea"></td>'+
+   '<td><input type="number" step="0.01" value="'+esc(l.price||'')+'" oninput="QL['+i+'].price=this.value;qlRefreshTotals()"></td>'+
+   '<td><input type="number" step="0.01" value="'+esc(l.disc||'')+'" oninput="QL['+i+'].disc=this.value;qlRefreshTotals()"></td>'+
+   '<td class="num" id="ql-lt-'+i+'">'+fmt(qlLineTotal(l))+'</td>'+
+   '<td><button class="del" onclick="QL.splice('+i+',1);qlRefresh()">✕</button></td></tr>').join('')+
+  '</tbody></table></div><datalist id="dl-items">'+itemOpts+'</datalist>'+
+  '<div class="kpis" style="margin-top:10px" id="ql-tot">'+qlTotHtml(t,cur)+'</div>';
+}
+function qlTotHtml(t,cur){return '<div class="kpi"><span>Subtotal</span><b>'+fmt(t.sub)+' '+esc(cur)+'</b></div><div class="kpi"><span>VAT '+t.vat+'%</span><b>'+fmt(t.vamt)+'</b></div><div class="kpi"><span>Grand total</span><b>'+fmt(t.grand)+' '+esc(cur)+'</b></div>';}
+function qlRefresh(){renderModule._lk=true;const z=document.getElementById('ql-zone');if(z)z.innerHTML=qlGrid(null);}
+document.addEventListener('input',e=>{if(e.target&&(e.target.id==='f-vat'||e.target.id==='f-cur'))qlRefreshTotals();});
+function qlRefreshTotals(){
+  QL.forEach((l,i)=>{const el=document.getElementById('ql-lt-'+i);if(el)el.textContent=fmt(qlLineTotal(l));});
+  const t=qlTotals(null);const cur=document.getElementById('f-cur')?document.getElementById('f-cur').value:'AED';
+  const z=document.getElementById('ql-tot');if(z)z.innerHTML=qlTotHtml(t,cur);
+}
+function qlPickItem(i,name){
+  const sv=coll('services').find(x=>x.name===name);
+  if(sv){if(sv.unit&&!QL[i].unit)QL[i].unit=sv.unit;if(sv.price&&!QL[i].price)QL[i].price=sv.price;if(sv.code)QL[i].svc=sv.code;
+    const curEl=document.getElementById('f-cur');if(sv.cur&&curEl&&!curEl.value)curEl.value=sv.cur;
+    qlRefresh();qlRefreshTotals();return;}
+  const it=coll('items').find(x=>x.name===name);if(!it)return;
+  if(it.unit&&!QL[i].unit)QL[i].unit=it.unit;if(it.cost&&!QL[i].price)QL[i].price=it.cost;qlRefresh();qlRefreshTotals();}
+/* ============ contract price list (rate sheet grid) ============ */
+let PL=[{}];
+function plGrid(rec){
+  const svc=coll('services');
+  const opts=svc.map(x=>'<option value="'+esc(x.name)+'">'+esc((x.code?x.code+' \u00b7 ':'')+(x.cat||'Service')+(x.price?' \u2014 '+x.price+' '+(x.cur||'')+'/'+(x.unit||''):''))+'</option>').join('');
+  const cur=((document.getElementById('f-cur')&&document.getElementById('f-cur').value)||(rec&&rec.cur)||'AED');
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Contract price list <button class="btn ghost small" style="margin-left:8px" onclick="PL.push({});plRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Agreed rates \u2014 type to search the Service Catalogue, rates auto-fill</span></div>'+
+  '<div class="tblwrap"><table><thead><tr><th style="width:26px">#</th><th style="width:90px">Item code</th><th>Service / item description</th><th style="width:80px">Unit</th><th style="width:110px" class="num">Rate ('+esc(cur)+')</th><th style="width:110px">Discount / terms</th><th style="width:140px">Remarks</th><th style="width:30px"></th></tr></thead><tbody>'+
+  PL.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
+   '<td><input value="'+esc(l.code||'')+'" oninput="PL['+i+'].code=this.value" placeholder="SVC-01"></td>'+
+   '<td><input list="dl-plsvc" style="width:100%" value="'+esc(l.desc||'')+'" oninput="PL['+i+'].desc=this.value" onchange="plPick('+i+',this.value)"></td>'+
+   '<td><input value="'+esc(l.unit||'')+'" oninput="PL['+i+'].unit=this.value" placeholder="per joint"></td>'+
+   '<td><input type="number" step="0.01" class="num" value="'+esc(l.rate||'')+'" oninput="PL['+i+'].rate=this.value"></td>'+
+   '<td><input value="'+esc(l.disc||'')+'" oninput="PL['+i+'].disc=this.value" placeholder="e.g. 5% >500 jts"></td>'+
+   '<td><input value="'+esc(l.rem||'')+'" oninput="PL['+i+'].rem=this.value"></td>'+
+   '<td><button class="del" onclick="PL.splice('+i+',1);plRefresh()">\u2715</button></td></tr>').join('')+
+  '</tbody></table></div><datalist id="dl-plsvc">'+opts+'</datalist>'+
+  '<div class="hint" style="margin-top:6px">'+PL.filter(l=>l.desc||l.rate).length+' rate line(s). Saved with the contract \u2014 use "Update record" to store changes.</div>';
+}
+function plRefresh(){renderModule._lk=true;const z=document.getElementById('pl-zone');if(z)z.innerHTML=plGrid(null);}
+function plPick(i,name){
+  const sv=coll('services').find(x=>x.name===name);if(!sv)return;
+  if(sv.code&&!PL[i].code)PL[i].code=sv.code;
+  if(sv.unit&&!PL[i].unit)PL[i].unit='per '+sv.unit;
+  if(sv.price&&!PL[i].rate)PL[i].rate=sv.price;
+  plRefresh();
+}
+function quoteDoc(id){
+  const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
+  const cust=coll('customers').find(c=>c.name===q.customer)||{};
+  const lines=(q.lines&&q.lines.length)?q.lines:[];
+  let sub=0;lines.forEach(l=>{sub+=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);});
+  const vat=+q.vat||0,vamt=sub*vat/100,grand=sub+vamt;
+  const rows=lines.map((l,i)=>{const lt=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);
+    return '<tr><td style="text-align:center">'+(i+1)+'</td><td>'+esc(l.desc||'')+'</td><td style="text-align:right">'+esc(l.qty||'')+'</td><td>'+esc(l.unit||'')+'</td><td style="text-align:right">'+fmt(+l.price||0)+'</td><td style="text-align:right">'+(l.disc?esc(l.disc)+'%':'')+'</td><td style="text-align:right">'+fmt(lt)+'</td></tr>';}).join('');
+  return '<html><head><meta charset="utf-8"><title>Quotation '+esc(q.no||'')+'</title><style>body{font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#111;max-width:820px;margin:28px auto;padding:0 20px}h1{font-size:21px;letter-spacing:.5px;margin:0}table{border-collapse:collapse;width:100%;margin-top:14px}th,td{border:1px solid #999;padding:6px 8px;text-align:left;vertical-align:top}th{background:#EEF1F5}.meta{display:flex;justify-content:space-between;margin-top:18px;gap:20px}.meta div{font-size:12px;line-height:1.55}.tot td{font-weight:700;background:#F7F8FA}.foot{margin-top:26px;font-size:11px;color:#555;border-top:1px solid #CCC;padding-top:10px}.sig{display:flex;gap:60px;margin-top:44px}.sig div{border-top:1px solid #333;padding-top:5px;width:220px;font-size:11.5px}</style></head><body>'+
+  '<div style="display:flex;justify-content:space-between;align-items:flex-start"><div><h1>QUOTATION</h1><div style="color:#666;margin-top:4px">Premier Tubular Services</div></div><div style="text-align:right;font-size:12px"><b>'+esc(q.no||'')+'</b><br>Date: '+esc(q.date||'')+'<br>Valid until: '+esc(q.validity||'')+'<br>Status: '+esc(q.status||'')+'</div></div>'+
+  '<div class="meta"><div><b>To:</b><br>'+esc(q.customer||'')+(cust.contact?'<br>Attn: '+esc(cust.contact):'')+(cust.addr?'<br>'+esc(cust.addr).replace(/\n/g,'<br>'):'')+(cust.email?'<br>'+esc(cust.email):'')+(cust.phone?'<br>'+esc(cust.phone):'')+'</div>'+
+  '<div><b>Subject:</b> '+esc(q.subject||'')+'<br><b>Currency:</b> '+esc(q.cur||'')+'<br><b>Payment terms:</b> '+esc(q.terms||'')+'<br><b>Delivery:</b> '+esc(q.delivery||'')+'</div></div>'+
+  '<table><thead><tr><th style="width:28px">#</th><th>Description</th><th style="width:55px">Qty</th><th style="width:50px">Unit</th><th style="width:90px">Unit price</th><th style="width:55px">Disc</th><th style="width:100px">Total</th></tr></thead><tbody>'+
+  (rows||'<tr><td colspan="7" style="text-align:center;color:#888">No line items</td></tr>')+
+  '<tr class="tot"><td colspan="6" style="text-align:right">Subtotal</td><td style="text-align:right">'+fmt(sub)+'</td></tr>'+
+  (vat?'<tr class="tot"><td colspan="6" style="text-align:right">VAT '+vat+'%</td><td style="text-align:right">'+fmt(vamt)+'</td></tr>':'')+
+  '<tr class="tot"><td colspan="6" style="text-align:right">GRAND TOTAL ('+esc(q.cur||'')+')</td><td style="text-align:right">'+fmt(grand)+'</td></tr></tbody></table>'+
+  (q.scope?'<div style="margin-top:14px"><b>Scope / notes:</b><br>'+esc(q.scope).replace(/\n/g,'<br>')+'</div>':'')+
+  '<div class="sig"><div>Prepared by</div><div>Accepted by (client)</div></div>'+
+  '<div class="foot">This quotation is valid until '+esc(q.validity||'the date stated above')+'. Prices exclude any duties or charges not stated. Generated by Premier ERP on '+new Date().toLocaleString()+'.</div></body></html>';
+}
+const DOCPDF={
+ purchaseorders:{title:'PURCHASE ORDER',party:['vendor','Vendor'],amount:r=>(+r.amount||0),sig:['Prepared by','Authorized by']},
+ invoices:{title:'TAX INVOICE',party:['customer','Bill to'],amount:r=>(+r.amount||0)+(+r.tax||0),extra:r=>[['Amount (excl. tax)',fmt(+r.amount||0)],['Tax',fmt(+r.tax||0)]],sig:['Prepared by','Received by']},
+ receipts:{title:'RECEIPT VOUCHER',party:['customer','Received from'],amount:r=>(+r.amount||0),sig:['Received by','Approved by']},
+ payments:{title:'PAYMENT VOUCHER',party:['vendor','Paid to'],amount:r=>(+r.amount||0),sig:['Prepared by','Approved by']},
+ vendorbills:{title:'VENDOR BILL',party:['vendor','Vendor'],amount:r=>(+r.amount||0)+(+r.tax||0),extra:r=>[['Amount (excl. tax)',fmt(+r.amount||0)],['Tax',fmt(+r.tax||0)]],sig:['Checked by','Approved by']},
+ grns:{title:'GOODS RECEIPT NOTE',party:['vendor','Vendor'],amount:null,sig:['Received by','QC / inspected by']},
+ workorders:{title:'WORK ORDER',party:['client','Client'],amount:r=>(+r.estval||0),sig:['Issued by','Acknowledged by (client)']},
+ contracts:{title:'CONTRACT RATE SHEET',party:['client','Client'],amount:null,sig:['For Premier Tubular Services','For the Client'],table:r=>(r.pricelist&&r.pricelist.length)?{head:['#','Code','Description','Unit','Rate '+(r.cur||''),'Discount / terms'],rows:r.pricelist.map((l,i)=>[String(i+1),l.code||'',l.desc||'',l.unit||'',l.rate?fmt(+l.rate):'',l.disc||''])}:null}
+};
+function amountWords(n){
+  n=Math.round((+n||0)*100)/100;
+  const ones=['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens=['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  function grp(x){let s='';
+    if(x>=100){s+=ones[Math.floor(x/100)]+' hundred ';x%=100;}
+    if(x>=20){s+=tens[Math.floor(x/10)]+(x%10?'-'+ones[x%10]:'')+' ';}
+    else if(x>0)s+=ones[x]+' ';
+    return s;}
+  let i=Math.floor(n),f=Math.round((n-i)*100),out='',u=[['billion',1e9],['million',1e6],['thousand',1e3]];
+  if(i===0)out='zero ';
+  u.forEach(([nm,v])=>{if(i>=v){out+=grp(Math.floor(i/v))+nm+' ';i%=v;}});
+  out+=grp(i);
+  out=out.trim();out=out.charAt(0).toUpperCase()+out.slice(1);
+  return out+(f?' and '+f+'/100':'')+' only';
+}
+function docPdf(k,id){
+  const cfg=DOCPDF[k];if(!cfg){alert('No PDF layout for this module.');return;}
+  const m=MODULES[k],r=coll(k).find(x=>x.id===id);
+  if(!r){alert('Save the record first.');return;}
+  const party=coll('customers').find(c=>c.name===r[cfg.party[0]])||{};
+  const doc=new PdfDoc();
+  doc.header(cfg.title+' '+(r.no||''),m.name);
+  const kv=[[cfg.party[1],r[cfg.party[0]]||''],['Date',r.date||'']];
+  if(party.contact)kv.push(['Contact',party.contact]);
+  if(party.trn)kv.push(['Tax reg. no.',party.trn]);
+  if(party.addr)kv.push(['Address',String(party.addr).replace(/\n/g,', ').slice(0,70)]);
+  m.fields.forEach(f=>{
+    if([cfg.party[0],'no','date','amount','tax'].includes(f.k))return;
+    const v=r[f.k];if(v==null||v==='')return;
+    kv.push([f.l,f.t==='number'?fmt(+v):String(v).replace(/\n/g,' ').slice(0,70)]);
+  });
+  doc.kv(kv);
+  if(cfg.table){const t=cfg.table(r);if(t){doc.y-=6;doc.table(t.head,t.rows);doc.y-=6;}}
+  if(cfg.extra)cfg.extra(r).forEach(x=>{doc.need(13);doc.text(doc.w-doc.mR-220,doc.y,x[0]+': '+x[1]+' '+(r.cur||''),9);doc.y-=13;});
+  if(cfg.amount){
+    const amt=cfg.amount(r);
+    doc.need(40);
+    doc.rect(doc.mL,doc.y-22,doc.w-doc.mL-doc.mR,30,'0.95 0.96 0.98');
+    doc.text(doc.mL+8,doc.y-4,'TOTAL: '+fmt(amt)+' '+(r.cur||''),12,true);
+    doc.y-=18;doc.text(doc.mL+8,doc.y-2,'In words: '+amountWords(amt)+(r.cur?' ('+r.cur+')':''),8,false,'0.35 0.38 0.45');
+    doc.y-=26;
+  }
+  doc.need(50);doc.y-=22;
+  doc.line(doc.mL,doc.y,doc.mL+170,doc.y);doc.line(doc.w-doc.mR-170,doc.y,doc.w-doc.mR,doc.y);
+  doc.y-=11;doc.text(doc.mL,doc.y,cfg.sig[0],8);doc.text(doc.w-doc.mR-170,doc.y,cfg.sig[1],8);
+  doc.out(cfg.title.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+String(r.no||id).replace(/[^A-Za-z0-9_-]+/g,'-'));
+}
+function quotePdf(id){
+  const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return;}
+  const cust=coll('customers').find(c=>c.name===q.customer)||{};
+  const lines=(q.lines&&q.lines.length)?q.lines:[];
+  let sub=0;lines.forEach(l=>{sub+=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);});
+  const vat=+q.vat||0,vamt=sub*vat/100,grand=sub+vamt;
+  const doc=new PdfDoc();
+  doc.header('QUOTATION '+(q.no||''),q.subject||'');
+  doc.kv([['Customer',q.customer||''],['Date',q.date||''],['Contact',cust.contact||''],['Valid until',q.validity||''],['Email',cust.email||''],['Currency',q.cur||''],['Phone',cust.phone||''],['Payment terms',q.terms||''],['Status',q.status||''],['Delivery',q.delivery||'']]);
+  doc.table(['#','Description','Qty','Unit','Unit price','Disc','Line total'],
+    lines.map((l,i)=>{const lt=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);
+      return [i+1,l.desc||'',l.qty||'',l.unit||'',fmt(+l.price||0),(l.disc?l.disc+'%':''),fmt(lt)];}),
+    [22,200,40,40,70,40,68]);
+  doc.need(50);
+  doc.text(doc.w-doc.mR-200,doc.y,'Subtotal: '+fmt(sub)+' '+(q.cur||''),9,true);doc.y-=13;
+  if(vat){doc.text(doc.w-doc.mR-200,doc.y,'VAT '+vat+'%: '+fmt(vamt),9);doc.y-=13;}
+  doc.text(doc.w-doc.mR-200,doc.y,'GRAND TOTAL: '+fmt(grand)+' '+(q.cur||''),11,true);doc.y-=22;
+  if(q.scope){doc.text(doc.mL,doc.y,'Scope / notes:',9,true);doc.y-=12;
+    String(q.scope).split(/\n/).forEach(ln=>{doc.need(12);doc.text(doc.mL,doc.y,doc.fit(ln,doc.w-doc.mL-doc.mR,9),9);doc.y-=11;});doc.y-=8;}
+  doc.need(46);doc.y-=18;
+  doc.line(doc.mL,doc.y,doc.mL+170,doc.y);doc.line(doc.w-doc.mR-170,doc.y,doc.w-doc.mR,doc.y);
+  doc.y-=11;doc.text(doc.mL,doc.y,'Prepared by',8);doc.text(doc.w-doc.mR-170,doc.y,'Accepted by (client)',8);
+  doc.out('quotation-'+(q.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
+}
+function quotePreview(id){
+  const html=quoteDoc(id);if(!html)return;
+  const w=window.open('','_blank');if(!w){alert('Allow pop-ups to preview the quote.');return;}
+  w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),400);
+}
+function quoteEmail(id){
+  const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return;}
+  const cust=coll('customers').find(c=>c.name===q.customer)||{};
+  const lines=(q.lines&&q.lines.length)?q.lines:[];
+  let sub=0;lines.forEach(l=>{sub+=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);});
+  const grand=sub*(1+(+q.vat||0)/100);
+  const body='Dear '+(cust.contact||q.customer||'Sir/Madam')+',%0D%0A%0D%0APlease find below our quotation '+encodeURIComponent(q.no||'')+' — '+encodeURIComponent(q.subject||'')+'.%0D%0A%0D%0A'+
+   lines.map((l,i)=>encodeURIComponent((i+1)+'. '+(l.desc||'')+' — '+(l.qty||'')+' '+(l.unit||'')+' x '+(l.price||'')+(l.disc?' (-'+l.disc+'%)':''))).join('%0D%0A')+
+   '%0D%0A%0D%0AGrand total: '+encodeURIComponent(fmt(grand)+' '+(q.cur||''))+'%0D%0AValidity: '+encodeURIComponent(q.validity||'')+'%0D%0APayment terms: '+encodeURIComponent(q.terms||'')+'%0D%0ADelivery: '+encodeURIComponent(q.delivery||'')+
+   '%0D%0A%0D%0AA formal PDF copy is attached. Kindly confirm acceptance by return.%0D%0A%0D%0ABest regards,%0D%0APremier Tubular Services';
+  const st=coll('quotes');const rec2=st.find(r=>r.id===id);if(rec2&&rec2.status==='Draft'){rec2.status='Sent';collSet('quotes',st);}
+  quotePreview(id);
+  location.href='mailto:'+(cust.email||'')+'?subject='+encodeURIComponent('Quotation '+(q.no||'')+' — '+(q.subject||''))+'&body='+body;
+  setTimeout(()=>render(),600);
+}
+
+/* ================================================================
+   BUILT-IN PDF ENGINE — generates real .pdf files offline (no libs)
+   Helvetica core fonts, multi-page, tables, JPEG photo embedding.
+   ================================================================ */
+function PdfDoc(opts){
+  opts=opts||{};
+  this.land=!!opts.landscape;
+  this.w=this.land?842:595; this.h=this.land?595:842;   // A4 pt
+  this.mL=40;this.mR=40;this.mT=46;this.mB=46;
+  this.pages=[];this.imgs=[];this.newPage();
+}
+PdfDoc.prototype={
+ newPage(){this.cur={ops:[],imgs:[]};this.pages.push(this.cur);this.y=this.h-this.mT;},
+ esc(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)').replace(/[^\x20-\x7E]/g,c=>{const m={'\u2014':'-','\u2013':'-','\u00D8':'dia.','\u00B7':'.','\u00B0':' deg','\u2019':"'",'\u2018':"'",'\u201C':'"','\u201D':'"','\u2026':'...','\u00AE':'(R)','\u2122':'(TM)','\u00A9':'(c)','\u00B1':'+/-','\u2264':'<=','\u2265':'>=','\u00D7':'x','\u20AC':'EUR','\u00A3':'GBP'};return m[c]||'';});},
+ tw(s,size){return String(s==null?'':s).length*size*0.5;},
+ text(x,y,s,size,bold,color){size=size||9;
+   this.cur.ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
+ rect(x,y,w2,h2,fill){this.cur.ops.push((fill||'0.93 0.94 0.96')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re f');},
+ line(x1,y1,x2,y2){this.cur.ops.push('0.6 0.6 0.65 RG 0.5 w '+x1.toFixed(1)+' '+y1.toFixed(1)+' m '+x2.toFixed(1)+' '+y2.toFixed(1)+' l S');},
+ need(hpt){if(this.y-hpt<this.mB){this.newPage();return true;}return false;},
+ header(title,sub){
+   this.rect(this.mL,this.y-6,this.w-this.mL-this.mR,3,'0.10 0.16 0.30');
+   this.y-=24;this.text(this.mL,this.y,'PREMIER TUBULAR SERVICES',9,true,'0.10 0.16 0.30');
+   this.text(this.w-this.mR-this.tw(new Date().toISOString().slice(0,10),8),this.y,new Date().toISOString().slice(0,10),8);
+   this.y-=20;this.text(this.mL,this.y,title,15,true);
+   if(sub){this.y-=13;this.text(this.mL,this.y,sub,9,false,'0.35 0.38 0.45');}
+   this.y-=16;
+ },
+ kv(pairs){ // two-column key/value block
+   const colw=(this.w-this.mL-this.mR)/2;
+   for(let i=0;i<pairs.length;i+=2){
+     this.need(14);
+     for(let j=0;j<2;j++){const p=pairs[i+j];if(!p)continue;
+       const x=this.mL+j*colw;
+       this.text(x,this.y,p[0]+':',8,true,'0.35 0.38 0.45');
+       this.text(x+this.tw(p[0]+': ',8)+4,this.y,String(p[1]==null?'':p[1]).slice(0,60),8);}
+     this.y-=13;}
+   this.y-=4;
+ },
+ table(heads,rows,widths){
+   const avail=this.w-this.mL-this.mR;
+   let ws=widths;
+   if(!ws){ // auto width by content
+     const max=heads.map((h,i)=>Math.max(this.tw(h,8),...rows.slice(0,80).map(r=>this.tw(r[i],8)),20));
+     const tot=max.reduce((a,b)=>a+b,0);
+     ws=max.map(m2=>Math.max(28,m2/tot*avail));
+     const s2=ws.reduce((a,b)=>a+b,0);ws=ws.map(x=>x*avail/s2);
+   }
+   const drawHead=()=>{
+     this.need(20);
+     this.rect(this.mL,this.y-4,avail,15,'0.92 0.93 0.95');
+     let x=this.mL+3;
+     heads.forEach((h2,i)=>{this.text(x,this.y,this.fit(h2,ws[i]-6,8),8,true);x+=ws[i];});
+     this.y-=15;this.line(this.mL,this.y+3,this.mL+avail,this.y+3);
+   };
+   drawHead();
+   rows.forEach(r=>{
+     if(this.need(13))drawHead();
+     let x=this.mL+3;
+     r.forEach((c,i)=>{this.text(x,this.y,this.fit(c,ws[i]-6,8),8);x+=ws[i];});
+     this.y-=12;this.line(this.mL,this.y+3,this.mL+avail,this.y+3);
+   });
+   this.y-=8;
+ },
+ fit(s,wpt,size){s=String(s==null?'':s);const maxc=Math.max(3,Math.floor(wpt/(size*0.5)));return s.length>maxc?s.slice(0,maxc-1)+'\u2026':s;},
+ jpeg(dataUrl,maxW,maxH,caption){
+   try{
+     const b64=dataUrl.split(',')[1];const bin=atob(b64);
+     let iw=0,ih=0;
+     for(let i=2;i<bin.length-9;){
+       if(bin.charCodeAt(i)!==0xFF){i++;continue;}
+       const m2=bin.charCodeAt(i+1);
+       if(m2>=0xC0&&m2<=0xCF&&m2!==0xC4&&m2!==0xC8&&m2!==0xCC){ih=(bin.charCodeAt(i+5)<<8)|bin.charCodeAt(i+6);iw=(bin.charCodeAt(i+7)<<8)|bin.charCodeAt(i+8);break;}
+       i+=2+((bin.charCodeAt(i+2)<<8)|bin.charCodeAt(i+3));
+     }
+     if(!iw||!ih)return;
+     const sc=Math.min(maxW/iw,maxH/ih,1);const dw=iw*sc,dh=ih*sc;
+     this.need(dh+22);
+     const idx=this.imgs.length;this.imgs.push({bin,iw,ih});
+     this.cur.ops.push('q '+dw.toFixed(1)+' 0 0 '+dh.toFixed(1)+' '+this.mL+' '+(this.y-dh).toFixed(1)+' cm /Im'+idx+' Do Q');
+     this.cur.imgs.push(idx);
+     this.y-=dh+4;
+     if(caption){this.text(this.mL,this.y,caption,8,false,'0.35 0.38 0.45');this.y-=14;}
+   }catch(e){}
+ },
+ out(fname){
+   const enc=s=>unescape(encodeURIComponent(s));
+   const objs=[];const add=o=>{objs.push(o);return objs.length;};
+   const fontN=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+   const fontB=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+   const imgIds=this.imgs.map(im=>add({stream:im.bin,dict:'<< /Type /XObject /Subtype /Image /Width '+im.iw+' /Height '+im.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.bin.length+' >>'}));
+   const pageIds=[];const contentIds=[];
+   this.pages.forEach((p,pi)=>{
+     const foot='BT /F1 7 Tf 0.5 0.5 0.55 rg '+(this.w/2-30).toFixed(1)+' '+(this.mB-18)+' Td (Page '+(pi+1)+' of '+this.pages.length+' - Premier ERP) Tj ET';
+     const cs=p.ops.join('\n')+'\n'+foot;
+     contentIds.push(add({stream:enc(cs),dict:'<< /Length '+enc(cs).length+' >>'}));
+   });
+   const pagesId=objs.length+this.pages.length+1;
+   this.pages.forEach((p,pi)=>{
+     let xo=p.imgs.map(ii=>'/Im'+ii+' '+imgIds[ii]+' 0 R').join(' ');
+     pageIds.push(add('<< /Type /Page /Parent '+pagesId+' 0 R /MediaBox [0 0 '+this.w+' '+this.h+'] /Contents '+contentIds[pi]+' 0 R /Resources << /Font << /F1 '+fontN+' 0 R /F2 '+fontB+' 0 R >>'+(xo?' /XObject << '+xo+' >>':'')+' >> >>'));
+   });
+   const pid=add('<< /Type /Pages /Kids ['+pageIds.map(i=>i+' 0 R').join(' ')+'] /Count '+pageIds.length+' >>');
+   const cat=add('<< /Type /Catalog /Pages '+pid+' 0 R >>');
+   let body='%PDF-1.4\n';const offs=[0];
+   objs.forEach((o,i)=>{offs.push(body.length);
+     body+=(i+1)+' 0 obj\n'+(typeof o==='string'?o:(o.dict+'\nstream\n'+o.stream+'\nendstream'))+'\nendobj\n';});
+   const xref=body.length;
+   body+='xref\n0 '+(objs.length+1)+'\n0000000000 65535 f \n'+offs.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('');
+   body+='trailer\n<< /Size '+(objs.length+1)+' /Root '+cat+' 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+   const bytes=new Uint8Array(body.length);for(let i=0;i<body.length;i++)bytes[i]=body.charCodeAt(i)&0xFF;
+   dlBlob(bytes,'application/pdf',fname+'.pdf');
+ }
+};
+/* ---- table element -> PDF file ---- */
+function tblRowsFor(tb){
+  const rows=[...tb.rows].map(tr=>[...tr.cells].filter(td=>!td.classList.contains('no-print')&&!td.querySelector('button')).map(td=>{const inp=td.querySelector('input,select,textarea');return (inp?inp.value:td.innerText).trim();}));
+  return rows.filter(r=>r.length);
+}
+function pdfFromTable(id,name){
+  const tb=tblFrom(id);if(!tb){alert('Nothing to export yet \u2014 add records first.');return;}
+  const rows=tblRowsFor(tb);if(rows.length<1){alert('Nothing to export yet.');return;}
+  const heads=rows[0],body=rows.slice(1);
+  const doc=new PdfDoc({landscape:heads.length>6});
+  doc.header(name.replace(/-/g,' ').toUpperCase(),body.length+' record(s)');
+  doc.table(heads,body);
+  doc.out(name);
+}
+
+/* ---- universal export: CSV / Excel / PDF ---- */
+function dlBlob(content,mime,fname){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);}
+function tblFrom(id){const el=document.getElementById(id);return el?el.querySelector('table'):null;}
+function tblCsv(tb){return [...tb.rows].map(tr=>[...tr.cells].filter(td=>!td.classList.contains('no-print')&&!td.querySelector('button')).map(td=>{const inp=td.querySelector('input,select,textarea');const v=inp?inp.value:td.innerText;return '"'+String(v).trim().replace(/"/g,'""')+'"';}).join(',')).join('\n');}
+function tblHtml(tb){const cl=tb.cloneNode(true);cl.querySelectorAll('.no-print').forEach(x=>x.remove());cl.querySelectorAll('input,select,textarea').forEach(x=>{const td=x.closest('td,th');if(td)td.textContent=x.value;});cl.querySelectorAll('button').forEach(x=>{const td=x.closest('td,th');if(td)td.remove();else x.remove();});return cl.outerHTML;}
+function expT(id,name,kind){const tb=tblFrom(id);if(!tb){alert('Nothing to export yet — add records first.');return;}
+ if(kind==='csv')return dlBlob('\ufeff'+tblCsv(tb),'text/csv;charset=utf-8',name+'.csv');
+ const html='<html><head><meta charset="utf-8"><title>'+name+'</title><style>body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#111}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 7px;text-align:left;vertical-align:top}th{background:#EEF1F5}h2{font-size:15px;margin:0 0 10px}</style></head><body><h2>'+name.replace(/-/g,' ').toUpperCase()+'</h2>'+tblHtml(tb)+'<p style="color:#888;font-size:10px">Generated '+new Date().toLocaleString()+' — Premier ERP</p></body></html>';
+ if(kind==='xls')return dlBlob(html,'application/vnd.ms-excel',name+'.xls');
+ if(kind==='pdf')return pdfFromTable(id,name);
+ const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
+ w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),350);}
+function expBtns(id,name){return '<button class="btn ghost small" title="Download CSV" onclick="expT(\''+id+'\',\''+name+'\',\'csv\')">CSV</button><button class="btn ghost small" title="Download Excel" onclick="expT(\''+id+'\',\''+name+'\',\'xls\')">Excel</button><button class="btn ghost small" title="Print / save as PDF" onclick="expT(\''+id+'\',\''+name+'\',\'pdf\')">PDF</button>';}
+
+/* ================================================================
+   ACCOUNTING — multi-company / multi-currency double-entry GL
+   ================================================================ */
+const DEF_COA=[['1000','Cash & Bank','Asset'],['1100','Accounts Receivable','Asset'],['1200','Inventory','Asset'],
+ ['1500','Fixed Assets','Asset'],['1510','Accumulated Depreciation','Asset'],
+ ['2000','Accounts Payable','Liability'],['2100','Accrued Expenses','Liability'],['2200','Taxes Payable','Liability'],['2500','Loans Payable','Liability'],
+ ['3000','Share Capital','Equity'],['3100','Retained Earnings','Equity'],
+ ['4000','Inspection Services Revenue','Income'],['4100','Calibration Revenue','Income'],['4200','Rental & Other Income','Income'],['4900','FX Gain','Income'],
+ ['5000','Direct Cost of Services','Expense'],['5100','Salaries & Wages','Expense'],['5200','Rent & Utilities','Expense'],
+ ['5300','Consumables & Supplies','Expense'],['5400','Depreciation Expense','Expense'],['5500','Travel & Transport','Expense'],['5900','FX Loss','Expense'],['5950','Bank Charges','Expense']];
+function glData(){
+  let g=lsGet('gl',null);
+  if(!g||!g.companies||!g.companies.length){
+    g={companies:[{id:'co1',code:'PT-UAE',name:'Premier Tubular LLC',cur:'AED',notes:'UAE',coa:DEF_COA.map(a=>({code:a[0],name:a[1],type:a[2]}))}],
+       currencies:[{code:'USD',name:'US Dollar',rate:1},{code:'AED',name:'UAE Dirham',rate:0.2723},{code:'EUR',name:'Euro',rate:1.09},{code:'GBP',name:'Pound Sterling',rate:1.27},{code:'SAR',name:'Saudi Riyal',rate:0.2667},{code:'PKR',name:'Pakistani Rupee',rate:0.0036}],
+       journals:[],seq:0,activeCo:'co1'};
+    lsSet('gl',g);
+  }
+  return g;
+}
+function glSet(g){lsSet('gl',g);}
+function glCo(g){return g.companies.find(c=>c.id===g.activeCo)||g.companies[0];}
+function glCur(g,code){return g.currencies.find(c=>c.code===code);}
+function fxCross(g,from,to){const f=glCur(g,from),t=glCur(g,to);if(!f||!t||!t.rate)return 1;return f.rate/t.rate;}
+function glBalances(g,coId){
+  const map={};
+  g.journals.filter(j=>j.co===coId).forEach(j=>j.lines.forEach(l=>{
+    if(!map[l.acct])map[l.acct]={dr:0,cr:0};
+    map[l.acct].dr+=l.dr*j.rate;map[l.acct].cr+=l.cr*j.rate;}));
+  return map;
+}
+function glTypeTotals(g,c){
+  const bal=glBalances(g,c.id);const t={Asset:0,Liability:0,Equity:0,Income:0,Expense:0};
+  c.coa.forEach(a=>{const b=bal[a.code];if(!b)return;
+    t[a.type]+=(a.type==='Asset'||a.type==='Expense')?b.dr-b.cr:b.cr-b.dr;});
+  return t;
+}
+function coPicker(g){
+  return '<div class="field" style="max-width:340px;margin-bottom:14px"><label>Active company</label><select onchange="const g=glData();g.activeCo=this.value;glSet(g);render()">'+
+    g.companies.map(c=>'<option value="'+c.id+'"'+(c.id===g.activeCo?' selected':'')+'>'+esc(c.code)+' — '+esc(c.name)+' ('+c.cur+')</option>').join('')+'</select></div>';
+}
+/* ---- companies ---- */
+function renderGlCompanies(){
+  const g=glData();
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">Companies<span class="sp"></span><button class="btn" onclick="glCoAdd()">+ Add company</button></div><div class="card-b tblwrap">'+
+  '<table><thead><tr><th>Code</th><th>Name</th><th>Base currency</th><th>Notes</th><th class="num">Accounts</th><th class="num">Entries</th><th></th></tr></thead><tbody>'+
+  g.companies.map(c=>'<tr><td class="num">'+esc(c.code)+'</td><td><b>'+esc(c.name)+'</b></td><td><span class="pill b">'+c.cur+'</span></td><td>'+esc(c.notes||'')+'</td><td class="num">'+c.coa.length+'</td><td class="num">'+g.journals.filter(j=>j.co===c.id).length+'</td><td><button class="del" onclick="glCoDel(\''+c.id+'\')">✕</button></td></tr>').join('')+
+  '</tbody></table><div class="hint">Each company keeps its own chart of accounts and ledger in its own base currency. New companies start with the standard COA.</div></div></div>';
+}
+function glCoAdd(){
+  const g=glData();
+  const code=prompt('Company code (e.g. PT-KSA):');if(!code)return;
+  const name=prompt('Company name:');if(!name)return;
+  const c=(prompt('Base currency code:','USD')||'USD').toUpperCase();
+  if(!glCur(g,c)){alert('Currency '+c+' not in FX table — add it first.');return;}
+  const id='co'+Date.now();
+  g.companies.push({id,code:code.toUpperCase(),name,cur:c,notes:'',coa:DEF_COA.map(a=>({code:a[0],name:a[1],type:a[2]}))});
+  g.activeCo=id;glSet(g);render();
+}
+function glCoDel(id){
+  const g=glData();
+  if(g.companies.length<2){alert('At least one company is required.');return;}
+  if(g.journals.some(j=>j.co===id)&&!confirm('Company has journal entries. Delete company AND entries?'))return;
+  g.journals=g.journals.filter(j=>j.co!==id);
+  g.companies=g.companies.filter(c=>c.id!==id);
+  if(g.activeCo===id)g.activeCo=g.companies[0].id;
+  glSet(g);render();
+}
+/* ---- fx ---- */
+function renderGlFx(){
+  const g=glData(),c=glCo(g);
+  document.getElementById('content').innerHTML=
+  '<div class="card"><div class="card-h">Currencies &amp; exchange rates<span class="sp"></span><button class="btn" onclick="glFxAdd()">+ Add currency</button></div><div class="card-b tblwrap">'+
+  '<table><thead><tr><th>Code</th><th>Name</th><th class="num">USD per 1 unit</th><th>Cross to '+c.cur+'</th><th></th></tr></thead><tbody>'+
+  g.currencies.map(x=>'<tr><td><b>'+x.code+'</b></td><td>'+esc(x.name)+'</td>'+
+   '<td class="num"><input type="number" step="0.000001" value="'+x.rate+'" style="width:110px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:5px 8px"'+(x.code==='USD'?' disabled':'')+' onchange="const g=glData();g.currencies.find(y=>y.code===\''+x.code+'\').rate=parseFloat(this.value)||0;glSet(g);render()"></td>'+
+   '<td class="num">1 '+x.code+' = '+(+fxCross(g,x.code,c.cur).toFixed(4))+' '+c.cur+'</td>'+
+   '<td>'+(x.code!=='USD'?'<button class="del" onclick="glFxDel(\''+x.code+'\')">✕</button>':'')+'</td></tr>').join('')+
+  '</tbody></table><div class="hint">All rates stored against USD. Cross rates derive automatically. Journal entries capture the rate at posting time — history never restates.</div></div></div>';
+}
+function glFxAdd(){
+  const g=glData();
+  const code=(prompt('Currency code (ISO):')||'').toUpperCase();if(!code)return;
+  if(glCur(g,code)){alert(code+' exists.');return;}
+  g.currencies.push({code,name:prompt('Currency name:')||code,rate:parseFloat(prompt('USD per 1 '+code+':'))||0});
+  glSet(g);render();
+}
+function glFxDel(code){
+  const g=glData();
+  if(g.companies.some(c=>c.cur===code)){alert('A company uses '+code+' as base.');return;}
+  g.currencies=g.currencies.filter(c=>c.code!==code);glSet(g);render();
+}
+/* ---- coa ---- */
+function renderGlCoa(){
+  const g=glData(),c=glCo(g),bal=glBalances(g,c.id);
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">Chart of accounts — '+esc(c.code)+'<span class="sp"></span><button class="btn" onclick="glCoaAdd()">+ Add account</button></div><div class="card-b tblwrap">'+
+  '<table><thead><tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Balance ('+c.cur+')</th><th></th></tr></thead><tbody>'+
+  c.coa.map(a=>{const b=bal[a.code]||{dr:0,cr:0};const net=(a.type==='Asset'||a.type==='Expense')?b.dr-b.cr:b.cr-b.dr;
+   return '<tr><td class="num">'+a.code+'</td><td>'+esc(a.name)+'</td><td><span class="pill b">'+a.type+'</span></td><td class="num">'+fmt(net)+'</td><td><button class="del" onclick="glCoaDel(\''+a.code+'\')">✕</button></td></tr>';}).join('')+
+  '</tbody></table></div></div>';
+}
+function glCoaAdd(){
+  const g=glData(),c=glCo(g);
+  const code=prompt('Account code:');if(!code)return;
+  if(c.coa.some(a=>a.code===code)){alert('Code exists.');return;}
+  const name=prompt('Account name:');if(!name)return;
+  const type=prompt('Type — Asset / Liability / Equity / Income / Expense:','Expense');
+  if(!['Asset','Liability','Equity','Income','Expense'].includes(type)){alert('Invalid type.');return;}
+  c.coa.push({code,name,type});c.coa.sort((a,b)=>a.code.localeCompare(b.code));glSet(g);render();
+}
+function glCoaDel(code){
+  const g=glData(),c=glCo(g);
+  if(g.journals.some(j=>j.co===c.id&&j.lines.some(l=>l.acct===code))){alert('Account has postings — cannot delete.');return;}
+  c.coa=c.coa.filter(a=>a.code!==code);glSet(g);render();
+}
+
+/* ---- journal entries ---- */
+let JE_LINES=[];
+function renderGlJe(){
+  const g=glData(),c=glCo(g);
+  if(!JE_LINES.length)JE_LINES=[{acct:'',desc:'',dr:'',cr:''},{acct:'',desc:'',dr:'',cr:''}];
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">New journal entry — '+esc(c.code)+' ('+c.cur+')</div><div class="card-b">'+
+  '<div class="fgrid">'+
+   '<div class="field"><label>Date</label><input type="date" id="je-date" value="'+today()+'"></div>'+
+   '<div class="field"><label>Reference</label><input id="je-ref" placeholder="INV-001 / bank ref"></div>'+
+   '<div class="field"><label>Currency</label><select id="je-cur" onchange="document.getElementById(\'je-rate\').value=(+fxCross(glData(),this.value,\''+c.cur+'\').toFixed(6))">'+g.currencies.map(x=>'<option'+(x.code===c.cur?' selected':'')+'>'+x.code+'</option>').join('')+'</select></div>'+
+   '<div class="field"><label>Rate → '+c.cur+'</label><input id="je-rate" type="number" step="0.000001" value="1"></div>'+
+   '<div class="field full"><label>Memo</label><input id="je-memo"></div></div>'+
+  '<div style="margin-top:13px"><div class="jl jl-h"><div>Account</div><div>Line description</div><div style="text-align:right">Debit</div><div style="text-align:right">Credit</div><div></div></div>'+
+  '<div id="je-lines"></div><button class="btn ghost small" onclick="JE_LINES.push({acct:\'\',desc:\'\',dr:\'\',cr:\'\'});drawJeLines()">+ Add line</button></div>'+
+  '<div class="balbar bad" id="je-bal"></div>'+
+  '<div class="actions"><button class="btn" onclick="jePost()">Post entry</button><button class="btn ghost" onclick="JE_LINES=[];renderGlJe()">Clear</button></div></div></div>'+
+  '<div class="card"><div class="card-h">Posted entries — '+esc(c.code)+'<span class="sp"></span>'+expBtns('xt-je','journal-entries')+'</div><div class="card-b tblwrap" id="xt-je">'+glJeTable(g,c)+'</div></div>';
+  drawJeLines();
+}
+function drawJeLines(){
+  const g=glData(),c=glCo(g);
+  const opts=c.coa.map(a=>'<option value="'+a.code+'">'+a.code+' · '+esc(a.name)+'</option>').join('');
+  document.getElementById('je-lines').innerHTML=JE_LINES.map((l,i)=>
+   '<div class="jl">'+
+   '<select onchange="JE_LINES['+i+'].acct=this.value"><option value=""></option>'+opts.replace('value="'+l.acct+'"','value="'+l.acct+'" selected')+'</select>'+
+   '<input value="'+esc(l.desc)+'" oninput="JE_LINES['+i+'].desc=this.value">'+
+   '<input type="number" step="0.01" style="text-align:right" value="'+esc(l.dr)+'" oninput="JE_LINES['+i+'].dr=this.value;jeBal()">'+
+   '<input type="number" step="0.01" style="text-align:right" value="'+esc(l.cr)+'" oninput="JE_LINES['+i+'].cr=this.value;jeBal()">'+
+   '<button class="del" onclick="JE_LINES.splice('+i+',1);drawJeLines()">✕</button></div>').join('');
+  jeBal();
+}
+function jeTotals(){let dr=0,cr=0;JE_LINES.forEach(l=>{dr+=parseFloat(l.dr)||0;cr+=parseFloat(l.cr)||0;});return{dr,cr};}
+function jeBal(){
+  const{dr,cr}=jeTotals();const el=document.getElementById('je-bal');if(!el)return;
+  const ok=dr>0&&Math.abs(dr-cr)<0.005;
+  el.className='balbar '+(ok?'ok':'bad');
+  el.textContent='Dr '+fmt(dr)+' / Cr '+fmt(cr)+(ok?' — balanced':' — not balanced');
+}
+function jePost(){
+  const g=glData(),c=glCo(g);
+  const{dr,cr}=jeTotals();
+  if(!(dr>0&&Math.abs(dr-cr)<0.005)){alert('Entry must balance (debits = credits, > 0).');return;}
+  if(JE_LINES.some(l=>((parseFloat(l.dr)||0)||(parseFloat(l.cr)||0))&&!l.acct)){alert('Every line with an amount needs an account.');return;}
+  g.seq++;
+  g.journals.push({id:'JE-'+String(g.seq).padStart(5,'0'),co:c.id,
+    date:document.getElementById('je-date').value||today(),
+    ref:document.getElementById('je-ref').value,memo:document.getElementById('je-memo').value,
+    cur:document.getElementById('je-cur').value,rate:parseFloat(document.getElementById('je-rate').value)||1,
+    lines:JE_LINES.filter(l=>(parseFloat(l.dr)||0)||(parseFloat(l.cr)||0)).map(l=>({acct:l.acct,desc:l.desc,dr:parseFloat(l.dr)||0,cr:parseFloat(l.cr)||0}))});
+  glSet(g);JE_LINES=[];render();
+}
+function glJeDel(id){if(!confirm('Delete entry '+id+'?'))return;const g=glData();g.journals=g.journals.filter(j=>j.id!==id);glSet(g);render();}
+function glJeTable(g,c){
+  const list=g.journals.filter(j=>j.co===c.id).slice().reverse();
+  if(!list.length)return '<div class="empty">No journal entries yet.</div>';
+  return '<table><thead><tr><th>Entry</th><th>Date</th><th>Ref</th><th>Memo</th><th>Cur</th><th class="num">Rate</th><th class="num">Amount</th><th class="num">Base ('+c.cur+')</th><th class="no-print"></th></tr></thead><tbody>'+
+   list.map(j=>{const amt=j.lines.reduce((s,l)=>s+l.dr,0);
+    return '<tr><td><b>'+j.id+'</b></td><td>'+j.date+'</td><td>'+esc(j.ref||'')+'</td><td>'+esc(j.memo||'')+'</td><td>'+j.cur+'</td><td class="num">'+j.rate+'</td><td class="num">'+fmt(amt)+'</td><td class="num">'+fmt(amt*j.rate)+'</td><td class="no-print"><button class="del" onclick="glJeDel(\''+j.id+'\')">✕</button></td></tr>';}).join('')+'</tbody></table>';
+}
+/* ---- ledger ---- */
+let glAcctSel='';
+function renderGlLedger(){
+  const g=glData(),c=glCo(g);
+  const acct=c.coa.find(a=>a.code===glAcctSel);
+  let body='<div class="hint">Choose an account to view its ledger.</div>';
+  if(acct){
+    let run=0;const rows=[];
+    g.journals.filter(j=>j.co===c.id).forEach(j=>j.lines.forEach(l=>{if(l.acct!==acct.code)return;
+      const dr=l.dr*j.rate,crd=l.cr*j.rate;
+      run+=(acct.type==='Asset'||acct.type==='Expense')?dr-crd:crd-dr;
+      rows.push('<tr><td>'+j.date+'</td><td>'+j.id+'</td><td>'+esc(j.ref||'')+'</td><td>'+esc(l.desc||j.memo||'')+'</td><td>'+j.cur+(j.cur!==c.cur?' @ '+j.rate:'')+'</td><td class="num">'+(dr?fmt(dr):'')+'</td><td class="num">'+(crd?fmt(crd):'')+'</td><td class="num">'+fmt(run)+'</td></tr>');}));
+    body='<table><thead><tr><th>Date</th><th>Entry</th><th>Ref</th><th>Description</th><th>Cur</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead><tbody>'+(rows.join('')||'<tr><td colspan="8" class="empty">No postings.</td></tr>')+'</tbody></table>';
+  }
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">General ledger — '+esc(c.code)+'<span class="sp"></span><select style="padding:7px 10px;border:1px solid var(--line);border-radius:8px" onchange="glAcctSel=this.value;render()"><option value="">— choose account —</option>'+
+  c.coa.map(a=>'<option value="'+a.code+'"'+(a.code===glAcctSel?' selected':'')+'>'+a.code+' · '+esc(a.name)+'</option>').join('')+'</select>'+expBtns('xt-led','general-ledger')+'</div><div class="card-b tblwrap" id="xt-led">'+body+'</div></div>';
+}
+/* ---- statements ---- */
+function renderGlTb(){
+  const g=glData(),c=glCo(g),bal=glBalances(g,c.id);
+  let tdr=0,tcr=0;
+  const rows=c.coa.map(a=>{const b=bal[a.code];if(!b)return '';
+    const net=b.dr-b.cr;const dr=net>0?net:0,crd=net<0?-net:0;tdr+=dr;tcr+=crd;
+    return '<tr><td class="num">'+a.code+'</td><td>'+esc(a.name)+'</td><td>'+a.type+'</td><td class="num">'+(dr?fmt(dr):'')+'</td><td class="num">'+(crd?fmt(crd):'')+'</td></tr>';}).join('');
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">Trial balance — '+esc(c.code)+' ('+c.cur+')<span class="sp"></span>'+expBtns('xt-tb','trial-balance')+'</div><div class="card-b tblwrap" id="xt-tb">'+
+  '<table><thead><tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>'+rows+
+  '<tr class="tot"><td colspan="3">TOTAL</td><td class="num">'+fmt(tdr)+'</td><td class="num">'+fmt(tcr)+'</td></tr></tbody></table>'+
+  (Math.abs(tdr-tcr)<0.01?'<div class="balbar ok" style="margin-top:10px">Trial balance is in balance.</div>':'<div class="balbar bad" style="margin-top:10px">Out of balance by '+fmt(Math.abs(tdr-tcr))+'</div>')+'</div></div>';
+}
+function glPlData(g,c){
+  const bal=glBalances(g,c.id);
+  const sec=(type,sign)=>{let tot=0;const rows=c.coa.filter(a=>a.type===type).map(a=>{const b=bal[a.code];if(!b)return'';
+    const net=sign>0?b.cr-b.dr:b.dr-b.cr;tot+=net;
+    return '<tr><td class="num">'+a.code+'</td><td>'+esc(a.name)+'</td><td class="num">'+fmt(net)+'</td></tr>';}).join('');
+    return {rows,tot};};
+  return {inc:sec('Income',1),exp:sec('Expense',-1),as:sec2(g,c,'Asset',1),li:sec2(g,c,'Liability',-1),eq:sec2(g,c,'Equity',-1)};
+}
+function sec2(g,c,type,sign){
+  const bal=glBalances(g,c.id);let tot=0;
+  const rows=c.coa.filter(a=>a.type===type).map(a=>{const b=bal[a.code];if(!b)return'';
+    const net=sign>0?b.dr-b.cr:b.cr-b.dr;tot+=net;
+    return '<tr><td class="num">'+a.code+'</td><td>'+esc(a.name)+'</td><td class="num">'+fmt(net)+'</td></tr>';}).join('');
+  return {rows,tot};
+}
+function renderGlPl(){
+  const g=glData(),c=glCo(g),d=glPlData(g,c);
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">Profit &amp; loss — '+esc(c.code)+' ('+c.cur+')<span class="sp"></span>'+expBtns('xt-pl','profit-and-loss')+'</div><div class="card-b tblwrap" id="xt-pl">'+
+  '<table><thead><tr><th>Code</th><th>Account</th><th class="num">Amount</th></tr></thead><tbody>'+
+  '<tr class="tot"><td colspan="3">REVENUE</td></tr>'+d.inc.rows+'<tr class="tot"><td colspan="2">Total revenue</td><td class="num">'+fmt(d.inc.tot)+'</td></tr>'+
+  '<tr class="tot"><td colspan="3">EXPENSES</td></tr>'+d.exp.rows+'<tr class="tot"><td colspan="2">Total expenses</td><td class="num">'+fmt(d.exp.tot)+'</td></tr>'+
+  '<tr class="tot"><td colspan="2">NET '+(d.inc.tot-d.exp.tot>=0?'PROFIT':'LOSS')+'</td><td class="num">'+fmt(d.inc.tot-d.exp.tot)+'</td></tr></tbody></table></div></div>';
+}
+function renderGlBs(){
+  const g=glData(),c=glCo(g),d=glPlData(g,c);
+  const ni=d.inc.tot-d.exp.tot;
+  document.getElementById('content').innerHTML=coPicker(g)+
+  '<div class="card"><div class="card-h">Balance sheet — '+esc(c.code)+' ('+c.cur+')<span class="sp"></span>'+expBtns('xt-bs','balance-sheet')+'</div><div class="card-b tblwrap" id="xt-bs">'+
+  '<table><thead><tr><th>Code</th><th>Account</th><th class="num">Amount</th></tr></thead><tbody>'+
+  '<tr class="tot"><td colspan="3">ASSETS</td></tr>'+d.as.rows+'<tr class="tot"><td colspan="2">Total assets</td><td class="num">'+fmt(d.as.tot)+'</td></tr>'+
+  '<tr class="tot"><td colspan="3">LIABILITIES</td></tr>'+d.li.rows+'<tr class="tot"><td colspan="2">Total liabilities</td><td class="num">'+fmt(d.li.tot)+'</td></tr>'+
+  '<tr class="tot"><td colspan="3">EQUITY</td></tr>'+d.eq.rows+
+  '<tr><td class="num">—</td><td>Current period net income</td><td class="num">'+fmt(ni)+'</td></tr>'+
+  '<tr class="tot"><td colspan="2">Total equity</td><td class="num">'+fmt(d.eq.tot+ni)+'</td></tr>'+
+  '<tr class="tot"><td colspan="2">LIABILITIES + EQUITY</td><td class="num">'+fmt(d.li.tot+d.eq.tot+ni)+'</td></tr></tbody></table>'+
+  (Math.abs(d.as.tot-(d.li.tot+d.eq.tot+ni))<0.01?'<div class="balbar ok" style="margin-top:10px">Balance sheet balances.</div>':'<div class="balbar bad" style="margin-top:10px">Difference: '+fmt(d.as.tot-(d.li.tot+d.eq.tot+ni))+'</div>')+'</div></div>';
+}
+let consCur='USD';
+function renderGlCons(){
+  const g=glData();
+  let gt={Asset:0,Liability:0,Income:0,Expense:0};
+  const rows=g.companies.map(x=>{
+    const t=glTypeTotals(g,x);const r=fxCross(g,x.cur,consCur);
+    gt.Asset+=t.Asset*r;gt.Liability+=t.Liability*r;gt.Income+=t.Income*r;gt.Expense+=t.Expense*r;
+    return '<tr><td class="num">'+esc(x.code)+'</td><td>'+esc(x.name)+'</td><td>'+x.cur+' @ '+(+r.toFixed(4))+'</td><td class="num">'+fmt(t.Asset*r)+'</td><td class="num">'+fmt(t.Liability*r)+'</td><td class="num">'+fmt(t.Income*r)+'</td><td class="num">'+fmt(t.Expense*r)+'</td><td class="num">'+fmt((t.Income-t.Expense)*r)+'</td></tr>';}).join('');
+  document.getElementById('content').innerHTML=
+  '<div class="card"><div class="card-h">Consolidated group view<span class="sp"></span><select style="padding:7px 10px;border:1px solid var(--line);border-radius:8px" onchange="consCur=this.value;render()">'+
+  g.currencies.map(x=>'<option'+(x.code===consCur?' selected':'')+'>'+x.code+'</option>').join('')+'</select>'+expBtns('xt-cons','consolidated-group')+'</div><div class="card-b tblwrap" id="xt-cons">'+
+  '<table><thead><tr><th>Code</th><th>Company</th><th>Base → '+consCur+'</th><th class="num">Assets</th><th class="num">Liabilities</th><th class="num">Revenue</th><th class="num">Expenses</th><th class="num">Net income</th></tr></thead><tbody>'+rows+
+  '<tr class="tot"><td colspan="3">GROUP TOTAL ('+consCur+')</td><td class="num">'+fmt(gt.Asset)+'</td><td class="num">'+fmt(gt.Liability)+'</td><td class="num">'+fmt(gt.Income)+'</td><td class="num">'+fmt(gt.Expense)+'</td><td class="num">'+fmt(gt.Income-gt.Expense)+'</td></tr></tbody></table>'+
+  '<div class="hint">Each company converts from its base currency at the current FX table rate (period-end method). Posted entries are never restated.</div></div></div>';
+}
+
+/* ================================================================
+   INSPECTION REPORTING — detailed reports with dimensional schemas
+   ================================================================ */
+const ID_COLS=[{k:'serial',l:'Serial / ID'},{k:'desc',l:'Description'},{k:'conn',l:'Connection'}];
+const SCHEMAS={
+'Drill Pipe Inspection':{hint:'Dimensional columns per DS-1\u00AE Vol 3 Cat 3-5 / API RP 7G-2 for drill pipe. Record actuals in inches.',groups:[
+ {g:'TUBE / BODY',cols:[{k:'dim_od',l:'Tube OD'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_tid',l:'Tube ID'},{k:'dim_tsod',l:'Tool joint OD'},{k:'dim_tjid',l:'Tool joint ID'}]},
+ {g:'BOX',cols:[{k:'dim_boxts',l:'Box tong space'},{k:'dim_bevel',l:'Bevel \u00D8'},{k:'dim_boxswl',l:'Box swell'},{k:'dim_srg',l:'SRG width'}]},
+ {g:'PIN',cols:[{k:'dim_pints',l:'Pin tong space'},{k:'dim_pinlen',l:'Pin length'},{k:'dim_pinsrg',l:'Pin SRG'}]}]},
+'Drill Collar / BHA Inspection':{hint:'Dimensional columns per DS-1\u00AE Vol 3 Table 3.9 for drill collars / BHA. Record actuals in inches.',groups:[
+ {g:'BODY',cols:[{k:'dim_od',l:'OD'},{k:'dim_id',l:'ID (bore)'},{k:'dim_len',l:'Length'}]},
+ {g:'BOX CONNECTION',cols:[{k:'dim_boxod',l:'Box OD'},{k:'dim_bevel',l:'Bevel \u00D8'},{k:'dim_boxts',l:'Tong space'},{k:'dim_shldr',l:'Shoulder width'},{k:'dim_cbdia',l:'C.Bore \u00D8'},{k:'dim_cbdep',l:'C.Bore depth'},{k:'dim_boxsrg',l:'Box SRG width'}]},
+ {g:'PIN CONNECTION',cols:[{k:'dim_pinid',l:'Pin ID'},{k:'dim_pints',l:'Tong space'},{k:'dim_pinlen',l:'Pin length'},{k:'dim_pinsrg',l:'Pin SRG width'}]},
+ {g:'RATIO',cols:[{k:'dim_bsr',l:'BSR'}]}]},
+'HWDP Inspection':{hint:'Dimensional columns per DS-1\u00AE Vol 3 for heavy-weight drill pipe. Record actuals in inches.',groups:[
+ {g:'TUBE',cols:[{k:'dim_od',l:'Tube OD'},{k:'dim_id',l:'Tube ID'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_cupod',l:'Center upset OD'}]},
+ {g:'BOX',cols:[{k:'dim_boxod',l:'Box OD'},{k:'dim_bevel',l:'Bevel \u00D8'},{k:'dim_boxts',l:'Tong space'},{k:'dim_boxsrg',l:'SRG width'}]},
+ {g:'PIN',cols:[{k:'dim_pinid',l:'Pin ID'},{k:'dim_pints',l:'Tong space'},{k:'dim_pinlen',l:'Pin length'},{k:'dim_pinsrg',l:'SRG width'}]}]},
+'Casing Inspection':{hint:'Columns per API 5CT / API RP 5A5 for casing. Actuals in inches; remaining wall as % of specified.',groups:[
+ {g:'BODY',cols:[{k:'dim_od',l:'OD'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_drift',l:'Drift'},{k:'dim_rw',l:'Rem. wall %'},{k:'dim_len',l:'Length'}]},
+ {g:'CONNECTION',cols:[{k:'dim_thread',l:'Thread cond.'},{k:'dim_cplod',l:'Coupling OD'}]}]},
+'Tubing Inspection':{hint:'Columns per API 5CT / API RP 5A5 for tubing. Actuals in inches; remaining wall as % of specified.',groups:[
+ {g:'BODY',cols:[{k:'dim_od',l:'OD'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_drift',l:'Drift'},{k:'dim_rw',l:'Rem. wall %'},{k:'dim_len',l:'Length'}]},
+ {g:'CONNECTION',cols:[{k:'dim_thread',l:'Thread cond.'},{k:'dim_cplod',l:'Coupling OD'}]}]},
+'NDT — MPI':{hint:'Magnetic particle inspection findings per ASTM E709 / DS-1\u00AE.',groups:[
+ {g:'MPI',cols:[{k:'ndt_area',l:'Area inspected'},{k:'ndt_tech',l:'Technique'},{k:'ndt_ind',l:'Indication / finding'},{k:'ndt_loc',l:'Location'}]}]},
+'NDT — UT':{hint:'Ultrasonic wall thickness survey per ASTM E797.',groups:[
+ {g:'UT READINGS',cols:[{k:'ut_nom',l:'Nominal wall'},{k:'ut_min',l:'Min reading'},{k:'ut_max',l:'Max reading'},{k:'ut_avg',l:'Avg'},{k:'ut_rw',l:'Rem. wall %'},{k:'ut_loc',l:'Location'}]}]},
+'NDT — EMI':{hint:'Electromagnetic inspection results, one row per joint.',groups:[
+ {g:'EMI',cols:[{k:'emi_wl',l:'Wall loss %'},{k:'emi_def',l:'Defect type'},{k:'emi_loc',l:'Location'},{k:'emi_class',l:'Class'}]}]},
+'Rig Inspection (API 4G)':{hint:'Rig / mast structure inspection per API RP 4G.',groups:[
+ {g:'COMPONENT',cols:[{k:'rig_comp',l:'Component'},{k:'rig_cat',l:'Category (I-IV)'},{k:'rig_cond',l:'Condition'},{k:'rig_find',l:'Finding'}]}]},
+'Lifting Gear Survey':{hint:'Lifting equipment survey per LOLER / API RP 8B.',groups:[
+ {g:'LIFTING GEAR',cols:[{k:'lg_swl',l:'SWL / WLL'},{k:'lg_proof',l:'Proof load cert'},{k:'lg_cond',l:'Condition'},{k:'lg_nextdue',l:'Next due'}]}]},
+'Calibration Report':{hint:'Calibration results per ISO/IEC 17025, one row per parameter / point.',groups:[
+ {g:'CALIBRATION',cols:[{k:'cal_param',l:'Parameter'},{k:'cal_nom',l:'Nominal'},{k:'cal_found',l:'As found'},{k:'cal_left',l:'As left'},{k:'cal_tol',l:'Tolerance'},{k:'cal_unc',l:'Uncertainty'}]}]},
+'Calibration — Pressure Gauge':{hint:'Pressure gauge calibration per ASME B40.100 — one row per test point, rising & falling readings.',groups:[
+ {g:'TEST POINT',cols:[{k:'cal_pct',l:'% of span'},{k:'cal_applied',l:'Applied pressure'},{k:'cal_up',l:'Reading (rising)'},{k:'cal_dn',l:'Reading (falling)'}]},
+ {g:'EVALUATION',cols:[{k:'cal_err',l:'Error'},{k:'cal_hyst',l:'Hysteresis'},{k:'cal_tol',l:'Tolerance (±% FS)'},{k:'cal_unc',l:'Uncertainty'}]}]},
+'Calibration — Torque Equipment':{hint:'Torque wrench / gauge calibration per ISO 6789 — one row per set point with three repeat readings.',groups:[
+ {g:'SET POINT',cols:[{k:'cal_nom',l:'Nominal torque'},{k:'cal_r1',l:'Reading 1'},{k:'cal_r2',l:'Reading 2'},{k:'cal_r3',l:'Reading 3'},{k:'cal_mean',l:'Mean'}]},
+ {g:'EVALUATION',cols:[{k:'cal_dev',l:'Deviation %'},{k:'cal_tol',l:'Tolerance (±%)'},{k:'cal_unc',l:'Uncertainty'}]}]},
+'Calibration — Dimensional Instruments':{hint:'Caliper / micrometer / dial gauge calibration against reference gauge blocks per ISO/IEC 17025 — one row per check point.',groups:[
+ {g:'CHECK POINT',cols:[{k:'cal_ref',l:'Reference value'},{k:'cal_found',l:'As found'},{k:'cal_left',l:'As left'}]},
+ {g:'EVALUATION',cols:[{k:'cal_err',l:'Error'},{k:'cal_tol',l:'Permissible error'},{k:'cal_unc',l:'Uncertainty'}]}]},
+'Calibration — Load / Tension Equipment':{hint:'Load cell / line-pull / weight indicator calibration per ASTM E4 — one row per applied load step.',groups:[
+ {g:'LOAD STEP',cols:[{k:'cal_applied',l:'Applied load'},{k:'cal_ind',l:'Indicated reading'},{k:'cal_err',l:'Error %'}]},
+ {g:'EVALUATION',cols:[{k:'cal_tol',l:'Tolerance (±%)'},{k:'cal_unc',l:'Uncertainty'},{k:'cal_class',l:'Class / grade'}]}]},
+'Specialty Tools':{hint:'Specialty / fishing tool dimensional record. Actuals in inches.',groups:[
+ {g:'DIMENSIONS',cols:[{k:'dim_od',l:'OD'},{k:'dim_id',l:'ID'},{k:'dim_fn',l:'Fishneck OD'},{k:'dim_fnlen',l:'Fishneck length'},{k:'dim_len',l:'Overall length'}]},
+ {g:'CONNECTIONS',cols:[{k:'dim_topconn',l:'Top conn.'},{k:'dim_btmconn',l:'Bottom conn.'}]}]}
+};
+let IR={type:'Drill Collar / BHA Inspection',fields:{},items:[],eq:[],photos:[],id:null};
+function irSchema(){return SCHEMAS[IR.type]||SCHEMAS['Drill Collar / BHA Inspection'];}
+const IR_FIELDS=[['no','Report no.','RPT-2026-0001'],['rev','Revision','0'],['client','Client',''],['po','PO / contract',''],['wo','Work order ref',''],['loc','Location / yard',''],['rig','Rig / well',''],['std','Standard','DS-1 Vol 3 Cat 3-5 / API RP 7G-2'],['proc','Procedure ref',''],['acc','Acceptance criteria',''],['insp','Inspector',''],['rev_by','Reviewed by','']];
+function renderInspReport(){
+  const sc=irSchema();
+  const custOpts=coll('customers').map(c=>'<option value="'+esc(c.name)+'">').join('');
+  document.getElementById('content').innerHTML=
+  '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
+  '<div class="field"><label>Report type</label><select id="ir-type" onchange="IR.type=this.value;render()">'+Object.keys(SCHEMAS).map(t=>'<option'+(t===IR.type?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
+  '<div class="field"><label>Inspection date</label><input type="date" id="ir-date" value="'+(IR.fields.date||today())+'" onchange="IR.fields.date=this.value;irSave()"></div>'+
+  IR_FIELDS.map(f=>'<div class="field"><label>'+f[1]+'</label><input id="ir-'+f[0]+'" value="'+esc(IR.fields[f[0]]!=null?IR.fields[f[0]]:f[2])+'"'+(f[0]==='client'?' list="dl-cust"':f[0]==='wo'?' list="dl-wo"':f[0]==='po'?' list="dl-ctr"':'')+' oninput="IR.fields.'+f[0]+'=this.value;irSave()"></div>').join('')+
+  '</div><datalist id="dl-cust">'+custOpts+'</datalist>'+'<datalist id="dl-wo">'+coll('workorders').map(w=>'<option value="'+esc(w.no||'')+'">').join('')+'</datalist>'+'<datalist id="dl-ctr">'+coll('contracts').map(c=>'<option value="'+esc(c.no||'')+'">').join('')+'</datalist></div></div>'+
+  '<div class="card"><div class="card-h">M&amp;TE used<span class="sp"></span><button class="btn ghost small" onclick="irImportMte()">↓ Import from M&amp;TE register</button><button class="btn small" onclick="IR.eq.push({});irSave();render()">+ Add</button></div><div class="card-b tblwrap">'+
+  '<table><thead><tr><th>Equipment ID</th><th>Description</th><th>Serial</th><th>Cert no.</th><th>Cal due</th><th></th></tr></thead><tbody>'+
+  IR.eq.map((e,i)=>'<tr>'+['id','desc','sn','cert','due'].map(k=>'<td><input style="border:1px solid var(--line);border-radius:6px;padding:5px 7px;width:100%" value="'+esc(e[k]||'')+'" oninput="IR.eq['+i+'].'+k+'=this.value;irSave()"></td>').join('')+'<td><button class="del" onclick="IR.eq.splice('+i+',1);irSave();render()">✕</button></td></tr>').join('')+
+  '</tbody></table></div></div>'+
+  acCard(sc)+
+  '<div class="card"><div class="card-h">Inspection results<span class="sp"></span><button class="btn small" onclick="IR.items.push({});irSave();render()">+ Add item</button></div><div class="card-b">'+
+  '<div class="hint" style="margin-bottom:8px">'+sc.hint+' Changing the report type re-maps the table; shared columns keep their values.</div>'+
+  '<div class="tblwrap" id="xt-irit"><table class="dimtable"><thead>'+
+  '<tr class="grp"><th colspan="4">ITEM IDENTIFICATION</th>'+sc.groups.map(g=>'<th colspan="'+g.cols.length+'">'+g.g+'</th>').join('')+'<th colspan="2">DISPOSITION</th><th></th></tr>'+
+  '<tr><th>#</th>'+ID_COLS.map(c=>'<th>'+c.l+'</th>').join('')+sc.groups.map(g=>g.cols.map(c=>'<th>'+c.l+'</th>').join('')).join('')+'<th>Result</th><th>Remarks</th><th></th></tr></thead><tbody>'+
+  IR.items.map((r,i)=>{
+    const cells=ID_COLS.concat(...sc.groups.map(g=>g.cols));
+    return '<tr><td class="num">'+(i+1)+'</td>'+cells.map(c=>{const chk=acCheck(c.k,r[c.k]);return '<td><input'+(c.k.startsWith('dim_')||c.k.startsWith('ut_')||c.k.startsWith('emi_wl')?' class="dim'+(chk?' '+chk:'')+'"':(chk?' class="'+chk+'"':''))+' data-ack="'+c.k+'"'+(c.k==='serial'?' list="dl-serial"':'')+' value="'+esc(r[c.k]||'')+'" oninput="IR.items['+i+'].'+c.k+'=this.value;irSave();irPaint()"></td>';}).join('')+
+    '<td><select onchange="IR.items['+i+'].result=this.value;irSave()">'+['','ACCEPT','REJECT','REPAIRABLE','CLASS 2','N/A'].map(o=>'<option'+(o===(r.result||'')?' selected':'')+'>'+o+'</option>').join('')+'</select></td>'+
+    '<td><input value="'+esc(r.rem||'')+'" oninput="IR.items['+i+'].rem=this.value;irSave()"></td>'+
+    '<td><button class="del" onclick="IR.items.splice('+i+',1);irSave();render()">✕</button></td></tr>';}).join('')+
+  '</tbody></table></div><datalist id="dl-serial"></datalist>'+
+  '<div class="kpis" style="margin-top:13px">'+irSummary().map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div></div></div>'+
+  '<div class="card"><div class="card-h">Photographic evidence</div><div class="card-b">'+
+  '<div class="dropzone no-print" id="ir-drop" onclick="document.getElementById(\'ir-photo\').click()"><b>Click to upload photos</b> or drag &amp; drop — compressed and stored inside the report</div>'+
+  '<input type="file" id="ir-photo" accept="image/*" multiple style="display:none" onchange="irPhotos(this.files)">'+
+  '<div class="photos">'+IR.photos.map((p,i)=>'<figure class="photo"><img src="'+p.src+'" alt="photo"><div class="pm"><input placeholder="Caption…" value="'+esc(p.cap||'')+'" oninput="IR.photos['+i+'].cap=this.value;irSave()"><div style="display:flex;justify-content:space-between;margin-top:5px"><span class="pill b">PHOTO '+(i+1)+'</span><button class="del no-print" onclick="IR.photos.splice('+i+',1);irSave();render()">✕</button></div></div></figure>').join('')+'</div></div></div>'+
+  '<div class="actions"><button class="btn" onclick="irStore()">Save to report library</button><button class="btn ghost" onclick="irPdf()">↓ Download PDF report</button><button class="btn ghost" onclick="window.print()">Print view</button>'+expBtns('xt-irit','inspection-results')+'<button class="btn ghost" onclick="if(confirm(\'Start a new blank report?\')){IR={type:IR.type,fields:{},items:[{}],eq:[],photos:[],ac:{},id:null};irSave();render()}">New report</button></div>';
+  irFillSerials();
+}
+function irPdf(){
+  const sc=irSchema();
+  const doc=new PdfDoc({landscape:true});
+  doc.header((IR.type||'INSPECTION REPORT').toUpperCase(),'Report no. '+(IR.fields.no||'—')+'  ·  Rev '+(IR.fields.rev||'0'));
+  doc.kv([['Client',IR.fields.client||''],['Inspection date',IR.fields.date||''],['PO / contract',IR.fields.po||''],['Work order',IR.fields.wo||''],['Location / yard',IR.fields.loc||''],['Rig / well',IR.fields.rig||''],['Standard',IR.fields.std||''],['Procedure',IR.fields.proc||''],['Acceptance criteria',IR.fields.acc||''],['Inspector',IR.fields.insp||''],['Reviewed by',IR.fields.rev_by||'']]);
+  if(IR.eq.length){
+    doc.text(doc.mL,doc.y,'M&TE USED',10,true);doc.y-=14;
+    doc.table(['Equipment ID','Description','Serial','Cert no.','Cal due'],IR.eq.map(e=>[e.id||'',e.desc||'',e.sn||'',e.cert||'',e.due||'']));
+  }
+  const cells=ID_COLS.concat(...sc.groups.map(g=>g.cols));
+  doc.text(doc.mL,doc.y,'INSPECTION RESULTS',10,true);doc.y-=14;
+  doc.table(['#'].concat(cells.map(c=>c.l)).concat(['Result','Remarks']),
+    IR.items.map((r,i)=>[i+1].concat(cells.map(c=>r[c.k]||'')).concat([r.result||'',r.rem||''])));
+  const s=irSummary();
+  doc.text(doc.mL,doc.y,'SUMMARY:  '+s.map(x=>x.l+': '+x.n).join('    '),9,true);doc.y-=18;
+  if(IR.photos.length){
+    doc.text(doc.mL,doc.y,'PHOTOGRAPHIC EVIDENCE',10,true);doc.y-=14;
+    IR.photos.forEach((p,i)=>{doc.jpeg(p.src,300,220,'Photo '+(i+1)+(p.cap?' — '+p.cap:''));});
+  }
+  doc.need(46);doc.y-=16;
+  doc.line(doc.mL,doc.y,doc.mL+180,doc.y);doc.line(doc.w-doc.mR-180,doc.y,doc.w-doc.mR,doc.y);
+  doc.y-=11;doc.text(doc.mL,doc.y,'Inspector: '+(IR.fields.insp||''),8);doc.text(doc.w-doc.mR-180,doc.y,'Reviewed / approved: '+(IR.fields.rev_by||''),8);
+  doc.out('inspection-report-'+((IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-')));
+}
+/* ============ acceptance / rejection criteria engine ============
+   Ranges per DS-1(R) 5th Ed Vol 3 (Table 3.9), API RP 7G-2, API 5CT.
+   Presets by connection; user-editable per report; blank = no check. */
+const AC_PRESETS={
+ '6-5/8 REG':{dim_bevel:[8.218,8.578],dim_cbdep:[0.63,null],dim_boxsrg:[0.063,null],dim_pinsrg:[0.063,null],dim_bsr:[0.80,null],dim_boxod:[8.750,9.750]},
+ '4-1/2 IF':{dim_bevel:[6.375,6.625],dim_cbdep:[0.63,null],dim_boxsrg:[0.063,null],dim_pinsrg:[0.063,null],dim_bsr:[0.80,null],dim_boxod:[6.500,7.500]},
+ 'NC50':{dim_bevel:[7.375,7.625],dim_cbdep:[0.63,null],dim_boxsrg:[0.063,null],dim_pinsrg:[0.063,null],dim_bsr:[0.80,null],dim_boxod:[7.500,8.500]},
+ '3-1/2 IF':{dim_bevel:[5.375,5.625],dim_cbdep:[0.63,null],dim_boxsrg:[0.063,null],dim_pinsrg:[0.063,null],dim_bsr:[0.80,null],dim_boxod:[5.500,6.500]}
+};
+const AC_GENERIC={ut_rw:[80,null],dim_rw:[80,null],emi_wl:[null,20],dim_srg:[0.063,null]};
+function acGet(){return IR.ac||(IR.ac={});}
+function acParse(v){v=String(v==null?'':v).trim();if(!v)return null;
+  const f=v.match(/^(\d+)[\s-]+(\d+)\/(\d+)$/);if(f)return +f[1]+(+f[2]/+f[3]);
+  const fr=v.match(/^(\d+)\/(\d+)$/);if(fr)return +fr[1]/+fr[2];
+  const n=parseFloat(v.replace(/[^0-9.\-]/g,''));return isNaN(n)?null:n;}
+function acRange(k){
+  const ac=acGet();
+  if(ac[k]&&(ac[k][0]!=null&&ac[k][0]!==''||ac[k][1]!=null&&ac[k][1]!==''))
+    return [ac[k][0]===''?null:+ac[k][0],ac[k][1]===''?null:+ac[k][1]];
+  return AC_GENERIC[k]||null;}
+function acCheck(k,val){
+  const r=acRange(k);if(!r)return '';
+  const n=acParse(val);if(n==null)return '';
+  if(r[0]!=null&&n<r[0])return 'oor';
+  if(r[1]!=null&&n>r[1])return 'oor';
+  return 'inr';}
+function acApplyPreset(name){
+  const p=AC_PRESETS[name];if(!p)return;
+  const ac=acGet();
+  Object.entries(p).forEach(([k,v])=>{ac[k]=[v[0]==null?'':v[0],v[1]==null?'':v[1]];});
+  irSave();render();}
+function acClear(){IR.ac={};irSave();render();}
+function acCard(sc){
+  const ac=acGet();
+  const cols=[].concat(...sc.groups.map(g=>g.cols)).filter(c=>/^(dim_|ut_|emi_wl|cal_err|cal_dev|cal_hyst)/.test(c.k));
+  if(!cols.length)return '';
+  const presets=Object.keys(AC_PRESETS).map(p=>'<button class="btn ghost small" onclick="acApplyPreset(\''+p+'\')">'+p+'</button>').join(' ');
+  return '<div class="card no-print"><div class="card-h">Acceptance / rejection criteria'+
+   '<span class="sp"></span><span style="font-weight:400;font-size:12px;color:var(--mut)">DS-1\u00AE Table 3.9 presets:</span> '+presets+
+   ' <button class="btn ghost small" onclick="acClear()">Clear all</button></div><div class="card-b">'+
+   '<div class="hint" style="margin-bottom:8px">Set MIN / MAX per column (inches, %, or units of that column). Leave blank for no limit. Any recorded value outside the range turns <b style="color:#B91C1C">red</b> in the results table; built-in defaults: SRG \u2265 0.063", remaining wall \u2265 80%, EMI wall loss \u2264 20%.</div>'+
+   '<div class="tblwrap"><table><thead><tr><th>Column</th><th style="width:110px">Min</th><th style="width:110px">Max</th><th>Basis</th></tr></thead><tbody>'+
+   cols.map(c=>{const v=ac[c.k]||['',''];const gen=AC_GENERIC[c.k];
+    return '<tr><td><b>'+esc(c.l)+'</b></td>'+
+    '<td><input type="number" step="0.001" style="width:100px" value="'+esc(v[0])+'" oninput="acGet().'+c.k+'=[this.value,(acGet().'+c.k+'||[,\'\'])[1]||\'\'];irSave();irPaint()"></td>'+
+    '<td><input type="number" step="0.001" style="width:100px" value="'+esc(v[1])+'" oninput="acGet().'+c.k+'=[(acGet().'+c.k+'||[\'\'])[0]||\'\',this.value];irSave();irPaint()"></td>'+
+    '<td style="color:var(--mut);font-size:12px">'+(v[0]!==''||v[1]!==''?'Report-specific':gen?'Default ('+(gen[0]!=null?'\u2265 '+gen[0]:'')+(gen[1]!=null?' \u2264 '+gen[1]:'')+')':'\u2014')+'</td></tr>';}).join('')+
+   '</tbody></table></div></div></div>';}
+function irPaint(){
+  document.querySelectorAll('#xt-irit input[data-ack]').forEach(inp=>{
+    inp.classList.remove('oor','inr');
+    const cls=acCheck(inp.getAttribute('data-ack'),inp.value);
+    if(cls)inp.classList.add(cls);});}
+function irSummary(){
+  const n=IR.items.length;
+  const acc=IR.items.filter(r=>r.result==='ACCEPT').length;
+  const rej=IR.items.filter(r=>r.result==='REJECT').length;
+  const keys=[].concat(...irSchema().groups.map(g=>g.cols.map(c=>c.k)));
+  const oor=IR.items.filter(r=>keys.some(k=>acCheck(k,r[k])==='oor')).length;
+  return [{n:n,l:'Items inspected'},{n:acc,l:'Accepted'},{n:rej,l:'Rejected',warn:rej>0},{n:oor,l:'Out of tolerance',warn:oor>0},{n:n-acc-rej,l:'Other / pending'}];
+}
+function irSave(){lsSet('ir_current',IR);}
+function irFillSerials(){
+  const dl=document.getElementById('dl-serial');if(!dl)return;
+  let serials=[];
+  try{const pd=JSON.parse(localStorage.getItem('pd_data_v1')||'null');serials=(pd&&pd.tally||[]).map(t=>t.serial).filter(Boolean);}catch(e){}
+  dl.innerHTML=serials.map(x=>'<option value="'+esc(x)+'">').join('');
+}
+function irImportMte(){
+  const rows=coll('calibrations');
+  if(!rows.length){alert('No equipment in the M&TE / Calibration register (Compliance section). Add equipment there first.');return;}
+  const have=new Set(IR.eq.map(e=>e.sn));
+  let n=0;
+  rows.forEach(r=>{if(r.sn&&have.has(r.sn))return;IR.eq.push({id:r.eqid||'',desc:(r.name||'')+(r.make?' — '+r.make:''),sn:r.sn||'',cert:r.certno||'',due:r.due||''});n++;});
+  irSave();render();alert(n+' equipment row(s) imported.');
+}
+function irPhotos(files){
+  [...files].forEach(f=>{
+    if(!f.type.startsWith('image/'))return;
+    const img=new Image();
+    img.onload=()=>{
+      const sc2=Math.min(1,1400/Math.max(img.width,img.height));
+      const cv=document.createElement('canvas');
+      cv.width=Math.round(img.width*sc2);cv.height=Math.round(img.height*sc2);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+      IR.photos.push({src:cv.toDataURL('image/jpeg',0.82),cap:''});
+      irSave();render();
+    };
+    img.src=URL.createObjectURL(f);
+  });
+}
+function irStore(){
+  const lib=lsGet('ir_library',[]);
+  const rec=JSON.parse(JSON.stringify(IR));
+  if(!rec.id){rec.id=uid();}
+  rec.savedAt=new Date().toISOString();
+  const i=lib.findIndex(r=>r.id===rec.id);
+  if(i>=0)lib[i]=rec;else lib.push(rec);
+  lsSet('ir_library',lib);IR.id=rec.id;irSave();
+  alert('Report saved to library ('+(rec.fields.no||'no number')+').');
+}
+function renderInspList(){
+  const lib=lsGet('ir_library',[]);
+  document.getElementById('content').innerHTML=
+  '<div class="card"><div class="card-h">Saved inspection reports <span class="pill b">'+lib.length+'</span><span class="sp"></span>'+expBtns('xt-irlib','saved-inspection-reports')+'</div><div class="card-b tblwrap" id="xt-irlib">'+
+  (lib.length?'<table><thead><tr><th>Report no.</th><th>Type</th><th>Client</th><th>Date</th><th class="num">Items</th><th class="num">Photos</th><th>Saved</th><th></th></tr></thead><tbody>'+
+  lib.slice().reverse().map(r=>'<tr class="rowlink" onclick="irOpen(\''+r.id+'\')"><td><b>'+esc(r.fields.no||'—')+'</b></td><td>'+esc(r.type)+'</td><td>'+esc(r.fields.client||'')+'</td><td>'+esc(r.fields.date||'')+'</td><td class="num">'+r.items.length+'</td><td class="num">'+r.photos.length+'</td><td>'+r.savedAt.slice(0,10)+'</td><td><button class="del" onclick="event.stopPropagation();irDel(\''+r.id+'\')">✕</button></td></tr>').join('')+'</tbody></table>'
+  :'<div class="empty">No saved reports yet — create one under Detailed Report.</div>')+'</div></div>';
+}
+function irOpen(id){
+  const lib=lsGet('ir_library',[]);
+  const r=lib.find(x=>x.id===id);if(!r)return;
+  IR=JSON.parse(JSON.stringify(r));irSave();go('insp_report');
+}
+function irDel(id){
+  if(!confirm('Delete this saved report?'))return;
+  lsSet('ir_library',lsGet('ir_library',[]).filter(r=>r.id!==id));render();
+}
+
+/* ================================================================
+   DASHBOARD
+   ================================================================ */
+function renderDashboard(){
+  const g=glData(),c=glCo(g),t=glTypeTotals(g,c);
+  const inv=coll('invoices'),ncr=coll('ncrs'),cal=coll('calibrations'),emp=coll('employees'),lib=lsGet('ir_library',[]);
+  const ar=inv.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0);
+  const kpis=[
+   {l:'Outstanding AR',n:fmt(ar)},
+   {l:'Net income — '+c.code+' ('+c.cur+')',n:fmt(t.Income-t.Expense)},
+   {l:'Open NCRs',n:ncr.filter(r=>r.status!=='Closed').length,warn:ncr.some(r=>r.status!=='Closed')},
+   {l:'Calibration overdue',n:cal.filter(r=>r.status==='Overdue').length,warn:cal.some(r=>r.status==='Overdue')},
+   {l:'Active employees',n:emp.filter(r=>r.status==='Active').length},
+   {l:'Saved inspection reports',n:lib.length}];
+  const quick=[['m_customers','Customers'],['m_leads','Leads'],['m_invoices','Invoices'],['m_purchaseorders','Purchase Orders'],['m_items','Item Master'],['m_assets','Assets'],['m_employees','Employees'],['m_ncrs','NCR / CAPA'],['m_audits','Audits'],['gl_je','Journal Entry'],['insp_report','Inspection Report'],['m_calibrations','M&TE Register']];
+  document.getElementById('content').innerHTML=
+  '<div class="kpis">'+kpis.map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>'+
+  '<div class="card"><div class="card-h">Quick actions</div><div class="card-b"><div class="fgrid">'+
+  quick.map(q=>'<button class="btn ghost" style="justify-content:center" onclick="go(\''+q[0]+'\')">'+q[1]+'</button>').join('')+'</div></div></div>'+
+  '<div class="card"><div class="card-h">Compliance snapshot — ISO 9001 / 14001 / 45001 · API Q2 · ISO 17020 / 17025</div><div class="card-b tblwrap">'+complianceSnapshot()+'</div></div>';
+}
+function complianceSnapshot(){
+  const docs=coll('docs'),audits=coll('audits'),ncrs=coll('ncrs'),risks=coll('risks'),tr=coll('trainings');
+  const stds=['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025'];
+  return '<table><thead><tr><th>Standard</th><th class="num">Approved docs</th><th class="num">Audits (year)</th><th class="num">Open NCRs</th><th class="num">Open risks</th></tr></thead><tbody>'+
+  stds.map(s=>{
+    const d=docs.filter(r=>r.std===s&&r.status==='Approved').length;
+    const a=audits.filter(r=>(r.std===s||r.std==='Integrated')&&String(r.date||'').slice(0,4)===String(new Date().getFullYear())).length;
+    const n=ncrs.filter(r=>r.std===s&&r.status!=='Closed').length;
+    const rk=risks.filter(r=>r.status!=='Closed'&&r.status!=='Accepted').length;
+    return '<tr><td><b>'+s+'</b></td><td class="num">'+d+'</td><td class="num">'+a+'</td><td class="num'+(n?'" style="color:var(--rose);font-weight:700':'')+'">'+n+'</td><td class="num">'+(s===stds[0]?rk:'')+'</td></tr>';}).join('')+
+  '</tbody></table><div class="hint">Expired training certificates: '+tr.filter(r=>r.status==='Expired').length+' · Docs due for review in 30 days: '+docs.filter(r=>r.review&&r.review<=new Date(Date.now()+30*864e5).toISOString().slice(0,10)&&r.status==='Approved').length+'</div>';
+}
+
+/* ================================================================
+   BACKUP / RESTORE (all collections)
+   ================================================================ */
+function allKeys(){
+  const ks=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.startsWith(P))ks.push(k);}
+  return ks;
+}
+function backup(){
+  const o={_app:'premier-erp',_at:new Date().toISOString(),data:{}};
+  allKeys().forEach(k=>{o.data[k]=localStorage.getItem(k);});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(o)],{type:'application/json'}));
+  a.download='premier-erp-backup-'+today()+'.json';a.click();
+}
+function restoreFile(ev){
+  const f=ev.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{
+    const o=JSON.parse(r.result);
+    if(!o.data){alert('Not a valid backup file.');return;}
+    if(!confirm('Restore backup from '+(o._at||'unknown date')+'? Current data with the same keys will be overwritten.'))return;
+    Object.entries(o.data).forEach(([k,v])=>localStorage.setItem(k,v));
+    location.reload();
+  }catch(e){alert('Restore failed: '+e.message);}};
+  r.readAsText(f);
+}
+
+/* ================================================================
+   SYNC ENGINE — offline-first, pushes all perp_* keys
+   ================================================================ */
+const SYNC_CFG_KEY='perp_sync_cfg',SYNC_META_KEY='perp_sync_meta';
+function syncCfg(){try{return JSON.parse(localStorage.getItem(SYNC_CFG_KEY)||'{}')||{};}catch(e){return{};}}
+function syncMeta(){try{return JSON.parse(localStorage.getItem(SYNC_META_KEY)||'{}')||{};}catch(e){return{};}}
+function setSyncMeta(m){try{localStorage.setItem(SYNC_META_KEY,JSON.stringify(m));}catch(e){}}
+function strHash(str){let h=5381;for(let i=0;i<str.length;i++){h=((h<<5)+h+str.charCodeAt(i))|0;}return String(h);}
+function syncLog(msg){
+  const el=document.getElementById('synclog');if(!el)return;
+  el.textContent=(new Date().toLocaleTimeString()+' — '+msg+'\n'+el.textContent).split('\n').slice(0,40).join('\n');
+}
+function setSyncStatus(mode,text){
+  const bar=document.getElementById('syncchip');
+  bar.classList.remove('online','offline','err');bar.classList.add(mode);
+  document.getElementById('synctext').textContent=text;
+}
+function saveSyncSettings(){
+  const cfg={url:document.getElementById('sync-url').value.trim().replace(/\/+$/,''),
+   token:document.getElementById('sync-token').value.trim(),
+   interval:parseInt(document.getElementById('sync-interval').value)||0};
+  localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
+  closeModal('syncmodal');scheduleAutoSync();updateSyncBar();
+  if(cfg.url&&navigator.onLine)syncNow();
+}
+function syncKeys(){return allKeys().filter(k=>k!==SYNC_CFG_KEY&&k!==SYNC_META_KEY&&k!==P+'ui_route');}
+function dirtyKeys(){
+  const meta=syncMeta();
+  return syncKeys().filter(k=>{
+    const v=localStorage.getItem(k);if(v==null)return false;
+    return !meta[k]||meta[k].hash!==strHash(v);});
+}
+function updateSyncBar(){
+  const cfg=syncCfg();const d=dirtyKeys().length;
+  if(!cfg.url){setSyncStatus('offline','Local only');return;}
+  if(!navigator.onLine){setSyncStatus('offline',d?d+' queued':'Offline — saved locally');return;}
+  setSyncStatus('online',d?d+' pending':'Synced');
+}
+let syncBusy=false;
+async function syncNow(){
+  const cfg=syncCfg();
+  if(!cfg.url){openModal('syncmodal');return;}
+  if(!navigator.onLine){syncLog('Offline — queued until connection returns.');updateSyncBar();return;}
+  if(syncBusy)return;syncBusy=true;
+  const headers={'Content-Type':'application/json'};
+  if(cfg.token)headers['Authorization']='Bearer '+cfg.token;
+  try{
+    const pr=await fetch(cfg.url+'/sync/pull',{headers});
+    if(!pr.ok)throw new Error('pull HTTP '+pr.status);
+    const remote=await pr.json();
+    const meta=syncMeta();let pulled=0;
+    Object.entries(remote.keys||{}).forEach(([k,rec])=>{
+      if(!k.startsWith(P))return;
+      const localV=localStorage.getItem(k);
+      const localTs=(meta[k]&&meta[k].ts)||0;
+      const localDirty=localV!=null&&(!meta[k]||meta[k].hash!==strHash(localV));
+      if(rec.ts>localTs&&!localDirty){
+        localStorage.setItem(k,rec.value);
+        meta[k]={ts:rec.ts,hash:strHash(rec.value)};pulled++;}
+    });
+    const push={};let pushed=0;
+    dirtyKeys().forEach(k=>{push[k]={value:localStorage.getItem(k),ts:Date.now()};pushed++;});
+    if(pushed){
+      const ps=await fetch(cfg.url+'/sync/push',{method:'POST',headers,body:JSON.stringify({keys:push})});
+      if(!ps.ok)throw new Error('push HTTP '+ps.status);
+      Object.entries(push).forEach(([k,rec])=>{meta[k]={ts:rec.ts,hash:strHash(rec.value)};});
+    }
+    setSyncMeta(meta);
+    if(pulled)render();
+    syncLog('Sync OK — pushed '+pushed+' / pulled '+pulled+'.');
+    setSyncStatus('online','Synced '+new Date().toLocaleTimeString());
+  }catch(e){syncLog('Sync failed: '+e.message);setSyncStatus('err','Sync error — data safe locally');}
+  finally{syncBusy=false;updateSyncBar();}
+}
+let syncTimer=null;
+function scheduleAutoSync(){
+  if(syncTimer)clearInterval(syncTimer);
+  const cfg=syncCfg();
+  if(cfg.url&&cfg.interval>0)syncTimer=setInterval(()=>{if(navigator.onLine)syncNow();},cfg.interval*60000);
+}
+window.addEventListener('online',()=>{updateSyncBar();syncLog('Connection restored.');if(syncCfg().url)syncNow();});
+window.addEventListener('offline',()=>{updateSyncBar();syncLog('Connection lost — continuing offline.');});
+setInterval(updateSyncBar,5000);
+
+/* ================================================================
+   ROUTER
+   ================================================================ */
+/* ============ contract map — client -> contracts -> work orders ============ */
+function renderInspMap(){
+  const custs=coll('customers'),ctrs=coll('contracts'),wos=coll('workorders'),lib=lsGet('ir_library',[]);
+  const names=[...new Set(custs.map(c=>c.name).concat(ctrs.map(c=>c.client),wos.map(w=>w.client)).filter(Boolean))];
+  let body='';
+  names.forEach(nm=>{
+    const cc=ctrs.filter(c=>c.client===nm),cw=wos.filter(w=>w.client===nm);
+    const rpts=lib.filter(r=>(r.fields&&r.fields.client)===nm).length;
+    if(!cc.length&&!cw.length&&!rpts)return;
+    const openWo=cw.filter(w=>['Issued','In progress'].includes(w.status)).length;
+    body+='<tr class="grp-row"><td colspan="7" style="background:var(--bg2);font-weight:700">'+esc(nm)+
+      ' <span class="pill b">'+cc.length+' contract(s)</span> <span class="pill '+(openWo?'a':'g')+'">'+openWo+' open WO</span> <span class="pill v">'+rpts+' report(s)</span></td></tr>';
+    if(!cc.length)body+='<tr><td colspan="7" class="empty">No contract on file — work orders issued without contract mapping.</td></tr>';
+    cc.forEach(c=>{
+      const ww=cw.filter(w=>w.contract===c.no);
+      body+='<tr class="rowlink" onclick="go(\'m_contracts\');editId=\''+c.id+'\';render()"><td><b>'+esc(c.no||'')+'</b>'+((c.pricelist&&c.pricelist.length)?' <span class="pill v">'+c.pricelist.length+' rates</span>':'')+'</td><td>'+esc(c.ctype||'')+'</td><td>'+esc(c.start||'')+' \u2192 '+esc(c.end||'')+'</td><td class="num">'+(c.value?fmt(+c.value)+' '+esc(c.cur||''):'')+'</td><td><span class="pill '+pillCls(c.status)+'">'+esc(c.status||'')+'</span></td><td class="num">'+ww.length+' WO</td><td>'+
+        ww.slice(0,6).map(w=>'<span class="pill '+pillCls(w.status)+'" title="'+esc(w.service||'')+'">'+esc(w.no||'')+'</span>').join(' ')+(ww.length>6?' \u2026':'')+'</td></tr>';
+    });
+    const orphan=cw.filter(w=>!w.contract||!cc.some(c=>c.no===w.contract));
+    if(orphan.length)body+='<tr><td colspan="6" style="color:var(--mut)">Work orders without a contract link</td><td>'+orphan.map(w=>'<span class="pill '+pillCls(w.status)+'">'+esc(w.no||'')+'</span>').join(' ')+'</td></tr>';
+  });
+  document.getElementById('content').innerHTML=
+  '<div class="kpis">'+
+   [{l:'Clients mapped',n:names.filter(nm=>ctrs.some(c=>c.client===nm)||wos.some(w=>w.client===nm)).length},
+    {l:'Active contracts',n:ctrs.filter(c=>c.status==='Active').length},
+    {l:'Open work orders',n:wos.filter(w=>['Issued','In progress'].includes(w.status)).length},
+    {l:'Contracts expiring 45d',n:ctrs.filter(c=>c.status==='Active'&&c.end&&(new Date(c.end)-Date.now())<45*864e5).length,warn:ctrs.some(c=>c.status==='Active'&&c.end&&(new Date(c.end)-Date.now())<45*864e5)}
+   ].map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>'+
+  '<div class="card"><div class="card-h">Client \u2192 contract \u2192 work order map<span class="sp"></span>'+expBtns('xt-map','contract-map')+'</div><div class="card-b tblwrap" id="xt-map">'+
+  (body?'<table><thead><tr><th>Contract</th><th>Type</th><th>Period</th><th class="num">Value</th><th>Status</th><th class="num">WOs</th><th>Work orders</th></tr></thead><tbody>'+body+'</tbody></table>'
+   :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
+  '</div></div>';
+}
+const TITLES={dashboard:['Home','Dashboard'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+function render(){
+  let crumb,title;
+  if(!SESSION){return;}
+  if(route.startsWith('m_')&&!canSee(routeGroup(route))){route='dashboard';}
+  if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
+  else{
+    const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
+    ({dashboard:renderDashboard,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+  }
+  document.getElementById('crumb').textContent=crumb.toUpperCase();
+  document.getElementById('title').textContent=title;
+}
+/* ---- drag & drop photos ---- */
+document.addEventListener('dragover',e=>{const dz=document.getElementById('ir-drop');if(dz){e.preventDefault();dz.classList.add('drag');}});
+document.addEventListener('dragleave',e=>{const dz=document.getElementById('ir-drop');if(dz)dz.classList.remove('drag');});
+document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop');if(dz){e.preventDefault();dz.classList.remove('drag');if(route==='insp_report')irPhotos(e.dataTransfer.files);}});
+/* ---- init ---- */
+(async function(){
+  IR=lsGet('ir_current',IR);if(!IR.items)IR.items=[];if(!IR.eq)IR.eq=[];if(!IR.photos)IR.photos=[];if(!IR.fields)IR.fields={};
+  const cfg=syncCfg();
+  if(cfg.url)document.getElementById('sync-url').value=cfg.url;
+  if(cfg.token)document.getElementById('sync-token').value=cfg.token;
+  if(cfg.interval!=null)document.getElementById('sync-interval').value=cfg.interval;
+  let restored=false;
+  if(localStorage.getItem('erp_jwt')){
+    try{
+      const u=await api('/api/auth/me');
+      SESSION={uid:u.id,user:u.employeeId,name:u.name,role:u.role,desig:u.desig||'',at:new Date().toISOString()};
+      lsSet('session',SESSION);
+      document.getElementById('login').style.display='none';document.body.classList.remove('locked');
+      const chip=document.getElementById('userchip');if(chip)chip.outerHTML=userChip();
+      if(!canSee(routeGroup(route)))route='dashboard';
+      nav();render();restored=true;
+      pullSharedMaster();
+    }catch(e){localStorage.removeItem('erp_jwt');}
+  }
+  if(!restored)await showLogin();
+  updateSyncBar();scheduleAutoSync();
+  if(cfg.url&&navigator.onLine)setTimeout(syncNow,1500);
+})();
+</script>
+</body>
+</html>
