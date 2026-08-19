@@ -1,11 +1,16 @@
 # dependencies
 node_modules/
 backend/node_modules/
+attendance-agent/node_modules/
 
 # secrets — never commit real DB passwords / JWT keys
 .env
 backend/.env
+attendance-agent/.env
 *.env.local
+
+# attendance agent's local sync bookmark (machine-specific, not shared data)
+attendance-agent/state.json
 
 # old JSON-file backend's runtime data (superseded by backend/, kept only for reference)
 data/

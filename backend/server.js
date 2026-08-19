@@ -14,6 +14,7 @@
      /api/shared/*    -> routes/shared.js (employees / departments / locations)
      /api/sync/*  and  /sync/*  -> routes/sync.js (generic KV store the
                                     existing front-end sync engine expects)
+     /api/attendance/*-> routes/attendance.js (ZKTeco K70 agent ingest + HR view)
    ============================================================ */
 'use strict';
 const path = require('path');
@@ -25,6 +26,7 @@ const migrate = require('./migrate');
 const { router: authRouter } = require('./routes/auth');
 const sharedRouter = require('./routes/shared');
 const syncRouter = require('./routes/sync');
+const attendanceRouter = require('./routes/attendance');
 
 const PORT = +(process.env.PORT || 5050);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -45,6 +47,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/shared', sharedRouter);
 app.use('/api/sync', syncRouter);
 app.use('/sync', syncRouter); // alias — matches the front end's existing cfg.url + '/sync/pull' calls verbatim
+app.use('/api/attendance', attendanceRouter);
 
 // Serve the existing HTML/JS front end unchanged.
 app.use(express.static(PUBLIC_DIR));

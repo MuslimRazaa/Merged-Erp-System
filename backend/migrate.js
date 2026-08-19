@@ -58,7 +58,29 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit ready (no ISO tables were altered).');
+  // Raw punches pushed by the ZKTeco K70 polling agent (attendance-agent/,
+  // running on the office VM). device_user_id is matched against
+  // employees.employee_id (employees are enrolled on the device using the
+  // same ID) — employee_id is filled in at ingest time when it matches, so
+  // rows with no match are still kept (visible as "unmapped" in the UI)
+  // instead of silently dropped.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_attendance_logs (
+      id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+      device_user_id VARCHAR(50) NOT NULL,
+      employee_id    INT NULL,
+      punch_time     DATETIME NOT NULL,
+      verify_mode    INT NULL,
+      in_out_mode    INT NULL,
+      source         VARCHAR(50) NOT NULL DEFAULT 'zkteco-k70',
+      created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_punch (device_user_id, punch_time),
+      INDEX idx_attendance_employee (employee_id, punch_time),
+      INDEX idx_attendance_time (punch_time)
+    )
+  `);
+
+  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

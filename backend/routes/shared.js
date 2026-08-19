@@ -26,14 +26,20 @@ function requireGroup(group) {
 
 /* ---------------- employees (Human Resources) ---------------- */
 router.get('/employees', requireGroup('Human Resources'), async (req, res) => {
+  // LEFT JOINed so the HR form can show/edit each employee's current ERP
+  // role right there, instead of only on the separate Users & Roles page.
   const [rows] = await pool.query(
-    `SELECT id, employee_id, full_name, email, department, location, status, created_at, updated_at
-     FROM employees ORDER BY full_name ASC`
+    `SELECT e.id, e.employee_id, e.full_name, e.email, e.department, e.location, e.status, e.created_at, e.updated_at,
+            r.role AS erp_role, r.desig AS erp_desig, r.active AS erp_active
+     FROM employees e
+     LEFT JOIN erp_employee_roles r ON r.employee_id = e.id
+     ORDER BY e.full_name ASC`
   );
   res.json(rows.map((r) => ({
     id: r.id, employeeId: r.employee_id, name: r.full_name, email: r.email,
     department: r.department, location: r.location, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
+    erpRole: (r.erp_role && r.erp_active !== 0) ? r.erp_role : '', erpDesig: r.erp_desig || '',
   })));
 });
 

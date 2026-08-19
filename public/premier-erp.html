@@ -126,6 +126,10 @@ tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
 #login .lbtn{width:100%;margin-top:18px;background:#12203C;color:#fff;border:0;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer}
 #login .lbtn:hover{background:#1A2F55}
 #login .lerr{background:#FDE8E8;color:#B91C1C;border:1px solid #F5B5B5;border-radius:8px;padding:8px 10px;font-size:12.5px;margin-top:12px;display:none}
+#login .ltype{display:flex;gap:8px;margin-top:4px}
+#login .ltype-opt{flex:1;text-align:center;padding:9px 4px;border:1px solid #D1D5DB;border-radius:8px;font-size:12.5px;font-weight:600;color:#6B7280;cursor:pointer;transition:.15s}
+#login .ltype-opt:hover{border-color:#12203C}
+#login .ltype-opt.active{border-color:#12203C;background:#12203C;color:#fff}
 #login .lfoot{margin-top:16px;font-size:11px;color:#9CA3AF;text-align:center}
 body.locked #app{display:none}
 .userchip{display:flex;align-items:center;gap:7px;background:var(--bg2,#F3F4F6);border:1px solid var(--line,#E5E7EB);border-radius:999px;padding:4px 12px 4px 6px;font-size:12px}
@@ -150,9 +154,13 @@ body.locked #app{display:none}
   <div class="lbrand">PREMIER TUBULAR SERVICES</div>
   <div class="lsub" id="l-sub">Sign in to Premier ERP</div>
   <div id="l-form">
+   <div class="ltype" id="l-type">
+    <div class="ltype-opt active" id="lt-user" onclick="switchLoginType('user')">User</div>
+    <div class="ltype-opt" id="lt-admin" onclick="switchLoginType('admin')">Admin</div>
+   </div>
    <label>Employee ID</label><input id="l-user" autocomplete="username" placeholder="Same ID you use on the ISO/LMS portal" onkeydown="if(event.key==='Enter')document.getElementById('l-pass').focus()">
    <label>Password</label><input id="l-pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-   <button class="lbtn" onclick="doLogin()">Sign in</button>
+   <button class="lbtn" onclick="doLogin()" id="l-submit">User Login</button>
   </div>
   <div id="l-setup" style="display:none">
    <label>Your Employee ID</label><input id="s-user" placeholder="Same ID you use on the ISO/LMS portal">
@@ -248,7 +256,7 @@ payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Vouch
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},employees:{g:'Human Resources',ic:'♟',name:'Employees',att:1,photo:1,fields:[T('empno','Employee no.','EMP-001'),T('name','Full name'),T('desig','Designation'),REF('dept','Department','shared_departments','name'),REF('loc','Location','shared_locations','name'),T('initpw','Initial ISO/LMS password (new employee only — blank = same as Employee no.)'),D('join','Join date'),T('nation','Nationality'),T('passport','Passport / ID no.'),D('visaexp','Visa / permit expiry'),A('homeaddr','Home address'),A('mailaddr','Mailing address'),S('shift','Shift',['Day (08:00-17:00)','Night (19:00-04:00)','Rotational 12 hr','Rotational 8 hr','On call / field','Office hours']),T('shiftnotes','Shift details / roster notes'),N('salary','Basic salary'),N('utility','Utility allowance'),N('hra','House rent allowance'),N('fieldallow','Field allowance'),{k:'gross',l:'Gross salary',t:'computed',fn:r=>((+r.salary||0)+(+r.utility||0)+(+r.hra||0)+(+r.fieldallow||0)).toFixed(2)},T('cur','Currency','AED'),T('phone','Phone'),T('email','Email'),S('status','Status',['Active','On leave','Resigned','Terminated'])],list:['empno','name','desig','dept','shift','gross','visaexp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active employees'}]},
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},employees:{g:'Human Resources',ic:'♟',name:'Employees',att:1,photo:1,fields:[T('empno','Employee no.','EMP-001'),T('name','Full name'),T('desig','Designation'),REF('dept','Department','shared_departments','name'),REF('loc','Location','shared_locations','name'),T('initpw','Initial ISO/LMS password (new employee only — blank = same as Employee no.)'),S('erprole','ERP access (Administrator only)',['— No ERP access —','Administrator','Management','Accounts','HR Officer','Inspector','QHSE / Quality','Sales / CRM','Store / Logistics','Viewer']),D('join','Join date'),T('nation','Nationality'),T('passport','Passport / ID no.'),D('visaexp','Visa / permit expiry'),A('homeaddr','Home address'),A('mailaddr','Mailing address'),S('shift','Shift',['Day (08:00-17:00)','Night (19:00-04:00)','Rotational 12 hr','Rotational 8 hr','On call / field','Office hours']),T('shiftnotes','Shift details / roster notes'),N('salary','Basic salary'),N('utility','Utility allowance'),N('hra','House rent allowance'),N('fieldallow','Field allowance'),{k:'gross',l:'Gross salary',t:'computed',fn:r=>((+r.salary||0)+(+r.utility||0)+(+r.hra||0)+(+r.fieldallow||0)).toFixed(2)},T('cur','Currency','AED'),T('phone','Phone'),T('email','Email'),S('status','Status',['Active','On leave','Resigned','Terminated'])],list:['empno','name','desig','dept','shift','gross','visaexp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active employees'}]},
 attendance:{g:'Human Resources',ic:'▱',name:'Attendance',fields:[D('date','Date'),REF('emp','Employee','employees','name'),S('status','Status',['Present','Absent','Half day','Site / field','Remote','Holiday']),T('site','Site / location'),T('hours','Hours'),A('notes','Notes')],list:['date','emp','status','site','hours'],badge:r=>r.status},
 leave:{g:'Human Resources',ic:'✈',name:'Leave',fields:[REF('emp','Employee','employees','name'),S('type','Type',['Annual','Sick','Unpaid','Emergency','Maternity/Paternity','Hajj']),D('from','From'),D('to','To'),N('days','Days'),S('status','Status',['Requested','Approved','Rejected','Taken']),A('notes','Notes')],list:['emp','type','from','to','days','status'],badge:r=>r.status},
 payroll:{g:'Human Resources',ic:'₪',name:'Payroll',fields:[T('period','Period','2026-08'),REF('emp','Employee','employees','name'),N('basic','Basic'),N('allow','Allowances'),N('ot','Overtime'),N('ded','Deductions'),C_NET(),T('cur','Currency','AED'),S('status','Status',['Draft','Approved','Paid'])],list:['period','emp','basic','allow','ot','ded','net','status'],badge:r=>r.status},
@@ -326,6 +334,15 @@ async function api(path,opts={}){
   return body;
 }
 function lerr(msg){const e=document.getElementById('l-err');e.textContent=msg;e.style.display='block';}
+/* ---------------- Admin / User login tabs ---------------- */
+let LOGIN_TYPE='user';
+function switchLoginType(t){
+  LOGIN_TYPE=t;
+  document.getElementById('lt-user').classList.toggle('active',t==='user');
+  document.getElementById('lt-admin').classList.toggle('active',t==='admin');
+  document.getElementById('l-submit').textContent=t==='admin'?'Admin Login':'User Login';
+  document.getElementById('l-err').style.display='none';
+}
 async function showLogin(){
   document.body.classList.add('locked');
   let setup=false;
@@ -345,8 +362,16 @@ async function doSetup(){
 async function doLogin(){
   const employeeId=document.getElementById('l-user').value.trim(),pw=document.getElementById('l-pass').value;
   if(!employeeId||!pw)return lerr('Employee ID and password are required.');
-  try{applySession(await api('/api/auth/login',{method:'POST',body:JSON.stringify({employeeId,password:pw})}));}
-  catch(e){lerr(e.message);}
+  try{
+    const r=await api('/api/auth/login',{method:'POST',body:JSON.stringify({employeeId,password:pw})});
+    /* Admin and User are separate login tabs: same real credentials
+       (same employees table ISO uses) either way, but each tab only
+       accepts the matching role. */
+    const admin=r.user.role==='Administrator';
+    if(LOGIN_TYPE==='admin'&&!admin)return lerr('This account does not have Administrator access. Use the User login instead.');
+    if(LOGIN_TYPE==='user'&&admin)return lerr('This is an Administrator account. Use the Admin login instead.');
+    applySession(r);
+  }catch(e){lerr(e.message);}
 }
 function applySession(r){
   localStorage.setItem('erp_jwt',r.token);
@@ -379,7 +404,7 @@ async function pullSharedMaster(){
     const byEmpno=Object.fromEntries(local.map(r=>[r.empno,r]));
     emps.forEach(e=>{
       const row=byEmpno[e.employeeId]||{id:uid(),empno:e.employeeId};
-      row.name=e.name;row.dept=e.department;row.loc=e.location;row.status=e.status;if(e.email)row.email=e.email;row._iso=true;row.isoId=e.id;
+      row.name=e.name;row.dept=e.department;row.loc=e.location;row.status=e.status;if(e.email)row.email=e.email;row._iso=true;row.isoId=e.id;row.erprole=e.erpRole||'— No ERP access —';
       byEmpno[e.employeeId]=row;
     });
     collSet('employees',Object.values(byEmpno));
@@ -503,13 +528,20 @@ async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
   const wasNew=!editId;
   const rec=editId?data.find(r=>r.id===editId):{id:uid()};
+  const prevErpRole=rec.erprole; // snapshot BEFORE the form overwrites it — only push a role change if it actually changed
   m.fields.forEach(f=>{if(f.t==='computed')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
   if(wasNew)data.push(rec);
   collSet(k,data);editId=null;render();
-  if(k==='employees')await pushEmployeeToIso(rec,wasNew);
+  if(k==='employees'){
+    await pushEmployeeToIso(rec,wasNew);
+    // Guard: if this employee's role wasn't actually pulled from the server
+    // yet (prevErpRole is undefined — stale/never-synced local record),
+    // do NOT touch their ERP access just because a save happened to fire.
+    if(prevErpRole!==undefined && rec.erprole!==prevErpRole)await pushEmployeeRole(rec);
+  }
 }
 function editRec(id){editId=id;renderModule._lk=false;render();window.scrollTo({top:0,behavior:'smooth'});}
 async function delRec(id){
@@ -540,6 +572,20 @@ async function pushEmployeeToIso(rec,wasNew){
     }
   }catch(e){
     alert('Saved locally, but could NOT sync to ISO/LMS: '+e.message+'\n(Employee no. must be unique, and Department/Location must exist in the shared list.)');
+  }
+}
+/* Grant/revoke this employee's ERP module access — the "ERP access"
+   dropdown right here on the Employees form (Administrator only; the
+   backend rejects this for anyone else, same as the separate Users &
+   Roles screen). */
+async function pushEmployeeRole(rec){
+  if(!rec.isoId)return; // employee wasn't created in ISO (sync to ISO failed above) — nothing to grant against
+  const none=!rec.erprole||rec.erprole==='— No ERP access —';
+  try{
+    if(none)await api('/api/auth/erp-users/'+rec.isoId+'/revoke',{method:'POST'});
+    else await api('/api/auth/erp-users/'+rec.isoId+'/role',{method:'POST',body:JSON.stringify({role:rec.erprole,desig:rec.desig||''})});
+  }catch(e){
+    alert('Employee saved, but could NOT update their ERP access: '+e.message);
   }
 }
 /* ============ document attachments (Compliance) ============ */

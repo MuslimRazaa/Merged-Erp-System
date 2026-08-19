@@ -1,0 +1,16 @@
+{
+  "name": "erp-attendance-agent",
+  "version": "1.0.0",
+  "description": "Polls a ZKTeco K70 attendance machine over the office LAN and pushes new punches to the Premier ERP backend. Runs on the office VM, NOT on cPanel — see README-SETUP.md.",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "node-zklib": "^1.3.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
