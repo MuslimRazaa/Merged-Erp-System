@@ -11,7 +11,16 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const pool = require('../db');
 const { issue, verify } = require('../token');
-const { ROLES, canAccess } = require('../roles');
+const { ROLES, GROUPS_ALL, canAccess } = require('../roles');
+
+// A role is valid if it's one of the 9 named presets, OR a comma-separated
+// list of module names picked directly on the Employees form's multi-select
+// (e.g. "CRM,Human Resources") — every token must be a real module group.
+function isValidRole(role) {
+  if (ROLES[role]) return true;
+  const tokens = String(role || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return tokens.length > 0 && tokens.every((t) => GROUPS_ALL.includes(t));
+}
 
 const router = express.Router();
 
@@ -144,7 +153,7 @@ router.get('/erp-users', requireAuth, requireAdmin, async (req, res) => {
 
 router.post('/erp-users/:employeeId/role', requireAuth, requireAdmin, async (req, res) => {
   const id = +req.params.employeeId;
-  if (!ROLES[req.body.role]) return res.status(400).json({ error: 'Unknown role.' });
+  if (!isValidRole(req.body.role)) return res.status(400).json({ error: 'Unknown role / module list.' });
   const [emp] = await pool.query('SELECT id FROM employees WHERE id = ?', [id]);
   if (!emp.length) return res.status(404).json({ error: 'Employee not found.' });
   await pool.query(

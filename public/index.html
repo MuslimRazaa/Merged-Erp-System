@@ -59,6 +59,24 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .kpi span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
 .kpi b{display:block;font-size:19px;font-family:var(--disp);margin-top:3px;letter-spacing:-.01em}
 .kpi b.warn{color:var(--rose)}
+/* ---------- Live Attendance ---------- */
+.att-tabs{display:flex;gap:4px;background:var(--bg2,#F3F4F6);border-radius:10px;padding:4px;width:max-content;margin-bottom:16px}
+.att-tab{padding:7px 16px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--soft);background:transparent}
+.att-tab.on{background:#fff;color:var(--brand);box-shadow:0 1px 3px rgba(15,23,40,.12)}
+.att-feed{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--card)}
+.att-row{display:flex;align-items:center;gap:12px;padding:11px 15px;border-bottom:1px solid var(--line2)}
+.att-row:last-child{border-bottom:none}
+.att-row:hover{background:#FAFBFD}
+.att-who{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.att-av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+.att-time{font-size:12.5px;color:var(--soft);white-space:nowrap;min-width:90px;text-align:right}
+.att-daygroup{border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden;background:var(--card)}
+.att-day-head{display:flex;align-items:center;gap:10px;padding:12px 15px;cursor:pointer;background:#FAFBFD;user-select:none}
+.att-day-head:hover{background:var(--bg2,#F3F4F6)}
+.att-day-head b{font-family:var(--disp);font-size:13.5px;flex:1}
+.att-chev{display:inline-block;transition:transform .15s;color:var(--faint);font-size:12px}
+.att-chev.open{transform:rotate(90deg)}
+.att-day-body table{border-top:1px solid var(--line)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px}
 .card-h{padding:12px 17px;border-bottom:1px solid var(--line);font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--disp)}
 .card-h .sp{margin-left:auto}
@@ -206,6 +224,23 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('syncmodal')">Close</button><button class="btn" onclick="saveSyncSettings()">Save settings</button></div>
 </div></div>
 
+<div class="modal" id="attmodal"><div class="box" style="max-width:640px">
+  <h3 id="attmodal-title">Punches</h3>
+  <div id="attmodal-body"></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('attmodal')">Close</button></div>
+</div></div>
+
+<div class="modal" id="empmodal"><div class="box" style="max-width:880px">
+  <h3 id="empmodal-title">Employee</h3>
+  <div class="att-tabs" id="empmodal-tabs" style="margin-bottom:16px"></div>
+  <div id="empmodal-body" style="max-height:56vh;overflow:auto;padding-right:4px"></div>
+  <div class="lerr" id="empmodal-err" style="display:none"></div>
+  <div class="actions" style="justify-content:space-between;margin-top:14px">
+   <span id="empmodal-delwrap"><button class="del" onclick="empDelete()" id="empmodal-del" style="display:none">Delete employee</button></span>
+   <span><button class="btn ghost" onclick="closeModal('empmodal')">Cancel</button> <button class="btn" onclick="empSave()">Save employee</button></span>
+  </div>
+</div></div>
+
 <script>
 /* ================================================================
    PREMIER ERP — single-file, offline-first
@@ -256,8 +291,7 @@ payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Vouch
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},employees:{g:'Human Resources',ic:'♟',name:'Employees',att:1,photo:1,fields:[T('empno','Employee no.','EMP-001'),T('name','Full name'),T('desig','Designation'),REF('dept','Department','shared_departments','name'),REF('loc','Location','shared_locations','name'),T('initpw','Initial ISO/LMS password (new employee only — blank = same as Employee no.)'),S('erprole','ERP access (Administrator only)',['— No ERP access —','Administrator','Management','Accounts','HR Officer','Inspector','QHSE / Quality','Sales / CRM','Store / Logistics','Viewer']),D('join','Join date'),T('nation','Nationality'),T('passport','Passport / ID no.'),D('visaexp','Visa / permit expiry'),A('homeaddr','Home address'),A('mailaddr','Mailing address'),S('shift','Shift',['Day (08:00-17:00)','Night (19:00-04:00)','Rotational 12 hr','Rotational 8 hr','On call / field','Office hours']),T('shiftnotes','Shift details / roster notes'),N('salary','Basic salary'),N('utility','Utility allowance'),N('hra','House rent allowance'),N('fieldallow','Field allowance'),{k:'gross',l:'Gross salary',t:'computed',fn:r=>((+r.salary||0)+(+r.utility||0)+(+r.hra||0)+(+r.fieldallow||0)).toFixed(2)},T('cur','Currency','AED'),T('phone','Phone'),T('email','Email'),S('status','Status',['Active','On leave','Resigned','Terminated'])],list:['empno','name','desig','dept','shift','gross','visaexp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active employees'}]},
-attendance:{g:'Human Resources',ic:'▱',name:'Attendance',fields:[D('date','Date'),REF('emp','Employee','employees','name'),S('status','Status',['Present','Absent','Half day','Site / field','Remote','Holiday']),T('site','Site / location'),T('hours','Hours'),A('notes','Notes')],list:['date','emp','status','site','hours'],badge:r=>r.status},
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},attendance:{g:'Human Resources',ic:'▱',name:'Attendance',fields:[D('date','Date'),REF('emp','Employee','employees','name'),S('status','Status',['Present','Absent','Half day','Site / field','Remote','Holiday']),T('site','Site / location'),T('hours','Hours'),A('notes','Notes')],list:['date','emp','status','site','hours'],badge:r=>r.status},
 leave:{g:'Human Resources',ic:'✈',name:'Leave',fields:[REF('emp','Employee','employees','name'),S('type','Type',['Annual','Sick','Unpaid','Emergency','Maternity/Paternity','Hajj']),D('from','From'),D('to','To'),N('days','Days'),S('status','Status',['Requested','Approved','Rejected','Taken']),A('notes','Notes')],list:['emp','type','from','to','days','status'],badge:r=>r.status},
 payroll:{g:'Human Resources',ic:'₪',name:'Payroll',fields:[T('period','Period','2026-08'),REF('emp','Employee','employees','name'),N('basic','Basic'),N('allow','Allowances'),N('ot','Overtime'),N('ded','Deductions'),C_NET(),T('cur','Currency','AED'),S('status','Status',['Draft','Approved','Paid'])],list:['period','emp','basic','allow','ot','ded','net','status'],badge:r=>r.status},
 trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Completed'),D('expiry','Expiry'),T('certno','Certificate no.'),S('status','Status',['Valid','Expiring','Expired','Planned'])],list:['emp','course','provider','date','expiry','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Expired').length,l:'Expired certs',warn:1}]},
@@ -288,6 +322,7 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'}],
+  'Human Resources':[{id:'hr_employees',ic:'♟',name:'Employees'},{id:'hr_attendance',ic:'⏱',name:'Live Attendance'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
@@ -404,7 +439,7 @@ async function pullSharedMaster(){
     const byEmpno=Object.fromEntries(local.map(r=>[r.empno,r]));
     emps.forEach(e=>{
       const row=byEmpno[e.employeeId]||{id:uid(),empno:e.employeeId};
-      row.name=e.name;row.dept=e.department;row.loc=e.location;row.status=e.status;if(e.email)row.email=e.email;row._iso=true;row.isoId=e.id;row.erprole=e.erpRole||'— No ERP access —';
+      row.name=e.name;row.dept=e.department;row.loc=e.location;row.status=e.status;if(e.email)row.email=e.email;row._iso=true;row.isoId=e.id;row.erprole=e.erpRole||'— No ERP access —';row.shiftstart=e.shiftStart||'09:00';
       byEmpno[e.employeeId]=row;
     });
     collSet('employees',Object.values(byEmpno));
@@ -456,6 +491,442 @@ async function renderUsers(){
    '<td><input id="ua-desig-'+u.id+'" value="'+esc(u.desig||'')+'" placeholder="Designation" style="width:120px"></td>'+
    '<td class="no-print"><button class="btn ghost small" onclick="uaGrant('+u.id+')">Save</button></td></tr>').join('')+
   '</tbody></table></div></div>';
+}
+/* ---------- Live Attendance (ZKTeco K70, via backend/routes/attendance.js) ---------- */
+let ATT_ROWS=[];
+function attInitials(name){return String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();}
+function attAvatar(r,nameField){
+  const unmapped=r.unmapped;
+  const name=r[nameField]||'Unmapped';
+  const bg=unmapped?'var(--rose-t)':'var(--brand-t)',fg=unmapped?'var(--rose)':'var(--brand)';
+  return '<span class="att-av" style="background:'+bg+';color:'+fg+'">'+esc(attInitials(name))+'</span>';
+}
+function attEmpCell(r,nameField,codeField){
+  const name=r[nameField]||'Unmapped';
+  const badge=r.unmapped?' <span class="pill r" title="No employee record matches this device ID yet — shown anyway so nothing is hidden.">Unmapped</span>':'';
+  return '<div class="att-who">'+attAvatar(r,nameField)+'<span><b>'+esc(name)+'</b><span class="hint" style="display:block">'+esc(r[codeField])+'</span></span></div>'+badge;
+}
+async function renderLiveAttendance(){
+  const from=window.__attFrom||today(),to=window.__attTo||today(),q=window.__attQ||'',view=window.__attView||'raw';
+  const sameDay=from===to;
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Live Attendance <span class="hint" style="font-weight:400">— real-time from the ZKTeco attendance machine</span></div><div class="card-b">'+
+   '<div class="fgrid" style="margin-bottom:16px">'+
+   '<div class="field"><label>From</label><input type="date" id="att-from" value="'+from+'"></div>'+
+   '<div class="field"><label>To</label><input type="date" id="att-to" value="'+to+'"></div>'+
+   '<div class="field" style="flex:1;min-width:180px"><label>Search employee (ID or name)</label><input id="att-q" value="'+esc(q)+'" placeholder="e.g. 1878 or Ahmed" onkeydown="if(event.key===\'Enter\')attApply()"></div>'+
+   '<div class="field" style="align-self:end"><button class="btn" onclick="attApply()">🔍 Search</button></div>'+
+   '<div class="field" style="align-self:end"><button class="btn ghost" onclick="attExportCsv()">⬇ Export to Excel</button></div>'+
+   '</div>'+
+   '<div class="att-tabs">'+
+   '<button class="att-tab'+(view==='raw'?' on':'')+'" onclick="attSetView(\'raw\')">Latest punches</button>'+
+   '<button class="att-tab'+(view==='summary'?' on':'')+'" onclick="attSetView(\'summary\')">Daily summary</button>'+
+   '</div>'+
+   '<div id="att-kpis"></div>'+
+   '<div id="att-body">'+
+   (view==='raw'
+     ?'<div class="att-feed"><div class="empty">Loading…</div></div>'
+     :'<div class="tblwrap"><div class="empty">Loading…</div></div>')+
+   '</div></div></div>';
+  try{
+    let url='/api/attendance/'+(view==='raw'?'logs':'summary')+'?from='+from+'&to='+to;
+    if(q)url+='&q='+encodeURIComponent(q);
+    const rows=await api(url);
+    ATT_ROWS=rows;
+
+    if(view==='raw'){
+      const checkins=rows.filter(r=>r.type==='Check-in').length;
+      const checkouts=rows.filter(r=>r.type==='Check-out').length;
+      const unmapped=rows.filter(r=>r.unmapped).length;
+      document.getElementById('att-kpis').innerHTML='<div class="kpis" style="margin-bottom:16px">'+
+       '<div class="kpi"><span>Total punches</span><b>'+rows.length+'</b></div>'+
+       '<div class="kpi"><span>Check-ins</span><b>'+checkins+'</b></div>'+
+       '<div class="kpi"><span>Check-outs</span><b>'+checkouts+'</b></div>'+
+       '<div class="kpi"><span>Unmapped</span><b'+(unmapped?' class="warn"':'')+'>'+unmapped+'</b></div>'+
+       '</div>';
+      const feed=rows.map(r=>{
+        const d=new Date(r.time);
+        const when=sameDay?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        return '<div class="att-row">'+attEmpCell(r,'employeeName','employeeCode')+
+         '<span class="att-time">'+when+'</span>'+
+         '<span class="pill '+(r.type==='Check-in'?'g':r.type==='Check-out'?'v':'a')+'">'+esc(r.type)+'</span>'+
+         '</div>';
+      }).join('');
+      document.getElementById('att-body').innerHTML='<div class="att-feed">'+(rows.length?feed:'<div class="empty">No punches recorded for this range.</div>')+'</div>';
+    }else{
+      const late=rows.filter(r=>r.late).length;
+      const unmapped=rows.filter(r=>r.unmapped).length;
+      document.getElementById('att-kpis').innerHTML='<div class="kpis" style="margin-bottom:16px">'+
+       '<div class="kpi"><span>Days · Employees</span><b>'+rows.length+'</b></div>'+
+       '<div class="kpi"><span>Late</span><b'+(late?' class="warn"':'')+'>'+late+'</b></div>'+
+       '<div class="kpi"><span>Unmapped</span><b'+(unmapped?' class="warn"':'')+'>'+unmapped+'</b></div>'+
+       '</div>';
+
+      // Grouped by date — one collapsible header per date, expand to see
+      // that day's employees; click an employee row to drill into every
+      // punch (attShowDay modal).
+      const byDate={};
+      rows.forEach(r=>{(byDate[r.date]=byDate[r.date]||[]).push(r);});
+      const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+      if(!window.__attOpenDates)window.__attOpenDates={};
+      if(dates.length&&window.__attOpenDates[dates[0]]===undefined)window.__attOpenDates[dates[0]]=true; // most recent date starts open
+
+      const groups=dates.map(date=>{
+        const dayRows=byDate[date];
+        const dayLate=dayRows.filter(r=>r.late).length;
+        const open=!!window.__attOpenDates[date];
+        const dow=new Date(date+'T00:00:00').toLocaleDateString([],{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+        const table='<table><thead><tr><th>Employee</th><th>Dept / Location</th><th>Check-in</th><th>Check-out</th><th>Hours</th><th>Status</th></tr></thead><tbody>'+
+         dayRows.map(r=>{
+           const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
+           const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1)+'h':'';
+           return '<tr style="cursor:pointer" title="Click to see every punch this day" data-emp="'+esc(r.employeeCode)+'" data-name="'+esc(r.name||'Unmapped')+'" data-date="'+esc(r.date)+'" onclick="attShowDay(this.dataset.emp,this.dataset.name,this.dataset.date)">'+
+            '<td>'+attEmpCell(r,'name','employeeCode')+'</td><td>'+esc(r.department||'')+(r.department&&r.location?' · ':'')+esc(r.location||'')+'</td>'+
+            '<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td class="num">'+hrs+'</td>'+
+            '<td>'+(r.unmapped||!ci?'—':'<span class="pill '+(r.late?'a':'g')+'">'+(r.late?'Late':'On time')+'</span>')+'</td></tr>';
+         }).join('')+
+         '</tbody></table>';
+        return '<div class="att-daygroup">'+
+         '<div class="att-day-head" onclick="attToggleDay(\''+date+'\')">'+
+          '<span class="att-chev'+(open?' open':'')+'">▸</span>'+
+          '<b>'+esc(dow)+'</b>'+
+          '<span class="pill b">'+dayRows.length+' employee'+(dayRows.length===1?'':'s')+'</span>'+
+          (dayLate?'<span class="pill a">'+dayLate+' late</span>':'')+
+         '</div>'+
+         '<div class="att-day-body" id="att-day-'+date+'" style="display:'+(open?'block':'none')+'">'+table+'</div>'+
+        '</div>';
+      }).join('');
+      document.getElementById('att-body').innerHTML=rows.length?groups:'<div class="empty">No punches recorded for this range.</div>';
+    }
+  }catch(e){
+    document.getElementById('att-body').innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
+  }
+}
+function attSetView(v){window.__attView=v;renderLiveAttendance();}
+/* Daily Summary row click -> every punch that employee made that one day, each in its own row. */
+function attToggleDay(date){
+  window.__attOpenDates=window.__attOpenDates||{};
+  window.__attOpenDates[date]=!window.__attOpenDates[date];
+  const body=document.getElementById('att-day-'+date),chev=document.querySelector('[onclick="attToggleDay(\''+date+'\')"] .att-chev');
+  if(body)body.style.display=window.__attOpenDates[date]?'block':'none';
+  if(chev)chev.classList.toggle('open',window.__attOpenDates[date]);
+}
+async function attShowDay(employeeCode,name,date){
+  document.getElementById('attmodal-title').textContent=name+' — '+date;
+  document.getElementById('attmodal-body').innerHTML='<div class="empty">Loading…</div>';
+  openModal('attmodal');
+  try{
+    const rows=await api('/api/attendance/logs?from='+date+'&to='+date+'&q='+encodeURIComponent(employeeCode));
+    document.getElementById('attmodal-body').innerHTML=rows.length
+     ?'<table><thead><tr><th>Time</th><th>Type</th></tr></thead><tbody>'+
+       rows.map(r=>'<tr><td>'+new Date(r.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</td>'+
+        '<td><span class="pill '+(r.type==='Check-in'?'g':r.type==='Check-out'?'v':'a')+'">'+esc(r.type)+'</span></td></tr>').join('')+
+       '</tbody></table>'
+     :'<div class="empty">No punches found.</div>';
+  }catch(e){
+    document.getElementById('attmodal-body').innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
+  }
+}
+function attApply(){
+  window.__attFrom=document.getElementById('att-from').value||today();
+  window.__attTo=document.getElementById('att-to').value||today();
+  window.__attQ=document.getElementById('att-q').value.trim();
+  renderLiveAttendance();
+}
+function attExportCsv(){
+  if(!ATT_ROWS.length)return alert('No data to export — search first.');
+  const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  let lines;
+  if(window.__attView==='raw'){
+    lines=[['Time','Employee ID','Name','Type','Unmapped?'].join(',')];
+    ATT_ROWS.forEach(r=>lines.push([new Date(r.time).toLocaleString(),r.employeeCode||'',r.employeeName||'',r.type,r.unmapped?'Yes':''].map(cell).join(',')));
+  }else{
+    lines=[['Date','Employee ID','Name','Department','Location','Check-in','Check-out','Hours','Status','Unmapped?'].join(',')];
+    ATT_ROWS.forEach(r=>{
+      const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
+      const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1):'';
+      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString():'',co?co.toLocaleTimeString():'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
+    });
+  }
+  const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='attendance-'+(window.__attView||'summary')+'-'+(window.__attFrom||today())+'_to_'+(window.__attTo||today())+'.csv';
+  a.click();
+}
+/* ---------- Employees (HR) — full sectioned profile, ERP/ISO access, salary ---------- */
+const EMP_MOD_GROUPS=GROUPS.filter(g=>g!=='Home');
+const EMP_ISO_GROUPS=[
+ {k:'lmsAccess',l:'LMS'},{k:'portalAccess',l:'Portal'},{k:'cvsAccess',l:'CVS'},{k:'reportsAccess',l:'Reports'},{k:'testingAccess',l:'Testing'},
+ {k:'isoFormsAccess',l:'ISO Forms'},{k:'isoFormsAdminAccess',l:'ISO Forms — Admin'},
+ {k:'jlrOperationsAccess',l:'JLR — Operations'},{k:'jlrQhseAccess',l:'JLR — QHSE'},{k:'jlrInventoryAccess',l:'JLR — Inventory'},{k:'jlrAccountsAccess',l:'JLR — Accounts'},{k:'jlrItAccess',l:'JLR — IT'},{k:'jlrFullAccess',l:'JLR — Full access'},
+];
+const EMP_BANKS=['HBL','UBL','MCB','Bank Alfalah','Meezan Bank','Allied Bank','National Bank of Pakistan','Standard Chartered','Faysal Bank','Askari Bank','Bank Al Habib','Soneri Bank','Other'];
+const EMP_SECTIONS=[
+ {k:'basic',l:'Basic Info'},{k:'access',l:'Account & Access'},{k:'employment',l:'Shift & Employment'},
+ {k:'comp',l:'Compensation'},{k:'address',l:'Address'},{k:'bank',l:'Bank & Personal'},{k:'ref',l:'Reference'},{k:'kin',l:'Next of Kin'},
+];
+let EMP_LIST=[],EMP_EDIT=null,EMP_TAB='basic';
+
+function efField(id,label,type,extra){
+  extra=extra||{};
+  const full=extra.full?' full':'';
+  let input;
+  if(type==='select'){
+    input='<select id="'+id+'">'+(extra.options||[]).map(o=>{const v=(o&&o.v!==undefined)?o.v:o,l=(o&&o.l!==undefined)?o.l:o;return '<option value="'+esc(v)+'">'+esc(l)+'</option>';}).join('')+'</select>';
+  }else if(type==='textarea'){
+    input='<textarea id="'+id+'" rows="2"></textarea>';
+  }else if(type==='password'){
+    input='<div style="position:relative"><input id="'+id+'" type="password" autocomplete="new-password" style="padding-right:34px">'+
+     '<button type="button" onclick="empTogglePw(\''+id+'\')" style="position:absolute;right:4px;top:3px;background:none;border:0;cursor:pointer;font-size:14px" title="Show/hide">👁</button></div>';
+  }else{
+    input='<input id="'+id+'" type="'+type+'"'+(extra.step?' step="'+extra.step+'"':'')+'>';
+  }
+  return '<div class="field'+full+'">'+(label?'<label>'+esc(label)+(extra.req?' *':'')+'</label>':'')+input+'</div>';
+}
+function empTogglePw(id){const el=document.getElementById(id);el.type=el.type==='password'?'text':'password';}
+
+function empSectionHtml(k){
+  const deptOpts=coll('shared_departments').map(d=>d.name);
+  const locOpts=coll('shared_locations').map(d=>d.name);
+  if(k==='basic')return '<div class="fgrid">'+
+   efField('ef-empid','Employee ID','text',{req:1})+
+   efField('ef-first','First Name','text',{req:1})+
+   efField('ef-last','Last Name','text',{req:1})+
+   efField('ef-dept','Department','select',{req:1,options:deptOpts})+
+   efField('ef-desig','Designation','text',{req:1})+
+   efField('ef-loc','Office Location','select',{req:1,options:locOpts})+
+   efField('ef-gender','Gender','select',{options:['','Male','Female','Other']})+
+   efField('ef-email','Email','email')+
+   efField('ef-status','Status','select',{options:['Active','On leave','Resigned','Terminated','Inactive']})+
+   efField('ef-join','Join Date','date')+
+   efField('ef-jobend','Job End Date','date')+
+   '</div>';
+  if(k==='access')return '<div class="fgrid">'+
+   efField('ef-pw','Set Password','password')+
+   efField('ef-pw2','Confirm Password','password')+
+   '</div>'+
+   '<div class="hint" style="margin:10px 0 6px">New employee: required. Editing: leave both blank to keep the current password.</div>'+
+   (isAdmin()?(
+   '<div style="margin-top:14px"><b style="font-size:12.5px">Access to ERP modules</b><div class="hint" style="margin-bottom:6px">Administrator = full access to everything. Otherwise, tick only the modules this person needs.</div>'+
+   '<label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" id="ef-erpadmin" onchange="empToggleAdmin()"> <b>Administrator (full access)</b></label>'+
+   '<div class="fgrid" id="ef-erpmods">'+EMP_MOD_GROUPS.map(g=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" class="ef-mod" value="'+esc(g)+'"> '+esc(g)+'</label>').join('')+'</div></div>'+
+   '<div style="margin-top:16px"><b style="font-size:12.5px">Access to ISO modules</b><div class="hint" style="margin-bottom:6px">Same permission flags used on the ISO/LMS side.</div>'+
+   '<div class="fgrid">'+EMP_ISO_GROUPS.map(g=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" id="ef-iso-'+g.k+'"> '+esc(g.l)+'</label>').join('')+'</div></div>'
+   ):'<div class="hint">Only an Administrator can change module access.</div>');
+  if(k==='employment')return '<div class="fgrid">'+
+   efField('ef-shiftstart','Shift Start Time','time')+
+   efField('ef-shiftend','Shift End Time','time')+
+   efField('ef-marital','Marital Status','select',{options:['','Single','Married','Divorced','Widowed']})+
+   efField('ef-costcenter','Cost Center','text')+
+   efField('ef-nationality','Nationality','text')+
+   efField('ef-visa','Visa Number','text')+
+   efField('ef-visaexpiry','Visa Expiry Date','date')+
+   efField('ef-appraisal','Appraisal Date','date')+
+   efField('ef-confirmation','Confirmation Date','date')+
+   efField('ef-rejoindate','Rejoin Date','date')+
+   efField('ef-rejoinreason','Rejoin Reason','textarea',{full:1})+
+   '</div>';
+  if(k==='comp')return '<div class="fgrid">'+
+   efField('ef-salary','Basic Salary','number',{step:'0.01'})+
+   efField('ef-utility','Utility Allowance','number',{step:'0.01'})+
+   efField('ef-hra','House Rent Allowance','number',{step:'0.01'})+
+   efField('ef-fieldallow','Field Allowance','number',{step:'0.01'})+
+   efField('ef-currency','Currency','text')+
+   '</div><div class="kpis" style="margin-top:12px"><div class="kpi"><span>Gross salary</span><b id="ef-gross">0.00</b></div></div>'+
+   '<div class="hint" style="margin-top:6px">Gross updates automatically as you type.</div>';
+  if(k==='address')return '<div class="fgrid">'+
+   efField('ef-homeaddr','Home Address','textarea',{full:1})+
+   efField('ef-mailaddr','Mailing Address','textarea',{full:1})+
+   '</div>';
+  if(k==='bank')return '<div class="fgrid">'+
+   efField('ef-bankname','Bank Name','select',{options:['',...EMP_BANKS]})+
+   efField('ef-iban','IBAN #','text')+
+   efField('ef-accno','Account No.','text')+
+   efField('ef-accounttitle','Account Title','text')+
+   efField('ef-bloodgroup','Blood Group','select',{options:['','A+','A-','B+','B-','AB+','AB-','O+','O-']})+
+   '</div>';
+  if(k==='ref')return '<div class="fgrid">'+
+   efField('ef-refname','Reference Name','text')+
+   efField('ef-refcontact','Contact','text')+
+   efField('ef-refemail','Email','email')+
+   efField('ef-refoffice','Office Name','text')+
+   '</div>';
+  if(k==='kin')return '<div class="fgrid">'+
+   efField('ef-kinname','Name','text')+
+   efField('ef-kinrelation','Relation','select',{options:['','Father','Mother','Spouse','Brother','Sister','Son','Daughter','Other']})+
+   efField('ef-kincontact','Contact','text')+
+   efField('ef-kinnic','NIC','text')+
+   efField('ef-kinemail','Email','email')+
+   '</div>';
+  return '';
+}
+function empToggleAdmin(){
+  const on=document.getElementById('ef-erpadmin').checked;
+  const wrap=document.getElementById('ef-erpmods');if(wrap)wrap.style.opacity=on?'0.4':'1';
+  document.querySelectorAll('.ef-mod').forEach(cb=>cb.disabled=on);
+}
+function empRecalcGross(){
+  const v=id=>+((document.getElementById(id)||{}).value)||0;
+  const g=v('ef-salary')+v('ef-utility')+v('ef-hra')+v('ef-fieldallow');
+  const el=document.getElementById('ef-gross');if(el)el.textContent=g.toFixed(2);
+}
+function empRenderModal(){
+  document.getElementById('empmodal-tabs').innerHTML=EMP_SECTIONS.map(s=>'<button class="att-tab'+(EMP_TAB===s.k?' on':'')+'" onclick="empSwitchTab(\''+s.k+'\')">'+s.l+'</button>').join('');
+  document.getElementById('empmodal-body').innerHTML=EMP_SECTIONS.map(s=>'<div class="emp-sec" id="emp-sec-'+s.k+'" style="display:'+(EMP_TAB===s.k?'block':'none')+'">'+empSectionHtml(s.k)+'</div>').join('');
+  ['ef-salary','ef-utility','ef-hra','ef-fieldallow'].forEach(id=>{const el=document.getElementById(id);if(el)el.oninput=empRecalcGross;});
+  empFillForm();
+}
+function empSwitchTab(k){
+  EMP_TAB=k;
+  document.querySelectorAll('#empmodal-tabs .att-tab').forEach((b,i)=>b.classList.toggle('on',EMP_SECTIONS[i].k===k));
+  EMP_SECTIONS.forEach(s=>{const el=document.getElementById('emp-sec-'+s.k);if(el)el.style.display=s.k===k?'block':'none';});
+}
+function empFillForm(){
+  const e=EMP_EDIT;
+  const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val==null?'':val;};
+  document.getElementById('empmodal-err').style.display='none';
+  if(!e){
+    document.getElementById('empmodal-title').textContent='Add Employee';
+    document.getElementById('empmodal-del').style.display='none';
+    set('ef-status','Active');set('ef-currency','AED');
+    empRecalcGross();
+    return;
+  }
+  const p=e.profile||{};
+  document.getElementById('empmodal-title').textContent='Edit — '+e.name;
+  document.getElementById('empmodal-del').style.display=isAdmin()?'inline-block':'none';
+  set('ef-empid',e.employeeId);
+  set('ef-first',p.firstName||(e.name||'').split(' ')[0]||'');
+  set('ef-last',p.lastName||(e.name||'').split(' ').slice(1).join(' ')||'');
+  set('ef-dept',e.department);set('ef-desig',p.designation||'');set('ef-loc',e.location);
+  set('ef-gender',p.gender);set('ef-email',e.email);set('ef-status',e.status);
+  set('ef-join',(p.joinDate||'').slice(0,10));set('ef-jobend',(p.jobEndDate||'').slice(0,10));
+  if(isAdmin()){
+    const isAdminRole=e.erpRole==='Administrator';
+    const mods=(e.erpRole||'').split(',').map(s=>s.trim());
+    document.getElementById('ef-erpadmin').checked=isAdminRole;
+    document.querySelectorAll('.ef-mod').forEach(cb=>{cb.checked=!isAdminRole&&mods.includes(cb.value);});
+    empToggleAdmin();
+    EMP_ISO_GROUPS.forEach(g=>{const el=document.getElementById('ef-iso-'+g.k);if(el)el.checked=!!(e.isoAccess||{})[g.k];});
+  }
+  set('ef-shiftstart',e.shiftStart);set('ef-shiftend',e.shiftEnd);
+  set('ef-marital',p.maritalStatus);set('ef-costcenter',p.costCenter);
+  set('ef-nationality',p.nationality);set('ef-visa',p.visaNumber);
+  set('ef-visaexpiry',(p.visaExpiry||'').slice(0,10));
+  set('ef-appraisal',(p.appraisalDate||'').slice(0,10));
+  set('ef-confirmation',(p.confirmationDate||'').slice(0,10));
+  set('ef-rejoindate',(p.rejoinDate||'').slice(0,10));
+  set('ef-rejoinreason',p.rejoinReason);
+  set('ef-salary',p.salary);set('ef-utility',p.utilityAllowance);
+  set('ef-hra',p.hra);set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'AED');
+  set('ef-homeaddr',p.homeAddress);set('ef-mailaddr',p.mailingAddress);
+  set('ef-bankname',p.bankName);set('ef-iban',p.iban);set('ef-accno',p.accountNo);
+  set('ef-accounttitle',p.accountTitle);set('ef-bloodgroup',p.bloodGroup);
+  set('ef-refname',p.refName);set('ef-refcontact',p.refContact);set('ef-refemail',p.refEmail);set('ef-refoffice',p.refOffice);
+  set('ef-kinname',p.kinName);set('ef-kinrelation',p.kinRelation);set('ef-kincontact',p.kinContact);set('ef-kinnic',p.kinNic);set('ef-kinemail',p.kinEmail);
+  empRecalcGross();
+}
+async function empOpenForm(id){
+  EMP_EDIT=null;EMP_TAB='basic';
+  if(id){EMP_EDIT=EMP_LIST.find(e=>String(e.id)===String(id));if(!EMP_EDIT)return;}
+  empRenderModal();
+  openModal('empmodal');
+}
+async function empSave(){
+  const err=document.getElementById('empmodal-err');err.style.display='none';
+  const v=id=>{const el=document.getElementById(id);return el?el.value.trim():'';};
+  const showErr=(msg,tab)=>{err.textContent=msg;err.style.display='block';if(tab)empSwitchTab(tab);};
+  const empId=v('ef-empid'),first=v('ef-first'),last=v('ef-last'),dept=v('ef-dept'),desig=v('ef-desig'),loc=v('ef-loc');
+  if(!empId||!first||!last||!dept||!desig||!loc)return showErr('Employee ID, First/Last name, Department, Designation and Location are required.','basic');
+  const pw=v('ef-pw'),pw2=v('ef-pw2');
+  if(!EMP_EDIT&&(!pw||!pw2))return showErr('Password and Confirm Password are required for a new employee.','access');
+  if((pw||pw2)&&pw!==pw2)return showErr('Password and Confirm Password do not match.','access');
+
+  try{
+    let id=EMP_EDIT?EMP_EDIT.id:null;
+    if(!EMP_EDIT){
+      const created=await api('/api/shared/employees',{method:'POST',body:JSON.stringify({
+        employeeId:empId,name:first+' '+last,email:v('ef-email')||null,password:pw,
+        department:dept,location:loc,status:v('ef-status')||'Active'
+      })});
+      id=created.id;
+    }else{
+      await api('/api/shared/employees/'+id,{method:'PUT',body:JSON.stringify({
+        name:first+' '+last,email:v('ef-email')||null,department:dept,location:loc,status:v('ef-status')||'Active'
+      })});
+      if(pw&&pw2)await api('/api/shared/employees/'+id+'/password',{method:'PUT',body:JSON.stringify({password:pw})});
+    }
+
+    await api('/api/shared/employees/'+id+'/profile',{method:'PUT',body:JSON.stringify({
+      firstName:first,lastName:last,designation:desig,gender:v('ef-gender'),maritalStatus:v('ef-marital'),costCenter:v('ef-costcenter'),
+      joinDate:v('ef-join')||null,jobEndDate:v('ef-jobend')||null,
+      nationality:v('ef-nationality'),visaNumber:v('ef-visa'),visaExpiry:v('ef-visaexpiry')||null,
+      homeAddress:v('ef-homeaddr'),mailingAddress:v('ef-mailaddr'),
+      bankName:v('ef-bankname'),iban:v('ef-iban'),accountNo:v('ef-accno'),accountTitle:v('ef-accounttitle'),bloodGroup:v('ef-bloodgroup'),
+      appraisalDate:v('ef-appraisal')||null,confirmationDate:v('ef-confirmation')||null,rejoinDate:v('ef-rejoindate')||null,rejoinReason:v('ef-rejoinreason'),
+      refName:v('ef-refname'),refContact:v('ef-refcontact'),refEmail:v('ef-refemail'),refOffice:v('ef-refoffice'),
+      kinName:v('ef-kinname'),kinRelation:v('ef-kinrelation'),kinContact:v('ef-kincontact'),kinNic:v('ef-kinnic'),kinEmail:v('ef-kinemail'),
+      salary:v('ef-salary')||null,utilityAllowance:v('ef-utility')||null,hra:v('ef-hra')||null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'AED'
+    })});
+
+    if(v('ef-shiftstart')){
+      await api('/api/attendance/shift/'+id,{method:'PUT',body:JSON.stringify({shiftStart:v('ef-shiftstart'),shiftEnd:v('ef-shiftend')||'',graceMinutes:15})});
+    }
+
+    if(isAdmin()){
+      const adminChecked=document.getElementById('ef-erpadmin').checked;
+      let role='';
+      if(adminChecked)role='Administrator';
+      else{const mods=[...document.querySelectorAll('.ef-mod:checked')].map(cb=>cb.value);role=mods.join(',');}
+      if(role)await api('/api/auth/erp-users/'+id+'/role',{method:'POST',body:JSON.stringify({role,desig})});
+      else await api('/api/auth/erp-users/'+id+'/revoke',{method:'POST'}).catch(()=>{});
+
+      const isoBody={};
+      EMP_ISO_GROUPS.forEach(g=>{const el=document.getElementById('ef-iso-'+g.k);if(el)isoBody[g.k]=el.checked;});
+      await api('/api/shared/employees/'+id+'/iso-access',{method:'PUT',body:JSON.stringify(isoBody)});
+    }
+
+    closeModal('empmodal');
+    empRefresh();
+  }catch(e){
+    showErr(e.message);
+  }
+}
+async function empDelete(){
+  if(!EMP_EDIT)return;
+  if(!confirm('Delete employee "'+EMP_EDIT.name+'"? This removes their login and all records. This cannot be undone.'))return;
+  try{
+    await api('/api/shared/employees/'+EMP_EDIT.id,{method:'DELETE'});
+    closeModal('empmodal');empRefresh();
+  }catch(e){alert(e.message);}
+}
+async function renderHrEmployees(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Employees<span class="hint" style="font-weight:400"> — HR master list, shared with ISO</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="emp-search" placeholder="Search ID or name" oninput="empFilterList()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+   '<button class="btn" onclick="empOpenForm(null)">+ Add Employee</button></span></div>'+
+   '<div class="card-b"><div id="emp-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  await empRefresh();
+}
+async function empRefresh(){
+  try{
+    EMP_LIST=await api('/api/shared/employees');
+    empFilterList();
+  }catch(e){
+    const el=document.getElementById('emp-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
+  }
+}
+function empFilterList(){
+  const qEl=document.getElementById('emp-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=EMP_LIST.filter(e=>!q||e.employeeId.toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
+  const body='<table><thead><tr><th>ID</th><th>Name</th><th>Department</th><th>Location</th><th>Status</th><th>ERP Access</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(e=>'<tr style="cursor:pointer" onclick="empOpenForm(\''+e.id+'\')"><td><b>'+esc(e.employeeId)+'</b></td><td>'+esc(e.name)+'</td><td>'+esc(e.department||'')+'</td><td>'+esc(e.location||'')+'</td>'+
+    '<td><span class="pill '+(e.status==='Active'?'g':'r')+'">'+esc(e.status||'')+'</span></td>'+
+    '<td>'+(e.erpRole?'<span class="pill b">'+esc(e.erpRole)+'</span>':'<span class="hint">—</span>')+'</td>'+
+    '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();empOpenForm(\''+e.id+'\')">Edit</button></td></tr>').join('')+
+   '</tbody></table>';
+  const el=document.getElementById('emp-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No employees found.</div>';
 }
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
@@ -528,7 +999,7 @@ async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
   const wasNew=!editId;
   const rec=editId?data.find(r=>r.id===editId):{id:uid()};
-  const prevErpRole=rec.erprole; // snapshot BEFORE the form overwrites it — only push a role change if it actually changed
+  const prevErpRole=rec.erprole,prevShiftStart=rec.shiftstart; // snapshot BEFORE the form overwrites — only push what actually changed
   m.fields.forEach(f=>{if(f.t==='computed')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
@@ -537,10 +1008,11 @@ async function saveRec(){
   collSet(k,data);editId=null;render();
   if(k==='employees'){
     await pushEmployeeToIso(rec,wasNew);
-    // Guard: if this employee's role wasn't actually pulled from the server
-    // yet (prevErpRole is undefined — stale/never-synced local record),
-    // do NOT touch their ERP access just because a save happened to fire.
+    // Guard: if this employee's role/shift wasn't actually pulled from the
+    // server yet (prev value is undefined — stale/never-synced local
+    // record), do NOT touch it just because a save happened to fire.
     if(prevErpRole!==undefined && rec.erprole!==prevErpRole)await pushEmployeeRole(rec);
+    if(prevShiftStart!==undefined && rec.shiftstart!==prevShiftStart)await pushEmployeeShift(rec);
   }
 }
 function editRec(id){editId=id;renderModule._lk=false;render();window.scrollTo({top:0,behavior:'smooth'});}
@@ -586,6 +1058,18 @@ async function pushEmployeeRole(rec){
     else await api('/api/auth/erp-users/'+rec.isoId+'/role',{method:'POST',body:JSON.stringify({role:rec.erprole,desig:rec.desig||''})});
   }catch(e){
     alert('Employee saved, but could NOT update their ERP access: '+e.message);
+  }
+}
+/* Push this employee's attendance shift-start time (used for the Live
+   Attendance "Late" calculation). */
+async function pushEmployeeShift(rec){
+  if(!rec.isoId)return;
+  const v=(rec.shiftstart||'').trim();
+  if(v&&!/^\d{1,2}:\d{2}$/.test(v)){alert('Shift start must be in HH:MM format, e.g. 09:00 — not saved.');return;}
+  try{
+    await api('/api/attendance/shift/'+rec.isoId,{method:'PUT',body:JSON.stringify({shiftStart:v||'09:00',graceMinutes:15})});
+  }catch(e){
+    alert('Employee saved, but could NOT update their shift start: '+e.message);
   }
 }
 /* ============ document attachments (Compliance) ============ */
@@ -1675,7 +2159,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],hr_employees:['Human Resources','Employees'],hr_attendance:['Human Resources','Live Attendance'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -1683,7 +2167,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,hr_employees:renderHrEmployees,hr_attendance:renderLiveAttendance,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
