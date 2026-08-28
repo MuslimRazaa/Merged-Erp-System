@@ -85,6 +85,17 @@ function requireAdmin(req, res, next) {
   if (req.erpUser.role !== 'Administrator') return res.status(403).json({ error: 'Administrator only.' });
   next();
 }
+// Administrator OR Sub Admin can list/grant/revoke ERP access for other
+// employees. Sub Admin is deliberately NOT allowed to grant Administrator or
+// Sub Admin itself, nor to touch an existing Administrator's access — that
+// privilege-escalation guard is enforced in each route handler below, not
+// here, since it depends on the specific request body / target employee.
+function requireRoleManager(req, res, next) {
+  if (req.erpUser.role !== 'Administrator' && req.erpUser.role !== 'Sub Admin') {
+    return res.status(403).json({ error: 'Administrator or Sub Admin only.' });
+  }
+  next();
+}
 
 /* ---------------- routes ---------------- */
 
@@ -140,8 +151,8 @@ router.get('/me', requireAuth, (req, res) => res.json(req.erpUser));
 
 router.get('/roles', (req, res) => res.json(Object.keys(ROLES)));
 
-// Admin: list every ISO employee with their current ERP role (or null = not granted).
-router.get('/erp-users', requireAuth, requireAdmin, async (req, res) => {
+// Administrator or Sub Admin: list every ISO employee with their current ERP role (or null = not granted).
+router.get('/erp-users', requireAuth, requireRoleManager, async (req, res) => {
   const [rows] = await pool.query(
     `SELECT e.id, e.employee_id, e.full_name, e.email, e.department, e.location, e.status,
             r.role, r.desig, r.active AS erp_active
@@ -151,9 +162,20 @@ router.get('/erp-users', requireAuth, requireAdmin, async (req, res) => {
   res.json(rows.map(pubEmployee).map((u, i) => ({ ...u, erpActive: rows[i].erp_active !== 0 })));
 });
 
-router.post('/erp-users/:employeeId/role', requireAuth, requireAdmin, async (req, res) => {
+router.post('/erp-users/:employeeId/role', requireAuth, requireRoleManager, async (req, res) => {
   const id = +req.params.employeeId;
   if (!isValidRole(req.body.role)) return res.status(400).json({ error: 'Unknown role / module list.' });
+  // A Sub Admin can hand out ordinary module access but can never mint another
+  // Administrator/Sub Admin, and can't touch an employee who already is one.
+  if (req.erpUser.role === 'Sub Admin') {
+    if (req.body.role === 'Administrator' || req.body.role === 'Sub Admin') {
+      return res.status(403).json({ error: 'Only an Administrator can grant Administrator or Sub Admin access.' });
+    }
+    const [target] = await pool.query('SELECT role FROM erp_employee_roles WHERE employee_id = ? AND active = 1', [id]);
+    if (target.length && (target[0].role === 'Administrator' || target[0].role === 'Sub Admin')) {
+      return res.status(403).json({ error: 'Only an Administrator can change this employee\'s access.' });
+    }
+  }
   const [emp] = await pool.query('SELECT id FROM employees WHERE id = ?', [id]);
   if (!emp.length) return res.status(404).json({ error: 'Employee not found.' });
   await pool.query(
@@ -164,12 +186,18 @@ router.post('/erp-users/:employeeId/role', requireAuth, requireAdmin, async (req
   res.json({ ok: true });
 });
 
-router.post('/erp-users/:employeeId/revoke', requireAuth, requireAdmin, async (req, res) => {
+router.post('/erp-users/:employeeId/revoke', requireAuth, requireRoleManager, async (req, res) => {
   const id = +req.params.employeeId;
   if (id === req.erpUser.id) return res.status(400).json({ error: 'You cannot revoke your own ERP access.' });
+  if (req.erpUser.role === 'Sub Admin') {
+    const [target] = await pool.query('SELECT role FROM erp_employee_roles WHERE employee_id = ? AND active = 1', [id]);
+    if (target.length && (target[0].role === 'Administrator' || target[0].role === 'Sub Admin')) {
+      return res.status(403).json({ error: 'Only an Administrator can revoke this employee\'s access.' });
+    }
+  }
   await pool.query('UPDATE erp_employee_roles SET active = 0 WHERE employee_id = ?', [id]);
   await audit(req.erpUser.employeeId, 'erp-role-revoked', String(id));
   res.json({ ok: true });
 });
 
-module.exports = { router, requireAuth, requireAdmin, audit };
+module.exports = { router, requireAuth, requireAdmin, requireRoleManager, audit };

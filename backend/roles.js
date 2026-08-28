@@ -10,6 +10,11 @@ const GROUPS_ALL = ['Home', 'CRM', 'Sales & AR', 'Inventory', 'Procurement', 'Fi
 
 const ROLES = {
   'Administrator':     '*',
+  // Same full access as Administrator, but the Employees form and the
+  // erp-users API keep Sub Admin from granting Administrator/Sub Admin to
+  // anyone else, and from touching an existing Administrator's access —
+  // see requireRoleManager() in routes/auth.js.
+  'Sub Admin':         '*',
   'Management':        GROUPS_ALL,
   'Accounts':          ['Home', 'CRM', 'Sales & AR', 'Procurement', 'Accounting'],
   'HR Officer':        ['Home', 'Human Resources'],

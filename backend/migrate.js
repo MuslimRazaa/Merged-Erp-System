@@ -126,6 +126,19 @@ async function migrate() {
       last_name           VARCHAR(120) NULL,
       designation         VARCHAR(150) NULL,
       gender              VARCHAR(20) NULL,
+      phone_country       VARCHAR(5) NULL DEFAULT 'PK',
+      phone_code          VARCHAR(10) NULL DEFAULT '+92',
+      phone_number        VARCHAR(30) NULL,
+      nic_number          VARCHAR(20) NULL,
+      father_husband_name VARCHAR(150) NULL,
+      spouse_name         VARCHAR(150) NULL,
+      spouse_na           TINYINT(1) NULL DEFAULT 0,
+      mother_name         VARCHAR(150) NULL,
+      mother_na           TINYINT(1) NULL DEFAULT 0,
+      date_of_birth       DATE NULL,
+      emergency_country   VARCHAR(5) NULL DEFAULT 'PK',
+      emergency_code      VARCHAR(10) NULL DEFAULT '+92',
+      emergency_number    VARCHAR(30) NULL,
       marital_status      VARCHAR(20) NULL,
       cost_center         VARCHAR(100) NULL,
       join_date           DATE NULL,
@@ -169,6 +182,26 @@ async function migrate() {
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN designation VARCHAR(150) NULL AFTER last_name'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Contact / identity fields (phone with country code, NIC, family info, DOB) — idempotent add.
+  const personalCols = [
+    ["phone_country VARCHAR(5) NULL DEFAULT 'PK'", 'gender'],
+    ["phone_code VARCHAR(10) NULL DEFAULT '+92'", 'phone_country'],
+    ['phone_number VARCHAR(30) NULL', 'phone_code'],
+    ['nic_number VARCHAR(20) NULL', 'phone_number'],
+    ['father_husband_name VARCHAR(150) NULL', 'nic_number'],
+    ['spouse_name VARCHAR(150) NULL', 'father_husband_name'],
+    ['spouse_na TINYINT(1) NULL DEFAULT 0', 'spouse_name'],
+    ['mother_name VARCHAR(150) NULL', 'spouse_na'],
+    ['mother_na TINYINT(1) NULL DEFAULT 0', 'mother_name'],
+    ['date_of_birth DATE NULL', 'mother_na'],
+    ["emergency_country VARCHAR(5) NULL DEFAULT 'PK'", 'date_of_birth'],
+    ["emergency_code VARCHAR(10) NULL DEFAULT '+92'", 'emergency_country'],
+    ['emergency_number VARCHAR(30) NULL', 'emergency_code'],
+  ];
+  for (const [def, after] of personalCols) {
+    try { await pool.query(`ALTER TABLE erp_employee_profile ADD COLUMN ${def} AFTER ${after}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  }
 
   console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile ready (no ISO tables were altered).');
 }

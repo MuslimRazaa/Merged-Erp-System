@@ -37,7 +37,11 @@ const ISO_ACCESS_COLUMNS = [
 // Columns on ERP's own erp_employee_profile table (see migrate.js) — the
 // HR form's Personal/Bank/Reference/Kin/Salary sections.
 const PROFILE_COLUMNS = [
-  'first_name', 'last_name', 'designation', 'gender', 'marital_status', 'cost_center', 'join_date', 'job_end_date',
+  'first_name', 'last_name', 'designation', 'gender',
+  'phone_country', 'phone_code', 'phone_number', 'nic_number',
+  'father_husband_name', 'spouse_name', 'spouse_na', 'mother_name', 'mother_na', 'date_of_birth',
+  'emergency_country', 'emergency_code', 'emergency_number',
+  'marital_status', 'cost_center', 'join_date', 'job_end_date',
   'nationality', 'visa_number', 'visa_expiry', 'home_address', 'mailing_address',
   'bank_name', 'iban', 'account_no', 'account_title', 'blood_group',
   'appraisal_date', 'confirmation_date', 'rejoin_date', 'rejoin_reason',
@@ -73,6 +77,8 @@ router.get('/employees', requireGroup('Human Resources'), async (req, res) => {
       const key = col.replace(/_([a-z])/g, (m, l) => l.toUpperCase());
       profile[key] = r[col] ?? null;
     }
+    profile.spouseNa = r.spouse_na === 1;
+    profile.motherNa = r.mother_na === 1;
     const isoAccess = {};
     for (const col of ISO_ACCESS_COLUMNS) isoAccess[col.replace(/_([a-z])/g, (m, l) => l.toUpperCase())] = r[col] === 1;
     return {
@@ -188,6 +194,12 @@ router.delete('/employees/:id', requireGroup('Human Resources'), async (req, res
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const id = +req.params.id;
   if (id === req.erpUser.id) return res.status(400).json({ error: 'You cannot delete your own employee record.' });
+  if (req.erpUser.role === 'Sub Admin') {
+    const [target] = await pool.query('SELECT role FROM erp_employee_roles WHERE employee_id = ? AND active = 1', [id]);
+    if (target.length && (target[0].role === 'Administrator' || target[0].role === 'Sub Admin')) {
+      return res.status(403).json({ error: 'Only an Administrator can delete this employee.' });
+    }
+  }
   const [result] = await pool.query('DELETE FROM employees WHERE id = ?', [id]);
   if (!result.affectedRows) return res.status(404).json({ error: 'Employee not found.' });
   await audit(req.erpUser.employeeId, 'employee-deleted', String(id));
