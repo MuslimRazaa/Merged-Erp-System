@@ -45,7 +45,17 @@ router.post('/ingest', requireAgentKey, async (req, res) => {
     const punchTime = p.timestamp ? new Date(p.timestamp) : null;
     if (!deviceUserId || !punchTime || Number.isNaN(punchTime.getTime())) { skipped++; continue; }
 
-    const [emp] = await pool.query('SELECT id FROM employees WHERE employee_id = ?', [deviceUserId]);
+    // Match the device's numeric code to employees.employee_id tolerant of
+    // leading zeros either side (device "09" == HR record "9") but never
+    // across genuinely different numbers (9 must never match 90/19/999) —
+    // exact string match always wins first for non-numeric IDs.
+    const [emp] = await pool.query(
+      `SELECT id FROM employees
+       WHERE employee_id = ?
+          OR (employee_id REGEXP '^[0-9]+$' AND ? REGEXP '^[0-9]+$' AND CAST(employee_id AS UNSIGNED) = CAST(? AS UNSIGNED))
+       LIMIT 1`,
+      [deviceUserId, deviceUserId, deviceUserId]
+    );
     const employeeId = emp.length ? emp[0].id : null;
 
     const [result] = await pool.query(

@@ -10,6 +10,7 @@
 'use strict';
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth, audit } = require('./auth');
 const { canAccess } = require('../roles');
@@ -212,6 +213,129 @@ router.delete('/employees/:id', requireGroup('Human Resources'), async (req, res
   await audit(req.erpUser.employeeId, 'employee-deleted', String(id));
   res.json({ ok: true });
 });
+
+// Emp Code equality used everywhere in this file — leading-zero tolerant
+// ("9" == "09") but never crosses genuinely different numbers ("9" vs "90"
+// vs "19" vs "999" all stay distinct), matching the same rule the
+// attendance ingest route (routes/attendance.js) uses against the device.
+function normEmpCode(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (/^[0-9]+$/.test(s)) return String(parseInt(s, 10));
+  return s.toLowerCase();
+}
+
+// Bulk import from CSV (Employees screen -> "Import Employees"). Matches
+// each row to an existing employee by Emp Code (leading-zero tolerant);
+// updates it if found, otherwise creates a brand-new employee record with
+// no ERP login access (no erp_employee_roles row) until someone explicitly
+// grants it from the Access tab — importing data never silently grants
+// login. Newly-created/updated employees also get retroactively linked to
+// any attendance punches already sitting in erp_attendance_logs under a
+// matching (leading-zero tolerant) device code, so "unmapped" punches for
+// that Emp Code disappear the moment the employee exists.
+router.post('/employees/import', requireGroup('Human Resources'), async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows in one import (max 5000).' });
+
+  const [existingRows] = await pool.query('SELECT id, employee_id FROM employees');
+  const byCode = new Map(); // normEmpCode -> employees.id (existing, or created earlier in this same batch)
+  for (const e of existingRows) byCode.set(normEmpCode(e.employee_id), e.id);
+
+  let created = 0, updated = 0;
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || {};
+    const rowNum = i + 1;
+    const employeeId = String(row.employeeId || '').trim();
+    const name = String(row.name || '').trim();
+    if (!employeeId) { errors.push({ row: rowNum, employeeId, message: 'Missing Emp Code.' }); continue; }
+    if (!name) { errors.push({ row: rowNum, employeeId, message: 'Missing Employee Name.' }); continue; }
+    const code = normEmpCode(employeeId);
+
+    try {
+      let empRowId = byCode.get(code);
+      if (empRowId) {
+        // Existing employee (already on file, or created earlier in this
+        // same CSV) — update the core row, leave department/location/
+        // status alone unless the CSV actually carries a value for them.
+        const fields = ['full_name = ?']; const values = [name];
+        if (row.email) { fields.push('email = ?'); values.push(row.email); }
+        if (row.status) { fields.push('status = ?'); values.push(row.status); }
+        values.push(empRowId);
+        await pool.query(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values);
+        updated++;
+      } else {
+        const randomPassword = crypto.randomBytes(24).toString('hex');
+        const hashed = await bcrypt.hash(randomPassword, 10);
+        const [result] = await pool.query(
+          'INSERT INTO employees (employee_id, full_name, email, password, department, location, status) VALUES (?,?,?,?,?,?,?)',
+          [employeeId, name, row.email || null, hashed, '', '', row.status || 'Active']
+        );
+        empRowId = result.insertId;
+        byCode.set(code, empRowId);
+        created++;
+      }
+
+      // Upsert the HR profile fields the CSV carries (only non-empty ones,
+      // so a blank cell never clobbers data already on file).
+      const profile = {
+        father_husband_name: row.fatherHusbandName, mother_name: row.motherName,
+        phone_number: row.phoneNumber, nic_number: row.nicNumber,
+        bank_name: row.bankName, account_no: row.accountNo, iban: row.iban, account_title: row.accountTitle,
+        date_of_birth: parseCsvDate(row.dateOfBirth), nationality: row.nationality,
+        designation: row.designation, join_date: parseCsvDate(row.joinDate), job_end_date: parseCsvDate(row.jobEndDate),
+        home_address: row.homeAddress,
+      };
+      const cols = Object.keys(profile).filter((c) => profile[c] !== undefined && profile[c] !== null && profile[c] !== '');
+      if (cols.length) {
+        const updateSql = cols.map((c) => `${c} = VALUES(${c})`).join(', ');
+        await pool.query(
+          `INSERT INTO erp_employee_profile (employee_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})
+           ON DUPLICATE KEY UPDATE ${updateSql}`,
+          [empRowId, ...cols.map((c) => profile[c])]
+        );
+      }
+
+      // Retro-link any attendance punches already sitting under this Emp
+      // Code (leading-zero tolerant) that came in before this employee
+      // record existed — they were showing as "unmapped" until now.
+      await pool.query(
+        `UPDATE erp_attendance_logs SET employee_id = ?
+         WHERE employee_id IS NULL
+           AND (device_user_id = ? OR (device_user_id REGEXP '^[0-9]+$' AND ? REGEXP '^[0-9]+$' AND CAST(device_user_id AS UNSIGNED) = CAST(? AS UNSIGNED)))`,
+        [empRowId, employeeId, employeeId, employeeId]
+      );
+    } catch (e) {
+      errors.push({ row: rowNum, employeeId, message: e.message });
+    }
+  }
+
+  await audit(req.erpUser.employeeId, 'employees-imported', `created=${created} updated=${updated} errors=${errors.length}`);
+  res.json({ created, updated, errors });
+});
+
+// Accepts DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD and a few common variants
+// (CSV date columns are rarely one consistent format). Returns
+// 'YYYY-MM-DD' for a DATE column, or null if it can't be read at all —
+// never throws, so one bad date cell never fails the whole row.
+function parseCsvDate(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); // YYYY-MM-DD
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); // DD/MM/YYYY or DD-MM-YYYY
+  if (m) {
+    let [, d, mo, y] = m;
+    if (+d > 12 && +mo <= 12) { /* already DD MM */ } else if (+mo > 12 && +d <= 12) { [d, mo] = [mo, d]; }
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return null;
+}
 
 /* ---------------- departments (shared master list, bidirectional) ---------------- */
 router.get('/departments', async (req, res) => {

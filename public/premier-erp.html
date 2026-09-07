@@ -265,6 +265,18 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('lvdecidemodal')">Cancel</button><button class="btn" onclick="lvConfirmDecide()">Confirm decision</button></div>
 </div></div>
 
+<div class="modal" id="empimportmodal"><div class="box" style="max-width:640px">
+  <h3>Import Employees from CSV</h3>
+  <div class="hint" style="margin-bottom:10px">Expected columns (any order, header names matched automatically): Emp Code, Employee Name, Father Name, Mother Name, Contact Number, CNIC No., Bank Name, Emp A/C No., IBAN No., Account Title, Date Of Birth, Email Address, Nationality, Designation, Joining Date, End Date, Address, Status. An existing employee is matched by Emp Code (e.g. "9" and "09" are treated as the same code) and updated; a new Emp Code creates a brand-new employee — no login access is granted by import, that stays a separate step.</div>
+  <div class="field"><input type="file" id="empimport-file" accept=".csv,text/csv" onchange="empImportFileChosen(event)"></div>
+  <div id="empimport-preview" style="margin-top:12px"></div>
+  <div class="lerr" id="empimport-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('empimportmodal')">Cancel</button>
+    <button class="btn" id="empimport-go" onclick="empImportRun()" disabled>Import</button>
+  </div>
+</div></div>
+
 <script>
 /* ================================================================
    PREMIER ERP — single-file, offline-first
@@ -2188,6 +2200,7 @@ async function renderHrEmployees(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">Employees<span class="hint" style="font-weight:400"> — HR master list, shared with ISO</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="emp-search" placeholder="Search ID or name" oninput="empFilterList()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+   '<button class="btn ghost" onclick="empOpenImport()">⇪ Import Employees</button>'+
    '<button class="btn" onclick="empOpenForm(null)">+ Add Employee</button></span></div>'+
    '<div class="card-b"><div id="emp-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   await empRefresh();
@@ -2211,6 +2224,121 @@ function empFilterList(){
    '</tbody></table>';
   const el=document.getElementById('emp-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No employees found.</div>';
 }
+
+/* ---------- Import Employees from CSV ---------- */
+// header text (lowercased, non-alnum stripped) -> our field key. Covers the
+// exact header row this company's HR CSV export uses, plus a few natural
+// variants, so re-exports with minor wording changes still auto-map.
+const EMP_IMPORT_HEADER_MAP={
+  'srno':null,'sr':null,
+  'empcode':'employeeId','employeecode':'employeeId','empid':'employeeId','employeeid':'employeeId',
+  'employeename':'name','name':'name',
+  'fathername':'fatherHusbandName','fatherhusbandname':'fatherHusbandName',
+  'mothername':'motherName',
+  'contactnumber':'phoneNumber','phonenumber':'phoneNumber','mobilenumber':'phoneNumber','contactno':'phoneNumber',
+  'cnicno':'nicNumber','cnic':'nicNumber','nicnumber':'nicNumber',
+  'bankname':'bankName',
+  'empacno':'accountNo','empaccountno':'accountNo','accountno':'accountNo','acno':'accountNo',
+  'ibanno':'iban','iban':'iban',
+  'accounttitle':'accountTitle',
+  'dateofbirth':'dateOfBirth','dob':'dateOfBirth',
+  'emailaddress':'email','email':'email',
+  'nationality':'nationality',
+  'designation':'designation',
+  'joiningdate':'joinDate','joindate':'joinDate',
+  'enddate':'jobEndDate',
+  'address':'homeAddress',
+  'status':'status',
+};
+let EMP_IMPORT_ROWS=[];
+function empOpenImport(){
+  EMP_IMPORT_ROWS=[];
+  document.getElementById('empimport-file').value='';
+  document.getElementById('empimport-preview').innerHTML='';
+  const err=document.getElementById('empimport-err');err.style.display='none';err.textContent='';
+  document.getElementById('empimport-go').disabled=true;
+  openModal('empimportmodal');
+}
+// Minimal CSV line splitter — handles quoted fields containing commas ("a, b").
+function empCsvParseLine(line){
+  const out=[];let cur='';let q=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(q){
+      if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; }
+      else cur+=c;
+    }else{
+      if(c==='"')q=true;
+      else if(c===','){out.push(cur);cur='';}
+      else cur+=c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+function empImportFileChosen(ev){
+  const file=ev.target.files&&ev.target.files[0];
+  const err=document.getElementById('empimport-err');err.style.display='none';
+  document.getElementById('empimport-go').disabled=true;
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const text=String(reader.result||'').replace(/^﻿/,'');
+      const lines=text.split(/\r\n|\n|\r/).filter(l=>l.trim()!=='');
+      if(lines.length<2)throw new Error('CSV has no data rows.');
+      const headers=empCsvParseLine(lines[0]).map(h=>h.trim());
+      const keys=headers.map(h=>EMP_IMPORT_HEADER_MAP[h.toLowerCase().replace(/[^a-z0-9]/g,'')]);
+      if(!keys.includes('employeeId'))throw new Error('Could not find an "Emp Code" column in the CSV header.');
+      if(!keys.includes('name'))throw new Error('Could not find an "Employee Name" column in the CSV header.');
+      const rows=[];
+      for(let i=1;i<lines.length;i++){
+        const cells=empCsvParseLine(lines[i]);
+        const row={};
+        keys.forEach((k,idx)=>{ if(k) row[k]=(cells[idx]!==undefined?cells[idx]:'').trim(); });
+        if(row.employeeId||row.name) rows.push(row);
+      }
+      EMP_IMPORT_ROWS=rows;
+      document.getElementById('empimport-preview').innerHTML=
+        '<div class="hint">'+rows.length+' row(s) found. Columns mapped: '+esc(headers.filter((h,idx)=>keys[idx]).join(', '))+'</div>'+
+        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Designation</th><th>Status</th></tr></thead><tbody>'+
+        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.designation||'')+'</td><td>'+esc(r.status||'')+'</td></tr>').join('')+
+        '</tbody></table></div>'+(rows.length>50?'<div class="hint">…and '+(rows.length-50)+' more.</div>':'');
+      document.getElementById('empimport-go').disabled=rows.length===0;
+    }catch(e){
+      EMP_IMPORT_ROWS=[];
+      document.getElementById('empimport-preview').innerHTML='';
+      showErrEl(err,e.message);
+    }
+  };
+  reader.onerror=()=>showErrEl(err,'Could not read the file.');
+  reader.readAsText(file);
+}
+async function empImportRun(){
+  const err=document.getElementById('empimport-err');err.style.display='none';
+  if(!EMP_IMPORT_ROWS.length)return;
+  const btn=document.getElementById('empimport-go');btn.disabled=true;btn.textContent='Importing…';
+  try{
+    const res=await api('/api/shared/employees/import',{method:'POST',body:JSON.stringify({rows:EMP_IMPORT_ROWS})});
+    let msg=res.created+' created, '+res.updated+' updated.';
+    if(res.errors&&res.errors.length){
+      msg+=' '+res.errors.length+' row(s) skipped.';
+      document.getElementById('empimport-preview').innerHTML+=
+        '<div class="lerr" style="display:block;margin-top:10px">Skipped rows:<br>'+
+        res.errors.slice(0,30).map(e=>'Row '+e.row+' ('+esc(e.employeeId||'')+'): '+esc(e.message)).join('<br>')+'</div>';
+      toast(msg,'info');
+    }else{
+      toast(msg,'ok');
+      closeModal('empimportmodal');
+    }
+    await empRefresh();
+  }catch(e){
+    showErrEl(err,e.message);
+  }finally{
+    btn.disabled=false;btn.textContent='Import';
+  }
+}
+
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
 function refOptions(collName,dk,sel){
