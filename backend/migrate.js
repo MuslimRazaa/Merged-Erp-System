@@ -202,8 +202,144 @@ async function migrate() {
     try { await pool.query(`ALTER TABLE erp_employee_profile ADD COLUMN ${def} AFTER ${after}`); }
     catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   }
+  // Gross Salary is what HR now types in; basic/hra/utility_allowance are
+  // derived from it (see EMP_SALARY_SPLIT in the frontend) and still stored
+  // in their existing columns so nothing else that reads them breaks.
+  // field_allowance's MEANING changes here too — it is no longer a flat
+  // monthly amount, it's a PER-DAY rate multiplied by approved "Field
+  // Shift" leave days (computed live, not stored) — same column, no ALTER
+  // needed for that part.
+  try { await pool.query("ALTER TABLE erp_employee_profile ADD COLUMN gross_salary DECIMAL(14,2) NULL AFTER salary"); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Employment Type — set once when the employee is created (Permanent /
+  // Probation / Contractual / Part-time). Drives the Saturday weekly-off
+  // quota in GET /api/attendance/summary: Permanent gets 2 free Saturdays a
+  // month, everyone else (including blank/legacy rows) is treated as having
+  // none — every Saturday counts as a normal working day for them unless a
+  // leave covers it.
+  try { await pool.query("ALTER TABLE erp_employee_profile ADD COLUMN employment_type VARCHAR(20) NULL AFTER designation"); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
-  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile ready (no ISO tables were altered).');
+  // Leave Request / Field Duty module. One row per request; `employee_id` is
+  // whose leave it is, `created_by` is who filled the form (an employee filing
+  // their own leave, or HR/Admin filing on someone else's behalf — both are
+  // the same `employees.id`). `requires_admin_approval` is set the moment a
+  // *self-filed* request by an HR-tier employee is released for approval —
+  // ordinary HR staff can then see it (read-only) but only an Administrator/
+  // Sub Admin can act on it, so HR can't approve its own peers' leave.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_leave_requests (
+      id                      BIGINT AUTO_INCREMENT PRIMARY KEY,
+      doc_no                  VARCHAR(30) NULL UNIQUE,
+      employee_id             INT NOT NULL,
+      created_by              INT NOT NULL,
+      leave_request_type      VARCHAR(20) NOT NULL DEFAULT 'Full Day',
+      leave_type              VARCHAR(40) NOT NULL,
+      from_date               DATE NOT NULL,
+      to_date                 DATE NOT NULL,
+      request_date            DATE NOT NULL,
+      purpose                 TEXT NULL,
+      remarks                 TEXT NULL,
+      status                  VARCHAR(30) NOT NULL DEFAULT 'InProcess',
+      requires_admin_approval TINYINT(1) NOT NULL DEFAULT 0,
+      hod_status              VARCHAR(30) NULL,
+      hod_decided_by          INT NULL,
+      hod_decided_at          TIMESTAMP NULL,
+      hod_remarks             TEXT NULL,
+      decided_by              INT NULL,
+      decided_at              TIMESTAMP NULL,
+      decision_remarks        TEXT NULL,
+      created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_leave_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+      CONSTRAINT fk_leave_created_by FOREIGN KEY (created_by) REFERENCES employees(id) ON DELETE CASCADE,
+      INDEX idx_leave_employee (employee_id),
+      INDEX idx_leave_status (status)
+    )
+  `);
+  // erp_leave_requests may already exist from before decision_remarks was
+  // added — idempotent add for that case.
+  try { await pool.query('ALTER TABLE erp_leave_requests ADD COLUMN decision_remarks TEXT NULL AFTER decided_at'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Two-stage approval: hod_status/hod_decided_by/hod_decided_at/hod_remarks
+  // hold the HOD's own recommendation (a separate, non-final step) —
+  // decided_by/decided_at/decision_remarks above are reserved for HR/Admin's
+  // FINAL call, which is what actually becomes the request's `status` and
+  // what the employee sees as the outcome. See routes/leave.js.
+  const leaveCols = [
+    ['hod_status VARCHAR(30) NULL', 'requires_admin_approval'],
+    ['hod_decided_by INT NULL', 'hod_status'],
+    ['hod_decided_at TIMESTAMP NULL', 'hod_decided_by'],
+    ['hod_remarks TEXT NULL', 'hod_decided_at'],
+  ];
+  for (const [def, after] of leaveCols) {
+    try { await pool.query(`ALTER TABLE erp_leave_requests ADD COLUMN ${def} AFTER ${after}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  }
+
+  // Employee loans — HR records a loan (principal + fixed monthly deduction);
+  // payments (regular monthly deduction OR a one-off extra payment/waiver)
+  // are logged in erp_loan_payments, and the remaining balance is always
+  // principal_amount - SUM(payments) for that loan, never stored redundantly.
+  // One employee can have more than one loan over time, but only one
+  // 'Active' at once (enforced in routes/loans.js, not the schema).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_employee_loans (
+      id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+      employee_id       INT NOT NULL,
+      principal_amount  DECIMAL(14,2) NOT NULL,
+      monthly_deduction DECIMAL(14,2) NOT NULL,
+      currency          VARCHAR(10) NOT NULL DEFAULT 'AED',
+      notes             VARCHAR(255) NULL,
+      status            VARCHAR(20) NOT NULL DEFAULT 'Active',
+      created_by        INT NULL,
+      created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      closed_at         TIMESTAMP NULL,
+      CONSTRAINT fk_loan_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+      INDEX idx_loan_employee (employee_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_loan_payments (
+      id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+      loan_id       BIGINT NOT NULL,
+      amount        DECIMAL(14,2) NOT NULL,
+      payment_type  VARCHAR(20) NOT NULL DEFAULT 'Monthly',
+      payment_date  DATE NOT NULL,
+      notes         VARCHAR(255) NULL,
+      created_by    INT NULL,
+      created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_loanpay_loan FOREIGN KEY (loan_id) REFERENCES erp_employee_loans(id) ON DELETE CASCADE,
+      INDEX idx_loanpay_loan (loan_id)
+    )
+  `);
+
+  // HOD / reports-to — who this employee's leave requests route to for
+  // approval (see GET/PUT in routes/leave.js). Nullable: an employee with no
+  // HOD assigned keeps the original "any HR-access user decides" behaviour.
+  try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN reports_to INT NULL AFTER employment_type'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+
+  // Company holiday calendar — replaces manual/bulk attendance entry as the
+  // way HR handles Sundays/holidays/one-off office closures: instead of
+  // hand-filling attendance rows to paper over a gap, HR declares the date
+  // itself as non-working here, and GET /api/attendance/summary applies it
+  // to everyone automatically (no deduction, no punch required).
+  // type: 'Gazetted' (known-in-advance public holiday), 'Islamic' (moon-
+  // sighting dependent — Eid, Muharram — addable at short notice, same
+  // effect as Gazetted), 'CompanyOff' (ad-hoc closure — fumigation, weather).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_holidays (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      holiday_date DATE NOT NULL UNIQUE,
+      type        VARCHAR(20) NOT NULL DEFAULT 'Gazetted',
+      name        VARCHAR(150) NOT NULL,
+      created_by  INT NULL,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

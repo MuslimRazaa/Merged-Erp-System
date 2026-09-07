@@ -23,6 +23,11 @@ const ROLES = {
   'Sales / CRM':       ['Home', 'CRM', 'Sales & AR'],
   'Store / Logistics': ['Home', 'Inventory', 'Procurement'],
   'Viewer':            ['Home'],
+  // Plain ERP login with no admin rights and no specific extra module
+  // ticked on the Employees form — Home (dashboard + their own Leave
+  // Requests) only. Distinct from 'Viewer': a User isn't read-only, they
+  // just haven't been granted any module beyond Home.
+  'User':              ['Home'],
 };
 
 // A role is either one of the 9 named presets above (kept for backward

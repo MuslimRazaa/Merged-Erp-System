@@ -17,6 +17,15 @@
      /api/attendance/*-> routes/attendance.js (ZKTeco K70 agent ingest + HR view)
    ============================================================ */
 'use strict';
+// Express 4's own error middleware (below) only catches errors passed via
+// next(err) or thrown synchronously — an unhandled rejection inside one of
+// this codebase's many `async (req, res) => {...}` route handlers (no
+// try/catch, no next(err)) bypasses it entirely and, left unguarded, takes
+// the whole process down for every signed-in user, not just the one bad
+// request. These two handlers are the safety net: log it, keep serving.
+process.on('unhandledRejection', (err) => { console.error('[unhandled-rejection]', err); });
+process.on('uncaughtException', (err) => { console.error('[uncaught-exception]', err); });
+
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
@@ -27,6 +36,10 @@ const { router: authRouter } = require('./routes/auth');
 const sharedRouter = require('./routes/shared');
 const syncRouter = require('./routes/sync');
 const attendanceRouter = require('./routes/attendance');
+const leaveRouter = require('./routes/leave');
+const holidaysRouter = require('./routes/holidays');
+const loansRouter = require('./routes/loans');
+const payrollRouter = require('./routes/payroll');
 
 const PORT = +(process.env.PORT || 5050);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -48,6 +61,10 @@ app.use('/api/shared', sharedRouter);
 app.use('/api/sync', syncRouter);
 app.use('/sync', syncRouter); // alias — matches the front end's existing cfg.url + '/sync/pull' calls verbatim
 app.use('/api/attendance', attendanceRouter);
+app.use('/api/leave', leaveRouter);
+app.use('/api/holidays', holidaysRouter);
+app.use('/api/loans', loansRouter);
+app.use('/api/payroll', payrollRouter);
 
 // Serve the existing HTML/JS front end unchanged.
 app.use(express.static(PUBLIC_DIR));

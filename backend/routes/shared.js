@@ -30,14 +30,14 @@ function requireGroup(group) {
 // (PUT /employees/:id/iso-access) sides agree on exactly which columns
 // this is allowed to touch.
 const ISO_ACCESS_COLUMNS = [
-  'lms_access', 'portal_access', 'cvs_access', 'reports_access', 'testing_access',
+  'lms_access', 'portal_access', 'cvs_access', 'reports_access', 'testing_access', 'testing_admin_access',
   'jlr_operations_access', 'jlr_qhse_access', 'jlr_inventory_access', 'jlr_accounts_access', 'jlr_it_access', 'jlr_full_access',
   'iso_forms_access', 'iso_forms_admin_access',
 ];
 // Columns on ERP's own erp_employee_profile table (see migrate.js) — the
 // HR form's Personal/Bank/Reference/Kin/Salary sections.
 const PROFILE_COLUMNS = [
-  'first_name', 'last_name', 'designation', 'gender',
+  'first_name', 'last_name', 'designation', 'employment_type', 'reports_to', 'gender',
   'phone_country', 'phone_code', 'phone_number', 'nic_number',
   'father_husband_name', 'spouse_name', 'spouse_na', 'mother_name', 'mother_na', 'date_of_birth',
   'emergency_country', 'emergency_code', 'emergency_number',
@@ -47,7 +47,7 @@ const PROFILE_COLUMNS = [
   'appraisal_date', 'confirmation_date', 'rejoin_date', 'rejoin_reason',
   'ref_name', 'ref_contact', 'ref_email', 'ref_office',
   'kin_name', 'kin_relation', 'kin_contact', 'kin_nic', 'kin_email',
-  'salary', 'utility_allowance', 'hra', 'field_allowance', 'currency',
+  'salary', 'gross_salary', 'utility_allowance', 'hra', 'field_allowance', 'currency',
 ];
 // request-body camelCase -> DB snake_case, for the profile columns above.
 const PROFILE_FIELD_MAP = Object.fromEntries(PROFILE_COLUMNS.map((c) => [c.replace(/_([a-z])/g, (m, l) => l.toUpperCase()), c]));
@@ -174,6 +174,13 @@ router.post('/employees', requireGroup('Human Resources'), async (req, res) => {
 router.put('/employees/:id', requireGroup('Human Resources'), async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const fields = []; const values = [];
+  if (req.body.employeeId !== undefined) {
+    const newEmpId = String(req.body.employeeId).trim();
+    if (!newEmpId) return res.status(400).json({ error: 'Employee ID cannot be blank.' });
+    const [dupe] = await pool.query('SELECT id FROM employees WHERE employee_id = ? AND id <> ?', [newEmpId, req.params.id]);
+    if (dupe.length) return res.status(409).json({ error: `Employee ID "${newEmpId}" is already used by another employee.` });
+    fields.push('employee_id = ?'); values.push(newEmpId);
+  }
   if (req.body.name !== undefined) { fields.push('full_name = ?'); values.push(req.body.name); }
   if (req.body.email !== undefined) { fields.push('email = ?'); values.push(req.body.email); }
   if (req.body.department !== undefined) { fields.push('department = ?'); values.push(req.body.department); }
