@@ -112,6 +112,16 @@ tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
 .pill.r{background:var(--rose-t);color:var(--rose)}
 .pill.v{background:var(--violet-t);color:var(--violet)}
 .del{color:var(--rose);font-size:13px;padding:2px 7px;border-radius:6px}
+/* Toast notifications — see toast() in the script below */
+#toast-wrap{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:360px}
+.toast{display:flex;align-items:flex-start;gap:9px;padding:11px 14px;border-radius:9px;box-shadow:0 10px 28px rgba(0,0,0,.18);font-size:12.5px;line-height:1.45;color:#fff;animation:toast-in .18s ease-out}
+.toast.ok{background:#0F9D68}
+.toast.err{background:#C0362C}
+.toast.info{background:#12203C}
+.toast .tx{flex:1}
+.toast .tc{cursor:pointer;opacity:.75;font-weight:700;line-height:1}
+.toast .tc:hover{opacity:1}
+@keyframes toast-in{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
 .del:hover{background:var(--rose-t)}
 .searchrow{margin-bottom:11px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .searchrow input[type=search]{padding:8px 12px;border:1px solid var(--line);border-radius:9px;min-width:220px;background:#fff}
@@ -175,6 +185,7 @@ body.locked #app{display:none}
 </style>
 </head>
 <body class="locked">
+<div id="toast-wrap"></div>
 <div id="login">
  <div class="lbox">
   <div class="lbrand">PREMIER TUBULAR SERVICES</div>
@@ -209,6 +220,7 @@ body.locked #app{display:none}
     <button class="btn ghost small" id="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
     <div><div class="crumb" id="crumb">HOME</div><h1 id="title">Dashboard</h1></div>
     <div class="top-actions">
+      <span id="lv-inbox-slot" style="position:relative"></span>
       <span id="userchip"></span>
       <div class="chip-sync offline" id="syncchip"><div class="dot"></div><span id="synctext">Local only</span></div>
       <button class="btn ghost small" onclick="syncNow()">Sync now</button>
@@ -244,6 +256,15 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end"><button class="btn" onclick="closeModal('bdaymodal')">Close</button></div>
 </div></div>
 
+<div class="modal" id="lvdecidemodal"><div class="box" style="max-width:480px">
+  <h3>Decide Leave Request</h3>
+  <div id="lvdecide-summary" style="font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px"></div>
+  <div class="field"><label>Decision</label><select id="lvdecide-status"><option value="">— choose —</option></select></div>
+  <div class="field" style="margin-top:9px"><label>Remarks / Comments (optional — HR will see this)</label><textarea id="lvdecide-remarks" rows="3" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
+  <div class="lerr" id="lvdecide-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('lvdecidemodal')">Cancel</button><button class="btn" onclick="lvConfirmDecide()">Confirm decision</button></div>
+</div></div>
+
 <script>
 /* ================================================================
    PREMIER ERP — single-file, offline-first
@@ -254,6 +275,17 @@ const P='perp_';
 function lsGet(k,d){try{const v=JSON.parse(localStorage.getItem(P+k));return v==null?d:v;}catch(e){return d;}}
 function lsSet(k,v){try{localStorage.setItem(P+k,JSON.stringify(v));}catch(e){alert('Save failed: '+e.message);}}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+// Toast notification — replaces bare alert()/inline error text for things the
+// user should notice but not have to dismiss with a click. type: 'ok'|'err'|'info'.
+function toast(msg,type){
+  const wrap=document.getElementById('toast-wrap');if(!wrap)return;
+  const el=document.createElement('div');
+  el.className='toast '+(type||'info');
+  el.innerHTML='<span class="tx"></span><span class="tc" onclick="this.parentElement.remove()">✕</span>';
+  el.querySelector('.tx').textContent=msg;
+  wrap.appendChild(el);
+  setTimeout(()=>{if(el.parentElement)el.remove();},type==='err'?6000:3500);
+}
 function uid(){return 'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 function today(){return new Date().toISOString().slice(0,10);}
 function fmt(n){n=+n||0;return (n<0?'-':'')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -294,9 +326,7 @@ payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Vouch
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},attendance:{g:'Human Resources',ic:'▱',name:'Attendance',fields:[D('date','Date'),REF('emp','Employee','employees','name'),S('status','Status',['Present','Absent','Half day','Site / field','Remote','Holiday']),T('site','Site / location'),T('hours','Hours'),A('notes','Notes')],list:['date','emp','status','site','hours'],badge:r=>r.status},
-leave:{g:'Human Resources',ic:'✈',name:'Leave',fields:[REF('emp','Employee','employees','name'),S('type','Type',['Annual','Sick','Unpaid','Emergency','Maternity/Paternity','Hajj']),D('from','From'),D('to','To'),N('days','Days'),S('status','Status',['Requested','Approved','Rejected','Taken']),A('notes','Notes')],list:['emp','type','from','to','days','status'],badge:r=>r.status},
-payroll:{g:'Human Resources',ic:'₪',name:'Payroll',fields:[T('period','Period','2026-08'),REF('emp','Employee','employees','name'),N('basic','Basic'),N('allow','Allowances'),N('ot','Overtime'),N('ded','Deductions'),C_NET(),T('cur','Currency','AED'),S('status','Status',['Draft','Approved','Paid'])],list:['period','emp','basic','allow','ot','ded','net','status'],badge:r=>r.status},
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},
 trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Completed'),D('expiry','Expiry'),T('certno','Certificate no.'),S('status','Status',['Valid','Expiring','Expired','Planned'])],list:['emp','course','provider','date','expiry','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Expired').length,l:'Expired certs',warn:1}]},
 /* ---------------- COMPLIANCE ---------------- */
 docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),S('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
@@ -324,8 +354,8 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
 /* ============ navigation / routing ============ */
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
-  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'}],
-  'Human Resources':[{id:'hr_employees',ic:'♟',name:'Employees'},{id:'hr_attendance',ic:'⏱',name:'Live Attendance'}],
+  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
+  'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
@@ -334,7 +364,10 @@ function nav(){
   const el=document.getElementById('nav');
   el.innerHTML=GROUPS.filter(g=>canSee(g)).map(g=>{
     let items='';
-    (EXTRA_NAV[g]||[]).forEach(x=>{items+='<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')"><span class="ic">'+x.ic+'</span>'+x.name+'</button>';});
+    (EXTRA_NAV[g]||[]).forEach(x=>{
+      const badge=(x.id==='leave_requests'&&LEAVE_PENDING_COUNT>0)?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
+      items+='<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')" style="display:flex;align-items:center;gap:6px"><span class="ic">'+x.ic+'</span>'+x.name+badge+'</button>';
+    });
     Object.entries(MODULES).filter(([k,m])=>m.g===g).forEach(([k,m])=>{
       items+='<button class="nitem'+(route==='m_'+k?' on':'')+'" onclick="go(\'m_'+k+'\')"><span class="ic">'+m.ic+'</span>'+m.name+'</button>';});
     return items?'<div class="ngrp"><h5>'+g+'</h5>'+items+'</div>':'';
@@ -426,11 +459,14 @@ function applySession(r){
   nav();render();
   pullSharedMaster();
   updateSyncBar();scheduleAutoSync();
+  lvPollPending();
   if(navigator.onLine)setTimeout(syncNow,800);
 }
 function logout(){
   SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
+  const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
+  LEAVE_PENDING_COUNT=0;
   document.getElementById('l-user').value='';document.getElementById('l-pass').value='';showLogin();
 }
 /* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
@@ -484,8 +520,15 @@ function checkBirthdayReminders(emps){
 }
 function canSee(group){
   if(!SESSION)return false;
-  const r=ROLES[SESSION.role];if(!r)return false;
-  return r.groups==='*'||r.groups.includes(group);
+  const preset=ROLES[SESSION.role];
+  if(preset)return preset.groups==='*'||preset.groups.includes(group);
+  // Not a named preset -> a comma-separated custom module list, picked
+  // directly on the Employees form's multi-select (e.g. "CRM,Human
+  // Resources") — mirrors the backend's moduleListFor() in roles.js.
+  // 'Home' is implied either way, same as there.
+  if(!SESSION.role)return false;
+  const mods=String(SESSION.role).split(',').map(s=>s.trim()).filter(Boolean);
+  return group==='Home'||mods.includes(group);
 }
 function isAdmin(){return SESSION&&SESSION.role==='Administrator';}
 // Sub Admin can also create employees and grant ordinary roles (but never
@@ -555,7 +598,7 @@ async function renderLiveAttendance(){
    '<div class="field"><label>From</label><input type="date" id="att-from" value="'+from+'"></div>'+
    '<div class="field"><label>To</label><input type="date" id="att-to" value="'+to+'"></div>'+
    '<div class="field" style="flex:1;min-width:180px"><label>Search employee (ID or name)</label><input id="att-q" value="'+esc(q)+'" placeholder="e.g. 1878 or Ahmed" onkeydown="if(event.key===\'Enter\')attApply()"></div>'+
-   '<div class="field" style="align-self:end"><button class="btn" onclick="attApply()">🔍 Search</button></div>'+
+   '<div class="field" style="align-self:end"><button class="btn" onclick="attApply()">⌕ Search</button></div>'+
    '<div class="field" style="align-self:end"><button class="btn ghost" onclick="attExportCsv()">⬇ Export to Excel</button></div>'+
    '</div>'+
    '<div class="att-tabs">'+
@@ -620,10 +663,14 @@ async function renderLiveAttendance(){
          dayRows.map(r=>{
            const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
            const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1)+'h':'';
+           const dtLabel=rptDayTypeLabel(r);
+           const pillClass=r.dayType==='Absent'?'a':(r.dayType==='LeaveWithoutPay'?'a':'v');
            return '<tr style="cursor:pointer" title="Click to see every punch this day" data-emp="'+esc(r.employeeCode)+'" data-name="'+esc(r.name||'Unmapped')+'" data-date="'+esc(r.date)+'" onclick="attShowDay(this.dataset.emp,this.dataset.name,this.dataset.date)">'+
             '<td>'+attEmpCell(r,'name','employeeCode')+'</td><td>'+esc(r.department||'')+(r.department&&r.location?' · ':'')+esc(r.location||'')+'</td>'+
-            '<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td class="num">'+hrs+'</td>'+
-            '<td>'+(r.unmapped||!ci?'—':'<span class="pill '+(r.late?'a':'g')+'">'+(r.late?'Late':'On time')+'</span>')+'</td></tr>';
+            (dtLabel
+             ?'<td colspan="3"><span class="pill '+pillClass+'">'+esc(dtLabel)+'</span></td>'
+             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td class="num">'+hrs+'</td>')+
+            '<td>'+(dtLabel||r.unmapped||!ci?'—':'<span class="pill '+(r.late?'a':'g')+'">'+(r.late?'Late':'On time')+'</span>')+'</td></tr>';
          }).join('')+
          '</tbody></table>';
         return '<div class="att-daygroup">'+
@@ -694,10 +741,855 @@ function attExportCsv(){
   a.download='attendance-'+(window.__attView||'summary')+'-'+(window.__attFrom||today())+'_to_'+(window.__attTo||today())+'.csv';
   a.click();
 }
+/* ================================================================
+   ATTENDANCE REPORT — HR/Manager date-range + employee-picker export.
+   A separate tab from Live Attendance above (which is untouched) — this
+   one is for producing monthly timesheets/rosters, reusing the same
+   /api/attendance/summary data (one row per employee per day, with the
+   day's first check-in and last check-out already resolved server-side).
+   ================================================================ */
+let RPT_SEL=new Set();   // selected employee codes (empno); empty set = "All employees"
+let RPT_SUMMARY=[];      // last-fetched summary rows, filtered to the current selection
+let RPT_SUMMARY_KEY=null; // "from|to" the above was fetched for — null/stale forces a refetch
+let RPT_TITLE={},RPT_TITLE_LOADED=false; // employeeId -> 'Mr'/'Ms', for the roster's Employee Name column
+function renderAttendanceReport(){
+  const from=window.__rptFrom||today(), to=window.__rptTo||today();
+  const emps=coll('employees').slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Attendance Report<span class="hint" style="font-weight:400"> — pick a date range and employees, then export for HR / payroll</span></div><div class="card-b">'+
+   '<div class="fgrid" style="margin-bottom:14px">'+
+    '<div class="field"><label>From</label><input type="date" id="rpt-from" value="'+from+'"></div>'+
+    '<div class="field"><label>To</label><input type="date" id="rpt-to" value="'+to+'"></div>'+
+    '<div class="field" style="align-self:end"><button class="btn" onclick="rptGenerate()">▸ Generate report</button></div>'+
+   '</div>'+
+   '<div style="margin-bottom:6px"><b style="font-size:12.5px">Employees</b> <span class="hint">— leave none ticked for "All employees"</span></div>'+
+   '<div style="position:relative;max-width:420px;margin-bottom:14px">'+
+    '<button type="button" class="btn ghost" style="width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center" onclick="rptToggleDropdown(event)">'+
+     '<span id="rpt-emp-summary">'+rptEmpSummaryText()+'</span><span>▾</span>'+
+    '</button>'+
+    '<div id="rpt-emp-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:30;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.15);margin-top:4px;padding:10px" onclick="event.stopPropagation()">'+
+     '<input id="rpt-emp-q" placeholder="Filter by ID or name…" style="width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px" oninput="rptFilterEmp()">'+
+     '<div style="display:flex;gap:8px;margin-bottom:8px">'+
+      '<button class="btn ghost small" onclick="rptSelAll()">Select all</button>'+
+      '<button class="btn ghost small" onclick="rptSelNone()">Clear</button>'+
+     '</div>'+
+     '<div id="rpt-emp-list" style="max-height:220px;overflow:auto">'+rptEmpListHtml(emps,'')+'</div>'+
+    '</div>'+
+   '</div>'+
+   '</div></div>'+
+   '<div class="card" id="rpt-result" style="display:none"><div class="card-h">Report preview<span class="hint" style="font-weight:400" id="rpt-result-hint"></span></div><div class="card-b">'+
+    '<div style="margin-bottom:12px"><b style="font-size:12.5px">Detailed Timesheet</b> <span class="hint">— one row per employee per day: that day\'s first punch-in and last punch-out (same layout as the official TMS Time Sheet)</span>'+
+     '<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">'+
+      '<button class="btn ghost small" onclick="rptExportPdf()">⬇ PDF</button>'+
+      '<button class="btn ghost small" onclick="rptExportXls(\'detailed\')">⬇ Excel</button>'+
+      '<button class="btn ghost small" onclick="rptExportCsv(\'detailed\')">⬇ CSV</button>'+
+      '<button class="btn ghost small" onclick="rptExportXlsx(\'detailed\')">⬇ Excel Workbook</button>'+
+     '</div>'+
+     '<div class="hint" style="margin-top:8px">PDF preview — exactly what the ⬇ PDF button downloads</div>'+
+     '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:4px">'+
+      '<iframe id="rpt-pdf-frame" style="width:100%;height:60vh;border:0;display:none"></iframe>'+
+      '<div id="rpt-pdf-empty" class="empty">Generate the report to see a PDF preview here.</div>'+
+     '</div>'+
+    '</div>'+
+    '<div style="margin-bottom:10px"><b style="font-size:12.5px">HR Roster</b> <span class="hint">— one row per selected employee, for HR/payroll rosters</span>'+
+     '<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">'+
+      '<button class="btn ghost small" onclick="rptExportXls(\'roster\')">⬇ Excel</button>'+
+      '<button class="btn ghost small" onclick="rptExportCsv(\'roster\')">⬇ CSV</button>'+
+      '<button class="btn ghost small" onclick="rptExportXlsx(\'roster\')">⬇ Excel Workbook</button>'+
+     '</div></div>'+
+    '<div class="tblwrap" id="rpt-preview"></div>'+
+   '</div></div>';
+}
+function rptEmpListHtml(emps,q){
+  q=(q||'').toLowerCase();
+  const rows=emps.filter(e=>!q||String(e.empno||'').toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
+  if(!rows.length)return '<div class="empty">No employees match.</div>';
+  return '<div class="fgrid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">'+
+   rows.map(e=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" class="rpt-emp-cb" value="'+esc(e.empno)+'"'+(RPT_SEL.has(e.empno)?' checked':'')+' onchange="rptToggleEmp(\''+esc(e.empno)+'\',this.checked)"> '+esc(e.empno)+' — '+esc(e.name)+'</label>').join('')+
+   '</div>';
+}
+function rptFilterEmp(){document.getElementById('rpt-emp-list').innerHTML=rptEmpListHtml(coll('employees'),document.getElementById('rpt-emp-q').value);}
+function rptEmpSummaryText(){
+  if(!RPT_SEL.size)return 'All employees';
+  if(RPT_SEL.size===1){const e=coll('employees').find(e=>e.empno===[...RPT_SEL][0]);return e?e.empno+' — '+e.name:'1 employee selected';}
+  return RPT_SEL.size+' employees selected';
+}
+function rptUpdateEmpSummary(){const el=document.getElementById('rpt-emp-summary');if(el)el.textContent=rptEmpSummaryText();}
+function rptToggleEmp(code,checked){if(checked)RPT_SEL.add(code);else RPT_SEL.delete(code);RPT_SUMMARY_KEY=null;rptUpdateEmpSummary();}
+function rptSelAll(){coll('employees').forEach(e=>RPT_SEL.add(e.empno));RPT_SUMMARY_KEY=null;rptFilterEmp();rptUpdateEmpSummary();}
+function rptSelNone(){RPT_SEL.clear();RPT_SUMMARY_KEY=null;rptFilterEmp();rptUpdateEmpSummary();}
+// Dropdown: click the button to open/close; click anywhere outside (a single
+// document-level listener, attached once) closes it. Clicks inside the panel
+// itself are stopped from bubbling (see the onclick on #rpt-emp-dropdown) so
+// ticking a checkbox doesn't also trigger the outside-click close.
+function rptToggleDropdown(ev){
+  if(ev)ev.stopPropagation();
+  const dd=document.getElementById('rpt-emp-dropdown');if(!dd)return;
+  dd.style.display=dd.style.display==='none'?'block':'none';
+  if(!window.__rptDropdownListenerAdded){
+    window.__rptDropdownListenerAdded=true;
+    document.addEventListener('click',()=>{const el=document.getElementById('rpt-emp-dropdown');if(el)el.style.display='none';});
+  }
+}
+function rptDateList(from,to){
+  // Build YYYY-MM-DD from local getFullYear/Month/Date, NOT toISOString() (which is
+  // UTC-based and would shift every date back a day for any timezone ahead of UTC,
+  // e.g. Pakistan Standard Time — silently wrong dates in the HR roster export).
+  const fmt=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+  const out=[];let d=new Date(from+'T00:00:00');const end=new Date(to+'T00:00:00');
+  while(d<=end){out.push(fmt(d));d.setDate(d.getDate()+1);}
+  return out;
+}
+// Fetches /api/attendance/summary for the current From/To + employee selection,
+// but only when that combination actually changed since the last fetch (tracked
+// via RPT_SUMMARY_KEY) — so every export button can just call this and always
+// have correct data, instead of depending on "Generate report" having been
+// clicked first (that was the "Generate the report first" trap: the export
+// buttons used to read RPT_SUMMARY directly, which was still empty if you
+// changed the date/employees after generating, or exported before generating
+// at all).
+async function rptEnsureData(){
+  const fromEl=document.getElementById('rpt-from'),toEl=document.getElementById('rpt-to');
+  const from=(fromEl&&fromEl.value)||window.__rptFrom||today();
+  const to=(toEl&&toEl.value)||window.__rptTo||today();
+  window.__rptFrom=from;window.__rptTo=to;
+  const key=from+'|'+to+'|'+[...RPT_SEL].sort().join(',');
+  if(RPT_SUMMARY_KEY!==key){
+    const rows=await api('/api/attendance/summary?from='+from+'&to='+to);
+    RPT_SUMMARY=RPT_SEL.size?rows.filter(r=>RPT_SEL.has(r.employeeCode)):rows;
+    RPT_SUMMARY_KEY=key;
+  }
+  if(!RPT_TITLE_LOADED){ // fetched once — Mr/Ms prefix for the roster's Employee Name column
+    try{
+      const emps=await api('/api/shared/employees');
+      emps.forEach(e=>{const g=e.profile&&e.profile.gender;RPT_TITLE[e.employeeId]=g==='Female'?'Ms':'Mr';});
+      RPT_TITLE_LOADED=true;
+    }catch(e){/* non-fatal — roster just shows names without a title if this fails */}
+  }
+}
+async function rptGenerate(){
+  document.getElementById('rpt-result').style.display='block';
+  document.getElementById('rpt-preview').innerHTML='<div class="empty">Loading…</div>';
+  try{
+    await rptEnsureData();
+    document.getElementById('rpt-result-hint').textContent=' — '+window.__rptFrom+' to '+window.__rptTo+' · '+(RPT_SEL.size?RPT_SEL.size+' employee(s) selected':'all employees');
+    const det=rptBuildDetailed();
+    document.getElementById('rpt-preview').innerHTML=det.rows.length
+     ?'<table><thead><tr>'+det.headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
+       det.rows.slice(0,50).map(r=>'<tr>'+r.map(cel=>'<td>'+esc(cel)+'</td>').join('')+'</tr>').join('')+
+      '</tbody></table>'+(det.rows.length>50?'<div class="hint" style="padding:8px">Showing first 50 of '+det.rows.length+' rows — the full data is included in every export.</div>':'')
+     :'<div class="empty">No attendance found for this range/selection — check the dates and try again.</div>';
+    rptRenderPdfPreview();
+  }catch(e){
+    document.getElementById('rpt-preview').innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
+  }
+}
+function rptFmtTime(t){if(!t)return '----';return new Date(t).toLocaleTimeString('en-GB',{hour12:false});}
+function rptFmtDate(d){const dt=new Date(d+'T00:00:00');return String(dt.getDate()).padStart(2,'0')+'-'+dt.toLocaleDateString('en-US',{month:'short'})+'-'+dt.getFullYear();}
+function rptFmtDay(d){return new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'long'});}
+// dayType (from GET /api/attendance/summary) drives what Time In/Time Out
+// show for a day that isn't a normal punched attendance day — Holiday/
+// CompanyOff/WeeklyOff/Absent all come from the server's own calendar +
+// Saturday-rotation + leave logic now, not from a manually-filled sheet.
+function rptDayTypeLabel(r){
+  switch(r.dayType){
+    case 'Holiday': return 'Holiday — '+(r.holidayName||'');
+    case 'CompanyOff': return 'Company Off — '+(r.holidayName||'');
+    case 'WeeklyOff': return r.dayOfWeek===0?'Gazetted Holiday (Sunday)':'Weekly Off';
+    case 'Leave': return 'On Leave — '+(r.leaveType||'');
+    case 'LeaveWithoutPay': return 'Leave Without Pay — '+(r.leaveType||'');
+    case 'Absent': return 'Absent';
+    default: return null; // 'Present' — show the real times
+  }
+}
+function rptBuildDetailed(){
+  const headers=['Sr#','Department','Emp Code','Name','Date','Day','Time In','Time Out'];
+  const sorted=RPT_SUMMARY.slice().sort((a,b)=>a.date===b.date?String(a.name).localeCompare(b.name):a.date.localeCompare(b.date));
+  const rows=sorted.map((r,i)=>{
+    const label=rptDayTypeLabel(r);
+    return [i+1,r.department||'',r.employeeCode||'',r.name||'(Unmapped)',rptFmtDate(r.date),rptFmtDay(r.date),
+      label||rptFmtTime(r.checkIn), label?(r.leaveDocNo||''):rptFmtTime(r.checkOut)];
+  });
+  return {headers,rows};
+}
+function rptBuildRoster(){
+  // One row per employee — not per day, so a 4-day range doesn't repeat the
+  // same name 4 times. Status is always YES: this roster simply lists every
+  // selected (or all) employee that exists, per how it was asked for — it's
+  // not an attendance present/absent check (that's what the Detailed
+  // Timesheet's Time In/Time Out columns are for).
+  const headers=['SR#','Emp Code.','Employee Name','Status'];
+  const emps=coll('employees').filter(e=>!RPT_SEL.size||RPT_SEL.has(e.empno));
+  const rows=emps.map((e,i)=>{
+    const title=RPT_TITLE[e.empno];
+    return [i+1,e.empno,(title?title+' ':'')+(e.name||''),'yes'];
+  });
+  return {headers,rows};
+}
+async function rptExportCsv(kind){
+  try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
+  const {headers,rows}=kind==='roster'?rptBuildRoster():rptBuildDetailed();
+  if(!rows.length)return alert('No attendance found for this date range/selection.');
+  const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+  dlBlob('﻿'+lines.join('\r\n'),'text/csv;charset=utf-8','attendance-'+kind+'-'+window.__rptFrom+'_to_'+window.__rptTo+'.csv');
+}
+async function rptExportXls(kind){
+  try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
+  const {headers,rows}=kind==='roster'?rptBuildRoster():rptBuildDetailed();
+  if(!rows.length)return alert('No attendance found for this date range/selection.');
+  const title=kind==='roster'?'HR Attendance Roster':'Attendance Timesheet';
+  const html='<html><head><meta charset="utf-8"><title>'+title+'</title><style>body{font-family:Arial,Helvetica,sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 7px;text-align:left}th{background:#EEF1F5}</style></head><body><h2>'+title+'</h2><p>'+window.__rptFrom+' to '+window.__rptTo+'</p><table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(cel=>'<td>'+esc(cel)+'</td>').join('')+'</tr>').join('')+'</tbody></table></body></html>';
+  dlBlob(html,'application/vnd.ms-excel','attendance-'+kind+'-'+window.__rptFrom+'_to_'+window.__rptTo+'.xls');
+}
+async function rptExportXlsx(kind){
+  try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
+  const {headers,rows}=kind==='roster'?rptBuildRoster():rptBuildDetailed();
+  if(!rows.length)return alert('No attendance found for this date range/selection.');
+  const grid=[headers.map(String)].concat(rows.map(r=>r.map(cel=>cel==null?'':String(cel))));
+  dlXlsx(buildXlsxBlob(grid),'attendance-'+kind+'-'+window.__rptFrom+'_to_'+window.__rptTo+'.xlsx');
+}
+// Shared by the download button and the inline preview below — builds the
+// PdfDoc but doesn't decide what to do with it (out() vs bytes()).
+function rptBuildPdfDoc(){
+  const {headers,rows}=rptBuildDetailed();
+  if(!rows.length)return null;
+  const doc=new PdfDoc({landscape:true});
+  doc.header('TMS TIME SHEET',window.__rptFrom+' to '+window.__rptTo);
+  doc.table(headers,rows);
+  return doc;
+}
+async function rptExportPdf(){
+  try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
+  const doc=rptBuildPdfDoc();
+  if(!doc)return alert('No attendance found for this date range/selection.');
+  doc.out('TMSTimeSheet_'+window.__rptFrom+'_to_'+window.__rptTo);
+}
+// Inline PDF preview — lets HR see exactly what the download will look like
+// (and how many pages/rows it covers) before committing to it. Rebuilt every
+// time Generate report runs; the previous preview's Blob URL is revoked
+// first so repeated generates don't leak memory.
+let RPT_PDF_PREVIEW_URL=null;
+function rptRenderPdfPreview(){
+  const frame=document.getElementById('rpt-pdf-frame');if(!frame)return;
+  if(RPT_PDF_PREVIEW_URL){URL.revokeObjectURL(RPT_PDF_PREVIEW_URL);RPT_PDF_PREVIEW_URL=null;}
+  const doc=rptBuildPdfDoc();
+  if(!doc){frame.style.display='none';document.getElementById('rpt-pdf-empty').style.display='block';return;}
+  const blob=new Blob([doc.bytes()],{type:'application/pdf'});
+  RPT_PDF_PREVIEW_URL=URL.createObjectURL(blob);
+  frame.src=RPT_PDF_PREVIEW_URL;
+  frame.style.display='block';document.getElementById('rpt-pdf-empty').style.display='none';
+}
+/* Manual attendance entry & bulk CSV import have been retired — see
+   renderHolidays() below and GET /api/attendance/summary's dayType logic,
+   which now handle Sundays/holidays/company-off days automatically instead
+   of HR hand-filling attendance rows to cover them. */
+/* ================================================================
+   HOLIDAYS & WEEKLY OFF — HR declares non-working dates once; the
+   attendance report (dayType from GET /api/attendance/summary) applies
+   them to every employee automatically, alongside the built-in Sunday and
+   Saturday-rotation rules below. See backend/routes/holidays.js.
+   ================================================================ */
+const HOL_TYPES=[{v:'Gazetted',l:'Gazetted Holiday'},{v:'Islamic',l:'Islamic Holiday (moon-sighting)'},{v:'CompanyOff',l:'Company Off (ad-hoc)'}];
+let HOL_LIST=[];
+async function renderHolidays(){
+  const hasHr=canSee('Human Resources');
+  const c=document.getElementById('content');
+  c.innerHTML=
+   (hasHr?(
+   '<div class="card"><div class="card-h">Add a Holiday / Company Off Day</div><div class="card-b">'+
+    '<div class="fgrid">'+
+     '<div class="field"><label>Date</label><input type="date" id="hol-date" value="'+today()+'"></div>'+
+     '<div class="field"><label>Type</label><select id="hol-type">'+HOL_TYPES.map(t=>'<option value="'+t.v+'">'+esc(t.l)+'</option>').join('')+'</select></div>'+
+     '<div class="field full"><label>Name / Reason</label><input type="text" id="hol-name" placeholder="e.g. Eid-ul-Fitr, Independence Day, Fumigation, Heavy rain"></div>'+
+     '<div class="field" style="align-self:end"><button class="btn" onclick="holAdd()">+ Add</button></div>'+
+    '</div>'+
+    '<div class="lerr" id="hol-err" style="display:none"></div>'+
+    '<div class="hint" style="margin-top:6px"><b>Gazetted</b> = known-in-advance public holiday. <b>Islamic</b> = moon-sighting dependent (Eid, Muharram) — add it whenever the date is confirmed, even last-minute; treated exactly like a Gazetted holiday. <b>Company Off</b> = one-off closure for any reason (weather, fumigation, emergency). Every one of these: no deduction, no attendance punch needed, applies to all employees automatically.</div>'+
+   '</div></div>'
+   ):'')+
+   '<div class="card"><div class="card-h">Holidays<span class="hint" style="font-weight:400" id="hol-count"></span></div><div class="card-b"><div class="tblwrap" id="hol-list"><div class="empty">Loading…</div></div></div></div>'+
+   '<div class="card"><div class="card-h">Weekly Off Policy<span class="hint" style="font-weight:400"> — how Sundays &amp; Saturdays are handled automatically</span></div><div class="card-b">'+
+    '<ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.9">'+
+     '<li><b>Sundays</b> are always Weekly Off — no deduction, no need to punch.</li>'+
+     '<li><b>Saturdays are rotational</b>, calculated automatically at month end: <b>Permanent</b> employees must attend 2 Saturdays a month — whichever 2 they actually attend; the rest of that month\'s Saturdays are Weekly Off, no deduction. <b>Probation / Contractual / Part-time</b> employees have no free Saturday — every Saturday is a normal working day for them.</li>'+
+     '<li>On any working day (including a mandatory Saturday), an <b>Approved leave</b> is fully paid — no deduction. A <b>Leave Without Pay</b> decision is deducted.</li>'+
+     '<li>Employment Type (Permanent/Probation/Contractual/Part-time) is set on each employee\'s Employment tab and drives the Saturday rule above.</li>'+
+    '</ul>'+
+   '</div></div>';
+  await holRefresh();
+}
+async function holRefresh(){
+  try{
+    HOL_LIST=await api('/api/holidays');
+    HOL_LIST.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    const typeLabel=v=>(HOL_TYPES.find(t=>t.v===v)||{}).l||v;
+    document.getElementById('hol-count').textContent=' — '+HOL_LIST.length+' on file';
+    const hasHr=canSee('Human Resources');
+    document.getElementById('hol-list').innerHTML=HOL_LIST.length
+     ?'<table><thead><tr><th>Date</th><th>Type</th><th>Name / Reason</th>'+(hasHr?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
+       HOL_LIST.map(h=>'<tr><td>'+esc(String(h.date).slice(0,10))+'</td><td>'+esc(typeLabel(h.type))+'</td><td>'+esc(h.name)+'</td>'+
+        (hasHr?'<td class="no-print"><button class="btn ghost small" onclick="holDelete('+h.id+')">Delete</button></td>':'')+'</tr>').join('')+
+      '</tbody></table>'
+     :'<div class="empty">No holidays added yet.</div>';
+  }catch(e){
+    document.getElementById('hol-list').innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
+  }
+}
+async function holAdd(){
+  const err=document.getElementById('hol-err');err.style.display='none';
+  const date=document.getElementById('hol-date').value,type=document.getElementById('hol-type').value,name=document.getElementById('hol-name').value.trim();
+  if(!date||!name){err.textContent='Date and Name/Reason are required.';err.style.display='block';return;}
+  try{
+    await api('/api/holidays',{method:'POST',body:JSON.stringify({date,type,name})});
+    document.getElementById('hol-name').value='';
+    RPT_SUMMARY_KEY=null; // force the attendance report to pick this up next time it's generated
+    await holRefresh();
+  }catch(e){err.textContent=e.message;err.style.display='block';}
+}
+async function holDelete(id){
+  if(!confirm('Remove this holiday?'))return;
+  try{
+    await api('/api/holidays/'+id,{method:'DELETE'});
+    RPT_SUMMARY_KEY=null;
+    await holRefresh();
+  }catch(e){alert(e.message);}
+}
+/* ================================================================
+   PAYROLL — pick a date range (the company's cycle is 25th-to-25th; e.g.
+   25-Aug to 25-Sep = September's payroll, shown automatically), then either
+   Department-wise or Employee-wise (multi-select, each revealed only after
+   the mode is chosen), then Generate — pulls straight from the Attendance
+   Report's own day-by-day data (routes/attendance.js) plus each employee's
+   Gross Salary/Field Allowance already on file.
+   ================================================================ */
+let PR_MODE='',PR_DEPTS=new Set(),PR_EMPS=new Set(),PR_DEPT_LIST=[],PR_EMP_LIST=[],PR_REPORT=null;
+function prMonthLabel(toDateStr){
+  if(!toDateStr)return '';
+  const d=new Date(toDateStr+'T00:00:00');
+  return d.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+}
+async function renderPayroll(){
+  const c=document.getElementById('content');
+  const to=window.__prTo||today();
+  const from=window.__prFrom||(()=>{const d=new Date(to+'T00:00:00');d.setMonth(d.getMonth()-1);d.setDate(26);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})();
+  window.__prFrom=from;window.__prTo=to;
+  c.innerHTML='<div class="card"><div class="card-h">Generate Payroll<span class="hint" style="font-weight:400"> — pulls from the live Attendance Report + each employee\'s Gross Salary on file</span></div><div class="card-b">'+
+   '<div class="fgrid">'+
+    '<div class="field"><label>From</label><input type="date" id="pr-from" value="'+from+'" onchange="prDateChanged()"></div>'+
+    '<div class="field"><label>To</label><input type="date" id="pr-to" value="'+to+'" onchange="prDateChanged()"></div>'+
+    '<div class="field"><label>Payroll Month</label><input id="pr-month" value="'+esc(prMonthLabel(to))+'" disabled></div>'+
+   '</div>'+
+   '<div class="hint" style="margin:6px 0 14px">Company cycle: 25th of one month to 25th of the next — e.g. 25-Aug to 25-Sep is <b>September</b>\'s payroll. The Payroll Month above always follows the "To" date.</div>'+
+   '<div class="fgrid">'+
+    '<div class="field"><label>Payroll For</label><select id="pr-mode" onchange="prModeChanged(this.value)"><option value="">— choose —</option><option value="department">Department-wise</option><option value="employee">Employee-wise</option></select></div>'+
+   '</div>'+
+   '<div id="pr-selector" style="margin-top:6px"></div>'+
+   '<div class="actions" style="margin-top:14px"><button class="btn" onclick="prGenerate()">▸ Generate Payroll</button></div>'+
+   '<div class="lerr" id="pr-err" style="display:none"></div>'+
+   '</div></div>'+
+   '<div class="card" id="pr-result" style="display:none"><div class="card-h">Payroll Report<span class="hint" style="font-weight:400" id="pr-result-hint"></span>'+
+    '<span class="sp"></span><button class="btn ghost small" onclick="prExportPdf()">⬇ PDF</button><button class="btn ghost small" onclick="prExportCsv()">⬇ CSV</button><button class="btn ghost small" onclick="prExportXlsx()">⬇ Excel</button>'+
+   '</div><div class="card-b"><div id="pr-kpis"></div><div class="tblwrap" id="pr-preview" style="margin-top:10px"></div>'+
+    '<div class="hint" style="margin-top:14px">PDF preview — one page, everyone\'s full payroll — exactly what the ⬇ PDF button downloads</div>'+
+    '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:4px">'+
+     '<iframe id="pr-pdf-frame" style="width:100%;height:60vh;border:0;display:none"></iframe>'+
+     '<div id="pr-pdf-empty" class="empty">Generate the payroll to see a PDF preview here.</div>'+
+    '</div>'+
+   '</div></div>';
+}
+function prDateChanged(){
+  window.__prFrom=document.getElementById('pr-from').value||today();
+  window.__prTo=document.getElementById('pr-to').value||today();
+  const m=document.getElementById('pr-month');if(m)m.value=prMonthLabel(window.__prTo);
+}
+async function prModeChanged(mode){
+  PR_MODE=mode;
+  const wrap=document.getElementById('pr-selector');
+  if(mode==='department'){
+    wrap.innerHTML='<div class="empty">Loading departments…</div>';
+    try{PR_DEPT_LIST=(await api('/api/shared/departments')).map(d=>d.name);}catch(e){PR_DEPT_LIST=[];}
+    PR_DEPTS.clear();
+    wrap.innerHTML='<b style="font-size:12.5px">Departments</b> <span class="hint">— select one or more</span>'+
+     '<div style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+      '<input id="pr-dept-q" placeholder="Search departments…" oninput="prFilterDepts()" style="flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+      '<button class="btn ghost small" onclick="prSelAllDepts()">Select all</button> <button class="btn ghost small" onclick="prSelNoneDepts()">Clear</button>'+
+     '</div>'+
+     '<div class="fgrid" id="pr-dept-list" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">'+prDeptListHtml('')+
+     '</div>';
+  }else if(mode==='employee'){
+    wrap.innerHTML='<div class="empty">Loading employees…</div>';
+    try{PR_EMP_LIST=await api('/api/shared/employees');}catch(e){PR_EMP_LIST=[];}
+    PR_EMPS.clear();
+    wrap.innerHTML='<b style="font-size:12.5px">Employees</b> <span class="hint">— select one or more</span>'+
+     '<div style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+      '<input id="pr-emp-q" placeholder="Search by ID or name…" oninput="prFilterEmps()" style="flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+      '<button class="btn ghost small" onclick="prSelAllEmps()">Select all</button> <button class="btn ghost small" onclick="prSelNoneEmps()">Clear</button>'+
+     '</div>'+
+     '<div class="fgrid" id="pr-emp-list" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));max-height:260px;overflow:auto">'+prEmpListHtml('')+
+     '</div>';
+  }else{
+    wrap.innerHTML='';
+  }
+}
+function prDeptListHtml(q){
+  q=(q||'').toLowerCase();
+  const list=PR_DEPT_LIST.filter(d=>!q||d.toLowerCase().includes(q));
+  if(!list.length)return '<div class="empty">No departments match.</div>';
+  return list.map(d=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" class="pr-dept-cb" value="'+esc(d)+'"'+(PR_DEPTS.has(d)?' checked':'')+' onchange="prToggleDept(\''+esc(d)+'\',this.checked)"> '+esc(d)+'</label>').join('');
+}
+function prEmpListHtml(q){
+  q=(q||'').toLowerCase();
+  const list=PR_EMP_LIST.filter(e=>!q||String(e.employeeId||'').toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
+  if(!list.length)return '<div class="empty">No employees match.</div>';
+  return list.map(e=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" class="pr-emp-cb" value="'+e.id+'"'+(PR_EMPS.has(e.id)?' checked':'')+' onchange="prToggleEmp('+e.id+',this.checked)"> '+esc(e.employeeId)+' — '+esc(e.name)+'</label>').join('');
+}
+function prFilterDepts(){document.getElementById('pr-dept-list').innerHTML=prDeptListHtml(document.getElementById('pr-dept-q').value);}
+function prFilterEmps(){document.getElementById('pr-emp-list').innerHTML=prEmpListHtml(document.getElementById('pr-emp-q').value);}
+function prToggleDept(name,checked){if(checked)PR_DEPTS.add(name);else PR_DEPTS.delete(name);}
+function prToggleEmp(id,checked){if(checked)PR_EMPS.add(id);else PR_EMPS.delete(id);}
+function prSelAllDepts(){PR_DEPT_LIST.forEach(d=>PR_DEPTS.add(d));document.querySelectorAll('.pr-dept-cb').forEach(cb=>cb.checked=true);}
+function prSelNoneDepts(){PR_DEPTS.clear();document.querySelectorAll('.pr-dept-cb').forEach(cb=>cb.checked=false);}
+function prSelAllEmps(){PR_EMP_LIST.forEach(e=>PR_EMPS.add(e.id));document.querySelectorAll('.pr-emp-cb').forEach(cb=>cb.checked=true);}
+function prSelNoneEmps(){PR_EMPS.clear();document.querySelectorAll('.pr-emp-cb').forEach(cb=>cb.checked=false);}
+async function prGenerate(){
+  const err=document.getElementById('pr-err');err.style.display='none';
+  if(!PR_MODE)return showErrEl(err,'Choose Department-wise or Employee-wise first.');
+  if(PR_MODE==='department'&&!PR_DEPTS.size)return showErrEl(err,'Select at least one department.');
+  if(PR_MODE==='employee'&&!PR_EMPS.size)return showErrEl(err,'Select at least one employee.');
+  document.getElementById('pr-result').style.display='block';
+  document.getElementById('pr-preview').innerHTML='<div class="empty">Generating…</div>';
+  document.getElementById('pr-kpis').innerHTML='';
+  try{
+    const body={from:window.__prFrom,to:window.__prTo,mode:PR_MODE};
+    if(PR_MODE==='department')body.departments=[...PR_DEPTS];
+    else body.employees=[...PR_EMPS];
+    PR_REPORT=await api('/api/payroll/generate',{method:'POST',body:JSON.stringify(body)});
+    prRenderReport();
+    toast('Payroll generated for '+PR_REPORT.rows.length+' employee(s).','ok');
+  }catch(e){
+    document.getElementById('pr-preview').innerHTML='<div class="empty">Failed: '+esc(e.message)+'</div>';
+    toast(e.message,'err');
+  }
+}
+function showErrEl(el,msg){el.textContent=msg;el.style.display='block';toast(msg,'err');}
+function prRenderReport(){
+  const rep=PR_REPORT;
+  document.getElementById('pr-result-hint').textContent=' — '+prMonthLabel(rep.to)+' ('+rep.from+' to '+rep.to+', '+rep.totalDaysInRange+' days)';
+  const missing=rep.rows.filter(r=>r.salaryMissing).length;
+  const totalPayable=rep.rows.reduce((s,r)=>s+(r.grossPayable||0),0);
+  document.getElementById('pr-kpis').innerHTML='<div class="kpis">'+
+   '<div class="kpi"><span>Employees</span><b>'+rep.rows.length+'</b></div>'+
+   '<div class="kpi"><span>Total Payable</span><b>'+fmt(totalPayable)+'</b></div>'+
+   '<div class="kpi"><span>Missing Salary</span><b'+(missing?' class="warn"':'')+'>'+missing+'</b></div>'+
+   '</div>';
+  document.getElementById('pr-preview').innerHTML=rep.rows.length
+   ?'<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
+     '<th class="num">Present</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
+     '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">OT (min)</th><th class="num">Paid Days</th>'+
+     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th></tr></thead><tbody>'+
+    rep.rows.map(r=>'<tr>'+
+     '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
+     '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':fmt(r.grossSalary))+'</td>'+
+     '<td class="num">'+r.daysInMonth+'</td>'+
+     '<td class="num">'+r.totalDaysInRange+'</td>'+
+     '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
+     '<td class="num">'+r.presentDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
+     '<td class="num">'+r.lateCount+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
+     '<td class="num">'+r.paidDays+'</td>'+
+     '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
+     '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
+     '<td class="num">'+(r.incomeTax!=null?fmt(r.incomeTax):'—')+'</td>'+
+     '<td class="num">'+(r.netSalary!=null?fmt(r.netSalary):'—')+'</td>'+
+     '<td class="num">'+fmt(r.fieldAllowanceTotal)+'</td>'+
+     '<td class="num"><b>'+(r.grossPayable!=null?fmt(r.grossPayable):'—')+'</b></td>'+
+     '</tr>').join('')+
+    '</tbody></table>'
+   :'<div class="empty">No employees matched this selection.</div>';
+  prRenderPdfPreview();
+}
+function prReportGrid(){
+  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','OT (min)','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
+  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.overtimeMinutesTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  return {headers,rows};
+}
+// PDF — one page, landscape, every employee's full payroll row — same
+// PdfDoc helper the Attendance Report uses, so the look is consistent.
+function prBuildPdfDoc(){
+  if(!PR_REPORT||!PR_REPORT.rows.length)return null;
+  const {headers,rows}=prReportGrid();
+  const fmtRows=rows.map(r=>r.map(c=>typeof c==='number'?fmt(c):(c==null?'':c)));
+  const doc=new PdfDoc({landscape:true});
+  doc.header('PAYROLL — '+prMonthLabel(PR_REPORT.to).toUpperCase(),PR_REPORT.from+' to '+PR_REPORT.to);
+  doc.table(headers,fmtRows);
+  return doc;
+}
+async function prExportPdf(){
+  const doc=prBuildPdfDoc();
+  if(!doc)return alert('Generate a payroll first.');
+  doc.out('Payroll_'+prMonthLabel(PR_REPORT.to).replace(' ','_')+'_'+PR_REPORT.from+'_to_'+PR_REPORT.to);
+}
+let PR_PDF_PREVIEW_URL=null;
+function prRenderPdfPreview(){
+  const frame=document.getElementById('pr-pdf-frame');if(!frame)return;
+  if(PR_PDF_PREVIEW_URL){URL.revokeObjectURL(PR_PDF_PREVIEW_URL);PR_PDF_PREVIEW_URL=null;}
+  const doc=prBuildPdfDoc();
+  if(!doc){frame.style.display='none';document.getElementById('pr-pdf-empty').style.display='block';return;}
+  const blob=new Blob([doc.bytes()],{type:'application/pdf'});
+  PR_PDF_PREVIEW_URL=URL.createObjectURL(blob);
+  frame.src=PR_PDF_PREVIEW_URL;
+  frame.style.display='block';document.getElementById('pr-pdf-empty').style.display='none';
+}
+function prExportCsv(){
+  if(!PR_REPORT||!PR_REPORT.rows.length)return alert('Generate a payroll first.');
+  const {headers,rows}=prReportGrid();
+  const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+  dlBlob('﻿'+lines.join('\r\n'),'text/csv;charset=utf-8','payroll-'+PR_REPORT.from+'_to_'+PR_REPORT.to+'.csv');
+}
+function prExportXlsx(){
+  if(!PR_REPORT||!PR_REPORT.rows.length)return alert('Generate a payroll first.');
+  const {headers,rows}=prReportGrid();
+  const grid=[headers].concat(rows.map(r=>r.map(c=>c==null?'':c)));
+  dlXlsx(buildXlsxBlob(grid),'payroll-'+PR_REPORT.from+'_to_'+PR_REPORT.to+'.xlsx');
+}
+/* ================================================================
+   LEAVE REQUESTS / FIELD DUTY — every logged-in user can file their own;
+   HR (anyone with Human Resources module access) additionally gets an
+   approval queue and can file on someone else's behalf. Backend enforces
+   the same rules (routes/leave.js) — this UI just reflects them, it isn't
+   the only guard.
+   ================================================================ */
+let LEAVE_PENDING_COUNT=0;
+let LV_MINE=[],LV_QUEUE=[],LV_EDIT=null; // LV_EDIT = the leave row currently loaded in the form, or null = new
+const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Work From Home','Maternity Leave'];
+const LV_REQUEST_TYPES=['Full Day','Half Day'];
+const LV_DECISIONS=['Approved','Rejected','Leave Without Pay','Cancelled','No Order','Valid for Reporting'];
+async function renderLeaveRequests(){
+  const hasHr=canSee('Human Resources');
+  const c=document.getElementById('content');
+  c.innerHTML=
+   '<div class="card"><div class="card-h" id="lv-form-title">New Leave Request<span class="sp"></span><button class="btn ghost small" onclick="lvNewForm()">+ New</button></div><div class="card-b">'+
+    '<div class="fgrid">'+
+     '<div class="field"><label>Document Type</label><input id="lv-doctype" value="Leave Request Form - Default" disabled></div>'+
+     (hasHr?'<div class="field"><label>Employee</label><select id="lv-emp">'+coll('employees').map(e=>'<option value="'+esc(e.isoId)+'">'+esc(e.empno)+' — '+esc(e.name)+'</option>').join('')+'</select></div>'
+      :'<div class="field"><label>Employee</label><input value="'+esc(SESSION?SESSION.name:'')+'" disabled></div>')+
+     '<div class="field"><label>Leave Request Type</label><select id="lv-reqtype">'+LV_REQUEST_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+     '<div class="field"><label>Current Status</label><input id="lv-status" value="InProcess" disabled></div>'+
+     '<div class="field"><label>Document No.</label><input id="lv-docno" value="Assigned on save" disabled></div>'+
+     '<div class="field"><label>Type of Leave</label><select id="lv-type">'+LV_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+     '<div class="field"><label>From Date</label><input id="lv-from" type="date"></div>'+
+     '<div class="field"><label>To Date</label><input id="lv-to" type="date"></div>'+
+     '<div class="field"><label>Request Date</label><input id="lv-reqdate" type="date" value="'+today()+'"></div>'+
+    '</div>'+
+    '<div class="fgrid" style="margin-top:10px">'+
+     '<div class="field full"><label>Purpose</label><textarea id="lv-purpose" rows="2"></textarea></div>'+
+     '<div class="field full"><label>Remarks</label><textarea id="lv-remarks" rows="2"></textarea></div>'+
+    '</div>'+
+    '<div class="hint" id="lv-decision-info" style="display:none;margin-top:8px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>'+
+    '<div class="lerr" id="lv-err" style="display:none"></div>'+
+    '<div class="actions" style="margin-top:10px">'+
+     '<button class="btn" onclick="lvSubmit()">Save for Approval</button>'+
+     '<button class="btn ghost" onclick="lvTogglePrevious()">View Previous Leaves</button>'+
+    '</div>'+
+   '</div></div>'+
+   '<div class="card" id="lv-mine-card" style="display:none"><div class="card-h">My Leave Requests'+(hasHr?'<span class="hint" style="font-weight:400"> — to review/decide everyone\'s requests, use the ❏ Leave Inbox in the top bar</span>':'')+'</div><div class="card-b tblwrap" id="lv-mine-body"><div class="empty">Loading…</div></div></div>';
+  lvFillForm(null);
+  await lvPollPending(); // not HR-gated any more — a non-HR HOD needs this too
+}
+function lvTogglePrevious(){
+  const card=document.getElementById('lv-mine-card');if(!card)return;
+  const opening=card.style.display==='none';
+  card.style.display=opening?'block':'none';
+  if(opening){lvLoadMine();card.scrollIntoView({behavior:'smooth'});}
+}
+// row is optional — when passed, "ReleasedForApproval" shows "Awaiting
+// <HOD name>" if a HOD is registered, else the generic label.
+function lvStatusPill(s,row){
+  const cls=s==='Approved'||s==='Valid for Reporting'?'g':s==='Rejected'||s==='Cancelled'?'r':s==='ReleasedForApproval'||s==='PendingHRApproval'?'a':s==='Leave Without Pay'||s==='No Order'?'v':'b';
+  let label=s;
+  if(s==='ReleasedForApproval')label=(row&&row.hodName)?('Awaiting '+row.hodName+' (HOD)'):'Released for Approval';
+  else if(s==='PendingHRApproval')label='Pending HR Final Approval';
+  return '<span class="pill '+cls+'">'+esc(label)+'</span>';
+}
+// Two-stage decide eligibility, mirroring the backend's PUT /:id/status
+// logic exactly: while ReleasedForApproval, only the actual HOD (or an
+// Administrator/Sub Admin) can act — that's the RECOMMENDATION step. Once
+// PendingHRApproval, it's the FINAL call and any HR-access user (or admin)
+// can make it. No HOD assigned at all keeps the original single-stage rule.
+function lvCanDecide(r,hasHr){
+  const admin=isAdmin()||SESSION.role==='Sub Admin';
+  if(r.status==='ReleasedForApproval'){
+    if(admin)return true;
+    if(r.hodId)return SESSION.uid===r.hodId;
+    return hasHr&&!r.requiresAdminApproval;
+  }
+  if(r.status==='PendingHRApproval')return admin||hasHr;
+  return false;
+}
+function lvDecideHint(r,hasHr){
+  if(r.status==='ReleasedForApproval')return '<span class="hint">'+(r.hodName?esc(r.hodName)+' (HOD) only':'Admin/Sub Admin only')+'</span>';
+  if(r.status==='PendingHRApproval')return '<span class="hint">HR/Admin only</span>';
+  return '—';
+}
+// Shows BOTH stages when present: the HOD's recommendation (not final) and,
+// once HR/Admin has acted, the actual final decision — so nothing about
+// "who said what" gets lost once a request has passed through both steps.
+function lvDecisionInfo(r){
+  let out='';
+  if(r.hodDecidedByName){
+    out+='<div><span class="hint">HOD (' +esc(r.hodDecidedByName)+'):</span> '+esc(r.hodStatus)+(r.hodRemarks?' — "'+esc(r.hodRemarks)+'"':'')+'</div>';
+  }else if(r.hodName&&r.status==='ReleasedForApproval'){
+    out+='<span class="hint">Awaiting '+esc(r.hodName)+' (HOD)</span>';
+  }
+  if(r.decidedByName){
+    out+='<div'+(out?' style="margin-top:3px"':'')+'><b>'+esc(r.decidedByName)+'</b> (final): '+esc(r.status)+(r.decisionRemarks?' — "'+esc(r.decisionRemarks)+'"':'')+'</div>';
+  }
+  return out||'—';
+}
+function lvFillForm(row){
+  LV_EDIT=row;
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v==null?'':v;};
+  document.getElementById('lv-form-title').firstChild.textContent=row?('Leave Request — '+row.docNo):'New Leave Request';
+  document.getElementById('lv-err').style.display='none';
+  set('lv-docno',row?row.docNo:'Assigned on save');
+  set('lv-status',row?row.status:'InProcess');
+  set('lv-reqtype',row?row.leaveRequestType:'Full Day');
+  set('lv-type',row?row.leaveType:LV_TYPES[0]);
+  set('lv-from',row?String(row.fromDate).slice(0,10):'');
+  set('lv-to',row?String(row.toDate).slice(0,10):'');
+  set('lv-reqdate',row?String(row.requestDate).slice(0,10):today());
+  set('lv-purpose',row?row.purpose:'');
+  set('lv-remarks',row?row.remarks:'');
+  const empEl=document.getElementById('lv-emp');if(empEl)empEl.value=row?row.employeeId:(SESSION?SESSION.uid:'');
+  const locked=row&&row.status!=='InProcess';
+  ['lv-reqtype','lv-type','lv-from','lv-to','lv-reqdate','lv-purpose','lv-remarks','lv-emp'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=locked;});
+  const releaseBtn=document.getElementById('lv-release-btn');if(releaseBtn)releaseBtn.disabled=!(row&&row.status==='InProcess');
+  const cancelBtn=document.getElementById('lv-cancel-btn');if(cancelBtn)cancelBtn.disabled=!(row&&(row.status==='InProcess'||row.status==='ReleasedForApproval'||row.status==='PendingHRApproval'));
+  const infoEl=document.getElementById('lv-decision-info');
+  if(infoEl){
+    let html='';
+    if(row&&row.hodDecidedByName){
+      html+='HOD ('+esc(row.hodDecidedByName)+') recommended: <b>'+esc(row.hodStatus)+'</b>'+(row.hodRemarks?' — "'+esc(row.hodRemarks)+'"':'');
+    }
+    if(row&&row.decidedByName){
+      html+=(html?'<br>':'')+'Final decision by <b>'+esc(row.decidedByName)+'</b>: <b>'+esc(row.status)+'</b>'+(row.decisionRemarks?' — "'+esc(row.decisionRemarks)+'"':'');
+    }else if(row&&row.status==='PendingHRApproval'){
+      html+=(html?'<br>':'')+'<i>Awaiting HR/Admin\'s final decision.</i>';
+    }
+    if(html){infoEl.style.display='block';infoEl.innerHTML=html;}else infoEl.style.display='none';
+  }
+}
+function lvNewForm(){lvFillForm(null);}
+// Returns the saved row on success, or null (and shows the error inline) on
+// failure — lvSubmit() below chains straight into lvChangeStatus() off this.
+async function lvSaveInternal(){
+  const err=document.getElementById('lv-err');err.style.display='none';
+  const v=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  const fromDate=v('lv-from'),toDate=v('lv-to');
+  if(!fromDate||!toDate){err.textContent='From Date and To Date are required.';err.style.display='block';return null;}
+  const body={
+    leaveRequestType:v('lv-reqtype'),leaveType:v('lv-type'),fromDate,toDate,requestDate:v('lv-reqdate')||today(),
+    purpose:v('lv-purpose'),remarks:v('lv-remarks'),
+  };
+  const empEl=document.getElementById('lv-emp');if(empEl)body.employeeId=empEl.value;
+  try{
+    const row=LV_EDIT
+     ?await api('/api/leave/'+LV_EDIT.id,{method:'PUT',body:JSON.stringify(body)})
+     :await api('/api/leave',{method:'POST',body:JSON.stringify(body)});
+    lvFillForm(row);
+    await lvLoadMine();
+    if(canSee('Human Resources'))await lvPollPending();
+    return row;
+  }catch(e){err.textContent=e.message;err.style.display='block';return null;}
+}
+async function lvSave(){await lvSaveInternal();}
+// The primary action: save (create or update the draft) AND immediately
+// release it for approval, in one click — the two-step Save-then-Release
+// flow was confusing enough in practice that requests were getting left
+// stuck at InProcess, never reaching HR at all.
+async function lvSubmit(){
+  const row=await lvSaveInternal();
+  if(row)await lvChangeStatus(row.id,'ReleasedForApproval');
+}
+async function lvRelease(){await lvChangeStatus(LV_EDIT&&LV_EDIT.id,'ReleasedForApproval');}
+async function lvCancelReq(){if(LV_EDIT&&confirm('Cancel this leave request?'))await lvChangeStatus(LV_EDIT.id,'Cancelled');}
+async function lvChangeStatus(id,status){
+  if(!id)return;
+  const err=document.getElementById('lv-err');err.style.display='none';
+  try{
+    const row=await api('/api/leave/'+id+'/status',{method:'PUT',body:JSON.stringify({status})});
+    if(LV_EDIT&&LV_EDIT.id===id)lvFillForm(row);
+    await lvLoadMine();
+    if(canSee('Human Resources'))await lvPollPending();
+  }catch(e){err.textContent=e.message;err.style.display='block';}
+}
+async function lvLoadMine(){
+  const body=document.getElementById('lv-mine-body');if(!body)return;
+  try{
+    LV_MINE=await api('/api/leave/mine');
+    body.innerHTML=LV_MINE.length
+     ?'<table><thead><tr><th>Doc No.</th><th>Type of Leave</th><th>Request Type</th><th>From</th><th>To</th><th>Status</th><th></th></tr></thead><tbody>'+
+       LV_MINE.map(r=>{
+         const cancellable=r.status==='InProcess'||r.status==='ReleasedForApproval'||r.status==='PendingHRApproval';
+         const decidedHint=(r.hodDecidedByName?'<div class="hint">HOD ('+esc(r.hodDecidedByName)+'): '+esc(r.hodStatus)+'</div>':'')+(r.decidedByName?'<div class="hint">Final by '+esc(r.decidedByName)+'</div>':'');
+         return '<tr class="rowlink" onclick="lvOpen('+r.id+')"><td><b>'+esc(r.docNo)+'</b></td><td>'+esc(r.leaveType)+'</td><td>'+esc(r.leaveRequestType)+'</td><td>'+String(r.fromDate).slice(0,10)+'</td><td>'+String(r.toDate).slice(0,10)+'</td><td>'+lvStatusPill(r.status,r)+(r.requiresAdminApproval?' <span class="pill v" title="Escalated — only an Administrator/Sub Admin can decide this">Admin</span>':'')+decidedHint+'</td>'+
+          '<td class="no-print">'+(cancellable?'<button class="del" title="Cancel this request" onclick="event.stopPropagation();lvCancelRow('+r.id+')">✕</button>':'')+'</td></tr>';
+       }).join('')+
+      '</tbody></table>'
+     :'<div class="empty">No leave requests yet.</div>';
+  }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+async function lvCancelRow(id){
+  if(!confirm('Cancel this leave request?'))return;
+  await lvChangeStatus(id,'Cancelled'); // already reloads the list
+}
+async function lvOpen(id){
+  const row=LV_MINE.find(r=>r.id===id)||LV_QUEUE.find(r=>r.id===id);
+  if(row){lvFillForm(row);window.scrollTo(0,0);return;}
+  // Not the viewer's own and not already in a fetched queue (e.g. opened
+  // straight from the topbar Leave Inbox for someone else's request) —
+  // fetch it directly instead of silently doing nothing.
+  try{lvFillForm(await api('/api/leave/'+id));}catch(e){alert(e.message);}
+  window.scrollTo(0,0);
+}
+async function lvLoadQueue(){
+  const body=document.getElementById('lv-queue-body');if(!body)return;
+  try{
+    LV_QUEUE=await api('/api/leave');
+    LEAVE_PENDING_COUNT=LV_QUEUE.filter(r=>r.status==='ReleasedForApproval').length;
+    nav();lvUpdateInboxBadge();
+    body.innerHTML=LV_QUEUE.length
+     ?'<table><thead><tr><th>Doc No.</th><th>Employee</th><th>Department</th><th>Type of Leave</th><th>From</th><th>To</th><th>Status</th><th>Decided By</th><th>Decision</th></tr></thead><tbody>'+
+       LV_QUEUE.map(r=>{
+         const canDecide=lvCanDecide(r,hasHr);
+         return '<tr><td><b>'+esc(r.docNo)+'</b></td><td>'+esc(r.employeeCode)+' — '+esc(r.employeeName)+(r.createdBy!==r.employeeId?' <span class="hint">(filed by '+esc(r.createdByName)+')</span>':'')+'</td><td>'+esc(r.department||'')+'</td><td>'+esc(r.leaveType)+' <span class="hint">('+esc(r.leaveRequestType)+')</span></td><td>'+String(r.fromDate).slice(0,10)+'</td><td>'+String(r.toDate).slice(0,10)+'</td>'+
+          '<td>'+lvStatusPill(r.status,r)+(r.requiresAdminApproval?' <span class="pill v" title="Self-filed by an HR-tier employee — only Administrator/Sub Admin can decide">Admin only</span>':'')+'</td>'+
+          '<td>'+lvDecisionInfo(r)+'</td>'+
+          '<td class="no-print">'+(canDecide?'<button class="btn small" onclick="lvOpenDecide('+r.id+')">'+(r.status==='ReleasedForApproval'?'Recommend…':'Decide…')+'</button>':lvDecideHint(r,hasHr))+'</td></tr>';
+       }).join('')+
+      '</tbody></table>'
+     :'<div class="empty">No leave requests to review.</div>';
+  }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+// Lightweight real-time-ish notification: poll the pending count for HR-tier
+// users so the sidebar badge (see nav()) and the topbar inbox bell (present
+// on EVERY screen, not just the Leave Requests page) stay current even while
+// parked elsewhere — same interval-poll approach the rest of this
+// offline-first app already uses (no websocket infra here).
+async function lvPollPending(){
+  const slot=document.getElementById('lv-inbox-slot');
+  // Visible to Human Resources-access users, AND to a plain employee who is
+  // someone's registered HOD (Employees form, Access tab) — but NOT to
+  // anyone else. isHod comes back from the backend (it actually checks
+  // whether anyone reports to this person); hasHr is known locally.
+  if(!SESSION){if(slot)slot.innerHTML='';return;}
+  try{
+    const {count,isHod}=await api('/api/leave/pending-count');
+    if(!canSee('Human Resources')&&!isHod){if(slot)slot.innerHTML='';return;}
+    if(slot&&!slot.innerHTML)slot.innerHTML=lvInboxShellHtml();
+    if(count!==LEAVE_PENDING_COUNT){LEAVE_PENDING_COUNT=count;nav();}
+    lvUpdateInboxBadge();
+  }catch(e){/* silent — just a background badge refresh */}
+}
+setInterval(lvPollPending,60000);
+function lvInboxShellHtml(){
+  return '<button class="btn ghost small" id="lv-inbox-btn" onclick="lvToggleInbox(event)" title="Leave requests awaiting your decision">❏ Leave Inbox<span id="lv-inbox-badge"></span></button>'+
+   '<div id="lv-inbox-panel" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);margin-top:6px;width:380px;max-height:440px;overflow:auto;padding:10px" onclick="event.stopPropagation()">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:12.5px">Leave requests awaiting approval</b><button class="btn ghost small" onclick="go(\'leave_requests\')">Open full page</button></div>'+
+    '<div id="lv-inbox-list"><div class="empty">Loading…</div></div>'+
+   '</div>';
+}
+function lvUpdateInboxBadge(){
+  const el=document.getElementById('lv-inbox-badge');if(!el)return;
+  el.innerHTML=LEAVE_PENDING_COUNT>0?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
+}
+function lvToggleInbox(ev){
+  if(ev)ev.stopPropagation();
+  const panel=document.getElementById('lv-inbox-panel');if(!panel)return;
+  const opening=panel.style.display==='none';
+  panel.style.display=opening?'block':'none';
+  if(opening)lvLoadInboxPanel();
+  if(!window.__lvInboxOutsideListener){
+    window.__lvInboxOutsideListener=true;
+    document.addEventListener('click',()=>{const p=document.getElementById('lv-inbox-panel');if(p)p.style.display='none';});
+  }
+}
+async function lvLoadInboxPanel(){
+  const body=document.getElementById('lv-inbox-list');if(!body)return;
+  body.innerHTML='<div class="empty">Loading…</div>';
+  const hasHr=canSee('Human Resources');
+  try{
+    // Both pending stages at once: still-with-the-HOD requests (this
+    // viewer's own reports, or theirs to decide directly if no HOD/admin)
+    // AND ones already forwarded to HR for the final call.
+    const rows=await api('/api/leave?status=ReleasedForApproval,PendingHRApproval');
+    LEAVE_PENDING_COUNT=rows.length;nav();lvUpdateInboxBadge();
+    body.innerHTML=rows.length
+     ?rows.map(r=>{
+        const canDecide=lvCanDecide(r,hasHr);
+        return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
+         '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:12.5px">'+esc(r.docNo)+'</b>'+lvStatusPill(r.status,r)+'</div>'+
+         '<div style="font-size:12.5px;margin:4px 0">'+esc(r.employeeCode)+' — '+esc(r.employeeName)+(r.department?' · '+esc(r.department):'')+'</div>'+
+         '<div class="hint">'+esc(r.leaveType)+' ('+esc(r.leaveRequestType)+') · '+String(r.fromDate).slice(0,10)+' → '+String(r.toDate).slice(0,10)+'</div>'+
+         (r.purpose?'<div class="hint" style="margin-top:2px">"'+esc(r.purpose)+'"</div>':'')+
+         (r.status==='PendingHRApproval'?'<div style="margin-top:2px">'+lvDecisionInfo(r)+'</div>':'')+
+         (r.requiresAdminApproval?'<div class="hint" style="color:var(--violet)">Self-filed by an HR-tier employee — Admin/Sub Admin only</div>':'')+
+         '<div style="margin-top:6px;display:flex;gap:6px;align-items:center">'+
+          (canDecide
+           ?'<button class="btn small" style="flex:1" onclick="lvOpenDecide('+r.id+')">'+(r.status==='ReleasedForApproval'?'Recommend…':'Final Decide…')+'</button>'
+           :lvDecideHint(r,hasHr))+
+          '<button class="btn ghost small" onclick="go(\'leave_requests\');lvOpen('+r.id+');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
+         '</div></div>';
+      }).join('')
+     :'<div class="empty">Nothing waiting on you right now.</div>';
+  }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+// One shared "Decide" modal for both the topbar Leave Inbox dropdown and the
+// full Leave Requests queue table — a single Decision + Remarks step instead
+// of an inline dropdown that fired immediately with no way to leave a
+// comment. Remarks are optional but, once set, ride along on the decided
+// row (decisionRemarks) so HR sees exactly what the HOD noted.
+let LV_DECIDE_ROW=null;
+async function lvOpenDecide(id){
+  LV_DECIDE_ROW=(LV_QUEUE.find(r=>r.id===id))||null;
+  if(!LV_DECIDE_ROW){try{LV_DECIDE_ROW=await api('/api/leave/'+id);}catch(e){return toast(e.message,'err');}}
+  const r=LV_DECIDE_ROW;
+  const hodTurn=r.status==='ReleasedForApproval'&&!!r.hodId&&!(isAdmin()||SESSION.role==='Sub Admin');
+  document.querySelector('#lvdecidemodal h3').textContent=hodTurn?'Recommend a Decision (as HOD)':'Final Decision';
+  document.getElementById('lvdecide-summary').innerHTML=
+   '<b>'+esc(r.docNo)+'</b> — '+esc(r.employeeCode)+' — '+esc(r.employeeName)+(r.department?' · '+esc(r.department):'')+'<br>'+
+   esc(r.leaveType)+' ('+esc(r.leaveRequestType)+') · '+String(r.fromDate).slice(0,10)+' → '+String(r.toDate).slice(0,10)+
+   (r.purpose?'<br><span class="hint">"'+esc(r.purpose)+'"</span>':'')+
+   (hodTurn?'<br><span class="hint" style="color:var(--amber,#B45309)">Your call here is a RECOMMENDATION — HR/Admin still makes the final decision, which is what the employee will see.</span>':'')+
+   (!hodTurn&&r.hodDecidedByName?'<br><span class="hint">HOD ('+esc(r.hodDecidedByName)+') recommended: <b>'+esc(r.hodStatus)+'</b>'+(r.hodRemarks?' — "'+esc(r.hodRemarks)+'"':'')+'</span>':'');
+  document.getElementById('lvdecide-status').innerHTML='<option value="">— choose —</option>'+LV_DECISIONS.map(d=>'<option value="'+esc(d)+'">'+esc(d)+'</option>').join('');
+  document.getElementById('lvdecide-remarks').value='';
+  document.getElementById('lvdecide-remarks').previousElementSibling.textContent=hodTurn?'Remarks / Comments (optional — HR will see this before their final decision)':'Remarks / Comments (optional — the employee may see this)';
+  document.getElementById('lvdecide-err').style.display='none';
+  openModal('lvdecidemodal');
+}
+async function lvConfirmDecide(){
+  const err=document.getElementById('lvdecide-err');err.style.display='none';
+  const status=document.getElementById('lvdecide-status').value;
+  const decisionRemarks=document.getElementById('lvdecide-remarks').value.trim();
+  if(!status){err.textContent='Choose a decision.';err.style.display='block';return;}
+  if(!LV_DECIDE_ROW)return;
+  const wasHodTurn=LV_DECIDE_ROW.status==='ReleasedForApproval'&&!!LV_DECIDE_ROW.hodId&&!(isAdmin()||SESSION.role==='Sub Admin');
+  try{
+    await api('/api/leave/'+LV_DECIDE_ROW.id+'/status',{method:'PUT',body:JSON.stringify({status,decisionRemarks:decisionRemarks||null})});
+    closeModal('lvdecidemodal');
+    toast(wasHodTurn?('Recommendation sent to HR — you recommended '+status+'.'):('Leave request '+status.toLowerCase()+'.'),'ok');
+    if(document.getElementById('lv-queue-body'))await lvLoadQueue();
+    if(document.getElementById('lv-inbox-list'))await lvLoadInboxPanel();
+    if(route==='leave_requests')await lvLoadMine();
+    await lvPollPending();
+  }catch(e){err.textContent=e.message;err.style.display='block';toast(e.message,'err');}
+}
 /* ---------- Employees (HR) — full sectioned profile, ERP/ISO access, salary ---------- */
 const EMP_MOD_GROUPS=GROUPS.filter(g=>g!=='Home');
 const EMP_ISO_GROUPS=[
- {k:'lmsAccess',l:'LMS'},{k:'portalAccess',l:'Portal'},{k:'cvsAccess',l:'CVS'},{k:'reportsAccess',l:'Reports'},{k:'testingAccess',l:'Testing'},
+ {k:'lmsAccess',l:'LMS'},{k:'portalAccess',l:'Portal'},{k:'cvsAccess',l:'CVS'},{k:'reportsAccess',l:'Reports'},{k:'testingAccess',l:'Testing'},{k:'testingAdminAccess',l:'Testing — Admin'},
  {k:'isoFormsAccess',l:'ISO Forms'},{k:'isoFormsAdminAccess',l:'ISO Forms — Admin'},
  {k:'jlrOperationsAccess',l:'JLR — Operations'},{k:'jlrQhseAccess',l:'JLR — QHSE'},{k:'jlrInventoryAccess',l:'JLR — Inventory'},{k:'jlrAccountsAccess',l:'JLR — Accounts'},{k:'jlrItAccess',l:'JLR — IT'},{k:'jlrFullAccess',l:'JLR — Full access'},
 ];
@@ -715,6 +1607,18 @@ const EMP_SECTIONS=[
  {k:'comp',l:'Compensation'},{k:'address',l:'Address'},{k:'bank',l:'Bank & Personal'},{k:'ref',l:'Reference'},{k:'kin',l:'Next of Kin'},
 ];
 let EMP_LIST=[],EMP_EDIT=null,EMP_TAB='basic';
+// Guards render() (see below) from being silently re-run — by the leave
+// inbox poll, the legacy background sync pull, or anything else on a timer
+// — while the Add/Edit Employee form is open. Without this, a background
+// refresh firing mid-edit would blow the form's unsaved fields away back to
+// the plain Employees list (the "page/personal details disappear on their
+// own" bug) since route stays 'hr_employees' the whole time the form is up.
+let FORM_GUARD=false;
+// HR types in one Gross Salary figure; Basic/HRA/Utility are derived from it
+// using this standard split (must sum to 1). Field Allowance is intentionally
+// NOT part of this — it's a separate per-day rate (see the 'comp' tab).
+const EMP_SALARY_SPLIT={basic:0.6,hra:0.3,utility:0.1};
+let EMP_FIELD_SHIFT_DAYS=0;
 
 function empPhoneRow(prefix,label){
   return '<div class="field full"><label>'+esc(label)+'</label><div style="display:flex;gap:8px">'+
@@ -733,6 +1637,43 @@ function empSyncPhoneCode(prefix){
   codeEl.value=c?c.code:'';
   codeEl.readOnly=sel.value!=='OTHER';
 }
+// A <select> that also lets the user type a brand-new option right there
+// instead of being stuck with whatever's already in the list — picking
+// "+ Add new…" reveals a text box; Enter (or blur) adds it as a real
+// <option>, selects it, and (for Department specifically) saves it to the
+// shared departments list via the API so it's there for everyone next time.
+function efSelectAddNew(id,label,options,req){
+  const opts=['',...[...new Set(options.filter(Boolean))].sort()].map(o=>'<option value="'+esc(o)+'">'+esc(o)+'</option>').join('');
+  return '<div class="field"><label>'+esc(label)+(req?' *':'')+'</label>'+
+   '<select id="'+id+'" onchange="efSelAddNew(this)">'+opts+'<option value="__addnew__">+ Add new…</option></select>'+
+   '<input id="'+id+'-new" type="text" style="display:none;margin-top:6px" placeholder="Type new '+esc(label)+', then press Enter" onkeydown="if(event.key===\'Enter\'){event.preventDefault();efConfirmNew(\''+id+'\')}" onblur="efConfirmNew(\''+id+'\')">'+
+   '</div>';
+}
+function efSelAddNew(sel){
+  if(sel.value==='__addnew__'){
+    const inp=document.getElementById(sel.id+'-new');
+    inp.style.display='block';inp.value='';inp.focus();
+  }
+}
+function efConfirmNew(id){
+  const inp=document.getElementById(id+'-new');
+  if(inp.style.display==='none')return; // blur fired after Enter already handled it
+  const val=inp.value.trim();
+  const sel=document.getElementById(id);
+  inp.style.display='none';
+  if(!val){sel.value='';return;}
+  let opt=[...sel.options].find(o=>o.value.toLowerCase()===val.toLowerCase());
+  if(!opt){opt=document.createElement('option');opt.value=val;opt.textContent=val;sel.insertBefore(opt,sel.querySelector('option[value="__addnew__"]'));}
+  sel.value=opt.value;
+  if(id==='ef-dept')efPersistNewDepartment(val);
+}
+async function efPersistNewDepartment(name){
+  try{
+    await api('/api/shared/departments',{method:'POST',body:JSON.stringify({name})});
+    const list=coll('shared_departments');
+    if(!list.some(d=>d.name===name)){list.push({name});collSet('shared_departments',list);}
+  }catch(e){/* non-fatal — still usable for this employee even if the shared save fails (e.g. offline) */}
+}
 function efField(id,label,type,extra){
   extra=extra||{};
   const full=extra.full?' full':'';
@@ -742,31 +1683,44 @@ function efField(id,label,type,extra){
   }else if(type==='textarea'){
     input='<textarea id="'+id+'" rows="2"></textarea>';
   }else if(type==='password'){
-    input='<div style="position:relative"><input id="'+id+'" type="password" autocomplete="new-password" style="padding-right:34px">'+
-     '<button type="button" onclick="empTogglePw(\''+id+'\')" style="position:absolute;right:4px;top:3px;background:none;border:0;cursor:pointer;font-size:14px" title="Show/hide">👁</button></div>';
+    input='<div style="position:relative"><input id="'+id+'" type="password" autocomplete="new-password" style="padding-right:52px">'+
+     '<button type="button" id="'+id+'-toggle" onclick="empTogglePw(\''+id+'\')" style="position:absolute;right:4px;top:3px;background:none;border:0;cursor:pointer;font-size:11px;font-weight:700;color:var(--faint);letter-spacing:.03em;text-transform:uppercase" title="Show/hide">Show</button></div>';
   }else{
     input='<input id="'+id+'" type="'+type+'"'+(extra.step?' step="'+extra.step+'"':'')+'>';
   }
   return '<div class="field'+full+'">'+(label?'<label>'+esc(label)+(extra.req?' *':'')+'</label>':'')+input+'</div>';
 }
-function empTogglePw(id){const el=document.getElementById(id);el.type=el.type==='password'?'text':'password';}
+function empTogglePw(id){
+  const el=document.getElementById(id);const showing=el.type==='password';
+  el.type=showing?'text':'password';
+  const btn=document.getElementById(id+'-toggle');if(btn)btn.textContent=showing?'Hide':'Show';
+}
 
 function empSectionHtml(k){
   const deptOpts=coll('shared_departments').map(d=>d.name);
+  if(EMP_EDIT&&EMP_EDIT.department)deptOpts.push(EMP_EDIT.department); // so an existing employee's current value is always selectable, even if it's not in the shared list (e.g. legacy data)
   const locOpts=coll('shared_locations').map(d=>d.name);
+  // No dedicated "designations" table — the dropdown is just every distinct
+  // designation already used across employees (EMP_LIST, loaded whenever the
+  // Employees screen is open). Typing a new one via "+ Add new…" needs no
+  // separate save: once this employee's profile has it, it's already in that
+  // list for everyone else too, the next time this form opens.
+  const desigOpts=(typeof EMP_LIST!=='undefined'?EMP_LIST:[]).map(e=>e.profile&&e.profile.designation).filter(Boolean);
+  if(EMP_EDIT&&EMP_EDIT.profile&&EMP_EDIT.profile.designation)desigOpts.push(EMP_EDIT.profile.designation);
   if(k==='basic')return '<div class="fgrid">'+
    efField('ef-empid','Employee ID','text',{req:1})+
    efField('ef-first','First Name','text',{req:1})+
    efField('ef-last','Last Name','text',{req:1})+
-   efField('ef-dept','Department','select',{req:1,options:deptOpts})+
-   efField('ef-desig','Designation','text',{req:1})+
+   efSelectAddNew('ef-dept','Department',deptOpts,true)+
+   efSelectAddNew('ef-desig','Designation',desigOpts,true)+
    efField('ef-loc','Office Location','select',{req:1,options:locOpts})+
    efField('ef-gender','Gender','select',{options:['','Male','Female','Other']})+
    efField('ef-email','Email','email')+
    efField('ef-status','Status','select',{options:['Active','On leave','Resigned','Terminated','Inactive']})+
    efField('ef-join','Join Date','date')+
    efField('ef-jobend','Job End Date','date')+
-   '</div>';
+   '</div>'+
+   (EMP_EDIT?'<div class="hint" style="margin-top:6px">Changing Employee ID here fixes it in the ERP (login, payroll, records) immediately. If this ID is also registered on the physical attendance machine, update it there too, or future punches won\'t match this employee.</div>':'');
   if(k==='personal')return '<div class="fgrid">'+
    empPhoneRow('phone','Contact Number')+
    empPhoneRow('emergency','Emergency Contact Number')+
@@ -791,15 +1745,35 @@ function empSectionHtml(k){
    '</div>'+
    '<div class="hint" style="margin:10px 0 6px">New employee: required. Editing: leave both blank to keep the current password.</div>'+
    (canManageRoles()?(
-   '<div style="margin-top:14px"><b style="font-size:12.5px">Access to ERP modules</b><div class="hint" style="margin-bottom:6px">Administrator/Sub Admin = full access to everything. Otherwise, tick only the modules this person needs.</div>'+
+   '<div style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--soft)">'+
+    '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="ef-erpaccess" checked onchange="empToggleErpAccessOn()"> <b style="font-size:12.5px">Grant ERP login access</b></label>'+
+    '<div class="hint" style="margin-top:4px">Unticked = this employee cannot log into the ERP at all. Ticked but nothing else selected below = a normal <b>User</b> account (can log in, sees Home/Dashboard + their own Leave Requests, no other module).</div>'+
+   '</div>'+
+   '<div id="ef-erpaccess-wrap">'+
+   '<div style="margin-top:14px"><b style="font-size:12.5px">Access to ERP modules</b><div class="hint" style="margin-bottom:6px">Administrator/Sub Admin = full access to everything. Otherwise, tick only the modules this person needs — or tick none for a plain User (Home only).</div>'+
    (isAdmin()?'<label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" id="ef-erpadmin" onchange="empToggleAdmin(\'admin\')"> <b>Administrator (full access)</b></label>'+
    '<div class="hint" style="margin-bottom:2px"></div><label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" id="ef-erpsubadmin" onchange="empToggleAdmin(\'subadmin\')"> <b>Sub Admin (full access; cannot manage admins)</b></label>'
    :'<div class="hint" style="margin-bottom:8px">Only an Administrator can grant Administrator or Sub Admin access.</div>')+
    '<div class="fgrid" id="ef-erpmods">'+EMP_MOD_GROUPS.map(g=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" class="ef-mod" value="'+esc(g)+'"> '+esc(g)+'</label>').join('')+'</div></div>'+
    '<div style="margin-top:16px"><b style="font-size:12.5px">Access to ISO modules</b><div class="hint" style="margin-bottom:6px">Same permission flags used on the ISO/LMS side.</div>'+
-   '<div class="fgrid">'+EMP_ISO_GROUPS.map(g=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" id="ef-iso-'+g.k+'"> '+esc(g.l)+'</label>').join('')+'</div></div>'
+   '<div class="fgrid">'+EMP_ISO_GROUPS.map(g=>'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" id="ef-iso-'+g.k+'"> '+esc(g.l)+'</label>').join('')+'</div></div>'+
+   '</div>'+
+   '<div style="margin-top:16px"><b style="font-size:12.5px">Reports To (HOD)</b>'+
+    '<div class="hint" style="margin-bottom:6px">When this employee submits a leave request, it is routed to their HOD to decide first — HR only sees it once the HOD has made a decision. Leave blank to keep the default: any Human Resources-access user decides it. Only Manager-level designations are listed as possible HODs.</div>'+
+    (function(){
+      const currentHodId=EMP_EDIT&&EMP_EDIT.profile?EMP_EDIT.profile.reportsTo:null;
+      const list=(typeof EMP_LIST!=='undefined'?EMP_LIST:[]).filter(emp=>
+        (!EMP_EDIT||String(emp.id)!==String(EMP_EDIT.id)) &&
+        ((emp.profile&&/manager/i.test(emp.profile.designation||'')) || (currentHodId&&String(emp.id)===String(currentHodId)))
+      );
+      return '<select id="ef-reportsto" style="max-width:380px"><option value="">— No HOD (default) —</option>'+
+       list.map(emp=>'<option value="'+emp.id+'">'+esc(emp.name)+' ('+esc(emp.employeeId)+')'+(emp.profile&&emp.profile.designation?' — '+esc(emp.profile.designation):'')+'</option>').join('')+
+       '</select>';
+    })()+
+   '</div>'
    ):'<div class="hint">Only an Administrator or Sub Admin can change module access.</div>');
   if(k==='employment')return '<div class="fgrid">'+
+   efField('ef-emptype','Employment Type','select',{req:1,options:['','Permanent','Probation','Contractual','Part-time']})+
    efField('ef-shiftstart','Shift Start Time','time')+
    efField('ef-shiftend','Shift End Time','time')+
    efField('ef-marital','Marital Status','select',{options:['','Single','Married','Divorced','Widowed']})+
@@ -811,15 +1785,39 @@ function empSectionHtml(k){
    efField('ef-confirmation','Confirmation Date','date')+
    efField('ef-rejoindate','Rejoin Date','date')+
    efField('ef-rejoinreason','Rejoin Reason','textarea',{full:1})+
+   '</div><div class="hint" style="margin-top:6px">Employment Type decides the Saturday weekly-off rule on the Attendance Report — Permanent gets 2 free Saturdays/month, others have none. See Holidays &amp; Weekly Off.</div>';
+  if(k==='comp'){
+   const fsDays=EMP_FIELD_SHIFT_DAYS||0;
+   return '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-bottom:16px">'+
+    '<div class="fgrid">'+
+     efField('ef-gross','Gross Salary','number',{step:'0.01',req:1})+
+     efField('ef-currency','Currency','select',{options:['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']})+
+    '</div>'+
+    '<div class="hint" style="margin-top:4px">Enter only the total Gross Salary — Basic, House Rent and Utility Allowance below are worked out automatically using the standard split ('+Math.round(EMP_SALARY_SPLIT.basic*100)+'% / '+Math.round(EMP_SALARY_SPLIT.hra*100)+'% / '+Math.round(EMP_SALARY_SPLIT.utility*100)+'%).</div>'+
+    '<div class="kpis" style="margin-top:12px">'+
+     '<div class="kpi"><span>Basic Salary ('+Math.round(EMP_SALARY_SPLIT.basic*100)+'%)</span><b id="ef-salary-out">0.00</b></div>'+
+     '<div class="kpi"><span>House Rent Allowance ('+Math.round(EMP_SALARY_SPLIT.hra*100)+'%)</span><b id="ef-hra-out">0.00</b></div>'+
+     '<div class="kpi"><span>Utility Allowance ('+Math.round(EMP_SALARY_SPLIT.utility*100)+'%)</span><b id="ef-utility-out">0.00</b></div>'+
+    '</div>'+
+    '<input type="hidden" id="ef-salary"><input type="hidden" id="ef-hra"><input type="hidden" id="ef-utility">'+
+   '</div>'+
+   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px">'+
+    '<b style="font-size:12.5px">Field Allowance — Per Day Rate</b>'+
+    '<div class="hint" style="margin:4px 0 10px">Separate from Gross Salary — varies per employee (e.g. Operations staff). Enter the rate this employee earns for each "Field Shift" leave day; it accumulates automatically as their Field Shift leaves get approved.</div>'+
+    '<div class="fgrid">'+
+     efField('ef-fieldallow','Field Allowance (Per Day)','number',{step:'0.01'})+
+    '</div>'+
+    '<div class="kpis" style="margin-top:12px">'+
+     '<div class="kpi"><span>Approved Field Shift days</span><b id="ef-fieldallow-days">'+fsDays+'</b></div>'+
+     '<div class="kpi"><span>Total Field Allowance</span><b id="ef-fieldallow-total">0.00</b></div>'+
+    '</div>'+
+   '</div>'+
+   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px">'+
+    '<b style="font-size:12.5px">Loan</b>'+
+    '<div class="hint" style="margin:4px 0 10px">A loan HR has given this employee, with a fixed monthly deduction — kept separate from salary. Record a payment each time the monthly amount is deducted (or a one-off extra payment / waiver), and the remaining balance updates automatically.</div>'+
+    '<div id="ef-loan-wrap">'+(EMP_EDIT?'<div class="empty">Loading…</div>':'<div class="hint">Save this employee first, then a loan can be added.</div>')+'</div>'+
    '</div>';
-  if(k==='comp')return '<div class="fgrid">'+
-   efField('ef-salary','Basic Salary','number',{step:'0.01'})+
-   efField('ef-utility','Utility Allowance','number',{step:'0.01'})+
-   efField('ef-hra','House Rent Allowance','number',{step:'0.01'})+
-   efField('ef-fieldallow','Field Allowance','number',{step:'0.01'})+
-   efField('ef-currency','Currency','text')+
-   '</div><div class="kpis" style="margin-top:12px"><div class="kpi"><span>Gross salary</span><b id="ef-gross">0.00</b></div></div>'+
-   '<div class="hint" style="margin-top:6px">Gross updates automatically as you type.</div>';
+  }
   if(k==='address')return '<div class="fgrid">'+
    efField('ef-homeaddr','Home Address','textarea',{full:1})+
    efField('ef-mailaddr','Mailing Address','textarea',{full:1})+
@@ -846,6 +1844,12 @@ function empSectionHtml(k){
    '</div>';
   return '';
 }
+function empToggleErpAccessOn(){
+  const on=document.getElementById('ef-erpaccess').checked;
+  const wrap=document.getElementById('ef-erpaccess-wrap');
+  if(wrap)wrap.style.opacity=on?'1':'0.4';
+  document.querySelectorAll('#ef-erpaccess-wrap input').forEach(el=>el.disabled=!on);
+}
 function empToggleAdmin(which){
   const adminEl=document.getElementById('ef-erpadmin'),subEl=document.getElementById('ef-erpsubadmin');
   // Administrator and Sub Admin are mutually exclusive with each other and with
@@ -858,8 +1862,96 @@ function empToggleAdmin(which){
 }
 function empRecalcGross(){
   const v=id=>+((document.getElementById(id)||{}).value)||0;
-  const g=v('ef-salary')+v('ef-utility')+v('ef-hra')+v('ef-fieldallow');
-  const el=document.getElementById('ef-gross');if(el)el.textContent=g.toFixed(2);
+  const set=(id,val)=>{const el=document.getElementById(id);if(el)('value' in el)?(el.value=val):(el.textContent=val);};
+  const gross=v('ef-gross');
+  const basic=gross*EMP_SALARY_SPLIT.basic, hra=gross*EMP_SALARY_SPLIT.hra, utility=gross*EMP_SALARY_SPLIT.utility;
+  set('ef-salary',basic.toFixed(2));set('ef-hra',hra.toFixed(2));set('ef-utility',utility.toFixed(2));
+  const outEl=id=>document.getElementById(id);
+  if(outEl('ef-salary-out'))outEl('ef-salary-out').textContent=basic.toFixed(2);
+  if(outEl('ef-hra-out'))outEl('ef-hra-out').textContent=hra.toFixed(2);
+  if(outEl('ef-utility-out'))outEl('ef-utility-out').textContent=utility.toFixed(2);
+  const rate=v('ef-fieldallow');
+  const total=rate*EMP_FIELD_SHIFT_DAYS;
+  if(outEl('ef-fieldallow-total'))outEl('ef-fieldallow-total').textContent=total.toFixed(2);
+  if(outEl('ef-fieldallow-days'))outEl('ef-fieldallow-days').textContent=EMP_FIELD_SHIFT_DAYS;
+}
+// Loads this employee's approved Field Shift leave-day count so the running
+// Field Allowance total (per-day rate x days) can be shown/recomputed.
+async function empLoadFieldShiftDays(){
+  EMP_FIELD_SHIFT_DAYS=0;
+  if(!EMP_EDIT)return;
+  try{
+    const r=await api('/api/leave/field-shift-days/'+EMP_EDIT.id);
+    EMP_FIELD_SHIFT_DAYS=r.days||0;
+  }catch(e){EMP_FIELD_SHIFT_DAYS=0;}
+  empRecalcGross();
+}
+/* ---- Loan (Compensation tab) ---- */
+async function empLoadLoan(){
+  const wrap=document.getElementById('ef-loan-wrap');
+  if(!wrap||!EMP_EDIT)return;
+  wrap.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    const loans=await api('/api/loans/'+EMP_EDIT.id);
+    const active=loans.find(l=>l.status==='Active');
+    wrap.innerHTML=active?empLoanActiveHtml(active):empLoanAddFormHtml();
+  }catch(e){wrap.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function empLoanAddFormHtml(){
+  return '<div class="fgrid">'+
+   efField('loan-principal','Loan Amount','number',{step:'0.01'})+
+   efField('loan-monthly','Monthly Deduction','number',{step:'0.01'})+
+   efField('loan-notes','Notes (optional)','text')+
+   '</div><div class="lerr" id="loan-err" style="display:none"></div>'+
+   '<div class="actions"><button class="btn" onclick="empLoanCreate()">+ Add Loan</button></div>';
+}
+function empLoanActiveHtml(loan){
+  const cur=document.getElementById('ef-currency')?document.getElementById('ef-currency').value:loan.currency;
+  return '<div class="kpis">'+
+   '<div class="kpi"><span>Loan Amount</span><b>'+loan.principalAmount.toFixed(2)+' '+esc(loan.currency)+'</b></div>'+
+   '<div class="kpi"><span>Monthly Deduction</span><b>'+loan.monthlyDeduction.toFixed(2)+'</b></div>'+
+   '<div class="kpi"><span>Total Paid</span><b>'+loan.totalPaid.toFixed(2)+'</b></div>'+
+   '<div class="kpi"><span>Remaining</span><b'+(loan.remaining>0?' class="warn"':'')+'>'+loan.remaining.toFixed(2)+'</b></div>'+
+   '<div class="kpi"><span>Months Paid / Remaining</span><b>'+loan.monthsPaid+' / '+(loan.monthsRemaining==null?'—':loan.monthsRemaining)+'</b></div>'+
+   '</div>'+
+   (loan.notes?'<div class="hint" style="margin-top:6px">Note: '+esc(loan.notes)+'</div>':'')+
+   '<div style="margin-top:12px"><b style="font-size:12.5px">Record a Payment</b>'+
+   '<div class="fgrid" style="margin-top:6px">'+
+    efField('loanpay-amount','Amount','number',{step:'0.01'})+
+    efField('loanpay-type','Type','select',{options:[{v:'Monthly',l:'Monthly Deduction'},{v:'Extra',l:'Extra Payment'},{v:'Waiver',l:'Waiver (written off)'}]})+
+    efField('loanpay-date','Date','date')+
+   '</div><div class="lerr" id="loanpay-err" style="display:none"></div>'+
+   '<div class="actions"><button class="btn" onclick="empLoanPay('+loan.id+')">Record Payment</button></div>'+
+   '</div>'+
+   (loan.payments.length?('<div style="margin-top:12px"><b style="font-size:12.5px">Payment History</b><div class="tblwrap" style="margin-top:6px"><table><thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead><tbody>'+
+    loan.payments.map(p=>'<tr><td>'+esc(String(p.date).slice(0,10))+'</td><td>'+esc(p.type)+'</td><td class="num">'+p.amount.toFixed(2)+'</td><td>'+esc(p.notes||'')+'</td></tr>').join('')+
+    '</tbody></table></div></div>'):'');
+}
+async function empLoanCreate(){
+  const err=document.getElementById('loan-err');err.style.display='none';
+  const v=id=>document.getElementById(id).value;
+  const principalAmount=v('loan-principal'),monthlyDeduction=v('loan-monthly');
+  if(!(+principalAmount>0)||!(+monthlyDeduction>0)){err.textContent='Loan Amount and Monthly Deduction must both be greater than 0.';err.style.display='block';return;}
+  try{
+    await api('/api/loans',{method:'POST',body:JSON.stringify({
+      employeeId:EMP_EDIT.id,principalAmount,monthlyDeduction,
+      currency:document.getElementById('ef-currency')?document.getElementById('ef-currency').value:'AED',
+      notes:v('loan-notes')||null
+    })});
+    toast('Loan added.','ok');
+    empLoadLoan();
+  }catch(e){err.textContent=e.message;err.style.display='block';toast(e.message,'err');}
+}
+async function empLoanPay(loanId){
+  const err=document.getElementById('loanpay-err');err.style.display='none';
+  const v=id=>document.getElementById(id).value;
+  const amount=v('loanpay-amount'),type=v('loanpay-type'),date=v('loanpay-date')||today();
+  if(!(+amount>0)){err.textContent='Amount must be greater than 0.';err.style.display='block';return;}
+  try{
+    await api('/api/loans/'+loanId+'/payments',{method:'POST',body:JSON.stringify({amount,type,date,notes:null})});
+    toast('Payment recorded.','ok');
+    empLoadLoan();
+  }catch(e){err.textContent=e.message;err.style.display='block';toast(e.message,'err');}
 }
 function empFormatNic(el){
   let v=el.value.replace(/\D/g,'').slice(0,13);
@@ -899,17 +1991,28 @@ function renderEmpFormPage(){
    '</div></div></div>';
   document.getElementById('empmodal-tabs').innerHTML=EMP_SECTIONS.map(s=>'<button class="att-tab'+(EMP_TAB===s.k?' on':'')+'" onclick="empSwitchTab(\''+s.k+'\')">'+s.l+'</button>').join('');
   document.getElementById('empmodal-body').innerHTML=EMP_SECTIONS.map(s=>'<div class="emp-sec" id="emp-sec-'+s.k+'" style="display:'+(EMP_TAB===s.k?'block':'none')+'">'+empSectionHtml(s.k)+'</div>').join('');
-  ['ef-salary','ef-utility','ef-hra','ef-fieldallow'].forEach(id=>{const el=document.getElementById(id);if(el)el.oninput=empRecalcGross;});
+  ['ef-gross','ef-fieldallow'].forEach(id=>{const el=document.getElementById(id);if(el)el.oninput=empRecalcGross;});
   empFillForm();
+  empLoadFieldShiftDays();
+  empLoadLoan();
   window.scrollTo(0,0);
 }
-function empCancelForm(){renderHrEmployees();}
+function empCancelForm(){FORM_GUARD=false;renderHrEmployees();}
 function empSwitchTab(k){
   EMP_TAB=k;
   document.querySelectorAll('#empmodal-tabs .att-tab').forEach((b,i)=>b.classList.toggle('on',EMP_SECTIONS[i].k===k));
   EMP_SECTIONS.forEach(s=>{const el=document.getElementById('emp-sec-'+s.k);if(el)el.style.display=s.k===k?'block':'none';});
 }
 function empFillForm(){
+  // Wrapped defensively: this fills ~50 fields across every tab in one pass,
+  // so one unexpected value (a bad DOM id, an unusual profile shape) must
+  // never be able to silently stop the rest from being filled — that's
+  // exactly how a real bug would look like "some fields don't show after
+  // reopening" with no visible error. Log loudly instead of failing quietly.
+  try{ empFillFormInner(); }
+  catch(e){ console.error('empFillForm failed partway through:',e); }
+}
+function empFillFormInner(){
   const e=EMP_EDIT;
   const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val==null?'':val;};
   document.getElementById('empmodal-err').style.display='none';
@@ -921,6 +2024,8 @@ function empFillForm(){
     empSyncPhoneCode('phone');empSyncPhoneCode('emergency');
     document.getElementById('ef-spousena').checked=false;document.getElementById('ef-motherna').checked=false;
     empToggleNA('spouse');empToggleNA('mother');
+    const newAccessEl=document.getElementById('ef-erpaccess');
+    if(newAccessEl){newAccessEl.checked=true;empToggleErpAccessOn();}
     empRecalcGross();empRecalcAge();
     return;
   }
@@ -941,8 +2046,12 @@ function empFillForm(){
     if(subEl)subEl.checked=isSubAdminRole;
     document.querySelectorAll('.ef-mod').forEach(cb=>{cb.checked=!isAdminRole&&!isSubAdminRole&&mods.includes(cb.value);});
     empToggleAdmin();
+    const accessEl=document.getElementById('ef-erpaccess');
+    if(accessEl){accessEl.checked=!!e.erpRole;empToggleErpAccessOn();}
     EMP_ISO_GROUPS.forEach(g=>{const el=document.getElementById('ef-iso-'+g.k);if(el)el.checked=!!(e.isoAccess||{})[g.k];});
+    set('ef-reportsto',p.reportsTo||'');
   }
+  set('ef-emptype',p.employmentType);
   set('ef-shiftstart',e.shiftStart);set('ef-shiftend',e.shiftEnd);
   set('ef-marital',p.maritalStatus);set('ef-costcenter',p.costCenter);
   set('ef-nationality',p.nationality);set('ef-visa',p.visaNumber);
@@ -951,8 +2060,12 @@ function empFillForm(){
   set('ef-confirmation',(p.confirmationDate||'').slice(0,10));
   set('ef-rejoindate',(p.rejoinDate||'').slice(0,10));
   set('ef-rejoinreason',p.rejoinReason);
-  set('ef-salary',p.salary);set('ef-utility',p.utilityAllowance);
-  set('ef-hra',p.hra);set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'AED');
+  // Gross Salary is what HR now edits; if this employee predates the field
+  // (legacy data saved only as Basic/HRA/Utility), fall back to their sum so
+  // nothing silently regresses to zero.
+  const legacyGross=(+p.salary||0)+(+p.hra||0)+(+p.utilityAllowance||0);
+  set('ef-gross',p.grossSalary!=null?p.grossSalary:(legacyGross||''));
+  set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'AED');
   set('ef-homeaddr',p.homeAddress);set('ef-mailaddr',p.mailingAddress);
   set('ef-bankname',p.bankName);set('ef-iban',p.iban);set('ef-accno',p.accountNo);
   set('ef-accounttitle',p.accountTitle);set('ef-bloodgroup',p.bloodGroup);
@@ -974,14 +2087,16 @@ function empFillForm(){
 async function empOpenForm(id){
   EMP_EDIT=null;EMP_TAB='basic';
   if(id){EMP_EDIT=EMP_LIST.find(e=>String(e.id)===String(id));if(!EMP_EDIT)return;}
+  FORM_GUARD=true;
   renderEmpFormPage();
 }
 async function empSave(){
   const err=document.getElementById('empmodal-err');err.style.display='none';
   const v=id=>{const el=document.getElementById(id);return el?el.value.trim():'';};
-  const showErr=(msg,tab)=>{err.textContent=msg;err.style.display='block';if(tab)empSwitchTab(tab);};
+  const showErr=(msg,tab)=>{err.textContent=msg;err.style.display='block';if(tab)empSwitchTab(tab);toast(msg,'err');};
   const empId=v('ef-empid'),first=v('ef-first'),last=v('ef-last'),dept=v('ef-dept'),desig=v('ef-desig'),loc=v('ef-loc');
   if(!empId||!first||!last||!dept||!desig||!loc)return showErr('Employee ID, First/Last name, Department, Designation and Location are required.','basic');
+  if(!v('ef-emptype'))return showErr('Employment Type (Permanent/Probation/Contractual/Part-time) is required — it drives the Saturday weekly-off rule.','employment');
   const pw=v('ef-pw'),pw2=v('ef-pw2');
   if(!EMP_EDIT&&(!pw||!pw2))return showErr('Password and Confirm Password are required for a new employee.','access');
   if((pw||pw2)&&pw!==pw2)return showErr('Password and Confirm Password do not match.','access');
@@ -996,7 +2111,7 @@ async function empSave(){
       id=created.id;
     }else{
       await api('/api/shared/employees/'+id,{method:'PUT',body:JSON.stringify({
-        name:first+' '+last,email:v('ef-email')||null,department:dept,location:loc,status:v('ef-status')||'Active'
+        employeeId:empId,name:first+' '+last,email:v('ef-email')||null,department:dept,location:loc,status:v('ef-status')||'Active'
       })});
       if(pw&&pw2)await api('/api/shared/employees/'+id+'/password',{method:'PUT',body:JSON.stringify({password:pw})});
     }
@@ -1006,7 +2121,7 @@ async function empSave(){
     const spouseNa=document.getElementById('ef-spousena').checked;
     const motherNa=document.getElementById('ef-motherna').checked;
     await api('/api/shared/employees/'+id+'/profile',{method:'PUT',body:JSON.stringify({
-      firstName:first,lastName:last,designation:desig,gender:v('ef-gender'),maritalStatus:v('ef-marital'),costCenter:v('ef-costcenter'),
+      firstName:first,lastName:last,designation:desig,employmentType:v('ef-emptype')||null,reportsTo:v('ef-reportsto')||null,gender:v('ef-gender'),maritalStatus:v('ef-marital'),costCenter:v('ef-costcenter'),
       joinDate:v('ef-join')||null,jobEndDate:v('ef-jobend')||null,
       phoneCountry,phoneCode:v('ef-phonecode'),phoneNumber:v('ef-phonenumber'),
       emergencyCountry,emergencyCode:v('ef-emergencycode'),emergencyNumber:v('ef-emergencynumber'),
@@ -1020,6 +2135,7 @@ async function empSave(){
       appraisalDate:v('ef-appraisal')||null,confirmationDate:v('ef-confirmation')||null,rejoinDate:v('ef-rejoindate')||null,rejoinReason:v('ef-rejoinreason'),
       refName:v('ef-refname'),refContact:v('ef-refcontact'),refEmail:v('ef-refemail'),refOffice:v('ef-refoffice'),
       kinName:v('ef-kinname'),kinRelation:v('ef-kinrelation'),kinContact:v('ef-kincontact'),kinNic:v('ef-kinnic'),kinEmail:v('ef-kinemail'),
+      grossSalary:v('ef-gross')||null,
       salary:v('ef-salary')||null,utilityAllowance:v('ef-utility')||null,hra:v('ef-hra')||null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'AED'
     })});
 
@@ -1028,23 +2144,35 @@ async function empSave(){
     }
 
     if(canManageRoles()){
-      const adminEl=document.getElementById('ef-erpadmin'),subEl=document.getElementById('ef-erpsubadmin');
-      const adminChecked=!!(adminEl&&adminEl.checked),subAdminChecked=!!(subEl&&subEl.checked);
-      let role='';
-      if(adminChecked)role='Administrator';
-      else if(subAdminChecked)role='Sub Admin';
-      else{const mods=[...document.querySelectorAll('.ef-mod:checked')].map(cb=>cb.value);role=mods.join(',');}
-      if(role)await api('/api/auth/erp-users/'+id+'/role',{method:'POST',body:JSON.stringify({role,desig})});
-      else await api('/api/auth/erp-users/'+id+'/revoke',{method:'POST'}).catch(()=>{});
+      const erpAccessOn=document.getElementById('ef-erpaccess').checked;
+      if(!erpAccessOn){
+        // Explicit choice — "Grant ERP login access" unticked means exactly
+        // that: no login at all. Distinct from just not picking Admin/any
+        // module, which now means a plain User account (see below).
+        await api('/api/auth/erp-users/'+id+'/revoke',{method:'POST'}).catch(()=>{});
+      }else{
+        const adminEl=document.getElementById('ef-erpadmin'),subEl=document.getElementById('ef-erpsubadmin');
+        const adminChecked=!!(adminEl&&adminEl.checked),subAdminChecked=!!(subEl&&subEl.checked);
+        let role='';
+        if(adminChecked)role='Administrator';
+        else if(subAdminChecked)role='Sub Admin';
+        else{
+          const mods=[...document.querySelectorAll('.ef-mod:checked')].map(cb=>cb.value);
+          role=mods.length?mods.join(','):'User'; // no specific module ticked -> plain User (Home only), NOT revoked
+        }
+        await api('/api/auth/erp-users/'+id+'/role',{method:'POST',body:JSON.stringify({role,desig})});
+      }
 
       const isoBody={};
       EMP_ISO_GROUPS.forEach(g=>{const el=document.getElementById('ef-iso-'+g.k);if(el)isoBody[g.k]=el.checked;});
       await api('/api/shared/employees/'+id+'/iso-access',{method:'PUT',body:JSON.stringify(isoBody)});
     }
 
+    FORM_GUARD=false;
+    toast('Employee saved.','ok');
     renderHrEmployees();
   }catch(e){
-    showErr(e.message);
+    showErr(e.message); // showErr() itself toasts
   }
 }
 async function empDelete(){
@@ -1052,6 +2180,7 @@ async function empDelete(){
   if(!confirm('Delete employee "'+EMP_EDIT.name+'"? This removes their login and all records. This cannot be undone.'))return;
   try{
     await api('/api/shared/employees/'+EMP_EDIT.id,{method:'DELETE'});
+    FORM_GUARD=false;
     renderHrEmployees();
   }catch(e){alert(e.message);}
 }
@@ -1516,7 +2645,7 @@ PdfDoc.prototype={
  need(hpt){if(this.y-hpt<this.mB){this.newPage();return true;}return false;},
  header(title,sub){
    this.rect(this.mL,this.y-6,this.w-this.mL-this.mR,3,'0.10 0.16 0.30');
-   this.y-=24;this.text(this.mL,this.y,'PREMIER TUBULAR SERVICES',9,true,'0.10 0.16 0.30');
+   this.y-=24;this.text(this.mL,this.y,'PREMIER TUBULAR INSPECTION SERVICES (PVT.) LTD',9,true,'0.10 0.16 0.30');
    this.text(this.w-this.mR-this.tw(new Date().toISOString().slice(0,10),8),this.y,new Date().toISOString().slice(0,10),8);
    this.y-=20;this.text(this.mL,this.y,title,15,true);
    if(sub){this.y-=13;this.text(this.mL,this.y,sub,9,false,'0.35 0.38 0.45');}
@@ -1542,19 +2671,27 @@ PdfDoc.prototype={
      ws=max.map(m2=>Math.max(28,m2/tot*avail));
      const s2=ws.reduce((a,b)=>a+b,0);ws=ws.map(x=>x*avail/s2);
    }
+   // Row pitch vs. divider-line placement: the line is drawn a fixed 4pt below
+   // each row's own text BASELINE (clears an 8pt font's descenders) with the
+   // next row starting a further 9pt below that (clears its ascenders/caps) —
+   // previously the line was placed relative to the post-decrement cursor,
+   // which put it only ~3pt above the NEXT row's text and cut through the
+   // bottom of those glyphs instead of sitting cleanly between rows.
    const drawHead=()=>{
      this.need(20);
      this.rect(this.mL,this.y-4,avail,15,'0.92 0.93 0.95');
-     let x=this.mL+3;
-     heads.forEach((h2,i)=>{this.text(x,this.y,this.fit(h2,ws[i]-6,8),8,true);x+=ws[i];});
-     this.y-=15;this.line(this.mL,this.y+3,this.mL+avail,this.y+3);
+     let x=this.mL+3;const rowY=this.y;
+     heads.forEach((h2,i)=>{this.text(x,rowY,this.fit(h2,ws[i]-6,8),8,true);x+=ws[i];});
+     this.line(this.mL,rowY-5,this.mL+avail,rowY-5);
+     this.y=rowY-16;
    };
    drawHead();
    rows.forEach(r=>{
      if(this.need(13))drawHead();
-     let x=this.mL+3;
-     r.forEach((c,i)=>{this.text(x,this.y,this.fit(c,ws[i]-6,8),8);x+=ws[i];});
-     this.y-=12;this.line(this.mL,this.y+3,this.mL+avail,this.y+3);
+     let x=this.mL+3;const rowY=this.y;
+     r.forEach((c,i)=>{this.text(x,rowY,this.fit(c,ws[i]-6,8),8);x+=ws[i];});
+     this.line(this.mL,rowY-4,this.mL+avail,rowY-4);
+     this.y=rowY-13;
    });
    this.y-=8;
  },
@@ -1631,7 +2768,10 @@ PdfDoc.prototype={
    const x=cx-this.tw(s,size)/2;
    this.atText(x,ty,s,size,bold,color);
  },
- out(fname){
+ // Builds the actual PDF bytes without triggering a download — used both by
+ // out() below and by anything that wants an inline preview (a Blob URL in
+ // an <iframe>/<embed>) before committing to a download.
+ bytes(){
    const enc=s=>unescape(encodeURIComponent(s));
    const objs=[];const add=o=>{objs.push(o);return objs.length;};
    const fontN=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
@@ -1657,7 +2797,10 @@ PdfDoc.prototype={
    body+='xref\n0 '+(objs.length+1)+'\n0000000000 65535 f \n'+offs.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('');
    body+='trailer\n<< /Size '+(objs.length+1)+' /Root '+cat+' 0 R >>\nstartxref\n'+xref+'\n%%EOF';
    const bytes=new Uint8Array(body.length);for(let i=0;i<body.length;i++)bytes[i]=body.charCodeAt(i)&0xFF;
-   dlBlob(bytes,'application/pdf',fname+'.pdf');
+   return bytes;
+ },
+ out(fname){
+   dlBlob(this.bytes(),'application/pdf',fname+'.pdf');
  }
 };
 /* ---- table element -> PDF file ---- */
@@ -1677,6 +2820,69 @@ function pdfFromTable(id,name){
 
 /* ---- universal export: CSV / Excel / PDF ---- */
 function dlBlob(content,mime,fname){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);}
+/* ---- genuine .xlsx writer (no library — a store-only/uncompressed ZIP of the
+   minimal OOXML parts a spreadsheet needs, single sheet, inline strings).
+   Used where an actual Excel Workbook file is wanted rather than the
+   HTML-table-as-.xls trick expT()/dlBlob() use elsewhere. ---- */
+function _crc32(buf){
+  if(!_crc32.table){const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}_crc32.table=t;}
+  let crc=0xFFFFFFFF;
+  for(let i=0;i<buf.length;i++)crc=(crc>>>8)^_crc32.table[(crc^buf[i])&0xFF];
+  return (crc^0xFFFFFFFF)>>>0;
+}
+function _zipStore(files){ // files: [{name, data:Uint8Array}] -> Blob (application/zip, store method)
+  const le16=n=>[n&0xFF,(n>>8)&0xFF];
+  const le32=n=>[n&0xFF,(n>>8)&0xFF,(n>>16)&0xFF,(n>>24)&0xFF];
+  const chunks=[]; const central=[]; let offset=0;
+  files.forEach(f=>{
+    const nameBytes=new TextEncoder().encode(f.name);
+    const data=f.data;
+    const crc=_crc32(data);
+    const local=new Uint8Array([0x50,0x4b,0x03,0x04,20,0,0,0,0,0,0,0,0,0,
+      ...le32(crc),...le32(data.length),...le32(data.length),...le16(nameBytes.length),0,0]);
+    chunks.push(local,nameBytes,data);
+    central.push({nameBytes,crc,size:data.length,offset});
+    offset+=local.length+nameBytes.length+data.length;
+  });
+  const centralStart=offset;
+  central.forEach(c=>{
+    const ch=new Uint8Array([0x50,0x4b,0x01,0x02,20,0,20,0,0,0,0,0,0,0,0,0,
+      ...le32(c.crc),...le32(c.size),...le32(c.size),...le16(c.nameBytes.length),0,0,0,0,0,0,0,0,
+      ...le32(0),...le32(c.offset)]);
+    chunks.push(ch,c.nameBytes);
+    offset+=ch.length+c.nameBytes.length;
+  });
+  const centralSize=offset-centralStart;
+  chunks.push(new Uint8Array([0x50,0x4b,0x05,0x06,0,0,0,0,
+    ...le16(central.length),...le16(central.length),...le32(centralSize),...le32(centralStart),0,0]));
+  return new Blob(chunks,{type:'application/zip'});
+}
+function _xmlEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function _colLetter(n){let s='';n++;while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;}
+function buildXlsxBlob(rows2D){
+  let sheetXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  rows2D.forEach((row,ri)=>{
+    sheetXml+='<row r="'+(ri+1)+'">';
+    row.forEach((cell,ci)=>{
+      sheetXml+='<c r="'+_colLetter(ci)+(ri+1)+'" t="inlineStr"><is><t xml:space="preserve">'+_xmlEsc(cell)+'</t></is></c>';
+    });
+    sheetXml+='</row>';
+  });
+  sheetXml+='</sheetData></worksheet>';
+  const contentTypes='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>';
+  const rootRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+  const workbookXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const workbookRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>';
+  const enc=s=>new TextEncoder().encode(s);
+  return _zipStore([
+    {name:'[Content_Types].xml',data:enc(contentTypes)},
+    {name:'_rels/.rels',data:enc(rootRels)},
+    {name:'xl/workbook.xml',data:enc(workbookXml)},
+    {name:'xl/_rels/workbook.xml.rels',data:enc(workbookRels)},
+    {name:'xl/worksheets/sheet1.xml',data:enc(sheetXml)},
+  ]);
+}
+function dlXlsx(blob,fname){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);}
 function tblFrom(id){const el=document.getElementById(id);return el?el.querySelector('table'):null;}
 function tblCsv(tb){return [...tb.rows].map(tr=>[...tr.cells].filter(td=>!td.classList.contains('no-print')&&!td.querySelector('button')).map(td=>{const inp=td.querySelector('input,select,textarea');const v=inp?inp.value:td.innerText;return '"'+String(v).trim().replace(/"/g,'""')+'"';}).join(',')).join('\n');}
 function tblHtml(tb){const cl=tb.cloneNode(true);cl.querySelectorAll('.no-print').forEach(x=>x.remove());cl.querySelectorAll('input,select,textarea').forEach(x=>{const td=x.closest('td,th');if(td)td.textContent=x.value;});cl.querySelectorAll('button').forEach(x=>{const td=x.closest('td,th');if(td)td.remove();else x.remove();});return cl.outerHTML;}
@@ -2532,15 +3738,16 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],hr_employees:['Human Resources','Employees'],hr_attendance:['Human Resources','Live Attendance'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],hr_employees:['Human Resources','Employees'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
-  if(route.startsWith('m_')&&!canSee(routeGroup(route))){route='dashboard';}
+  if(FORM_GUARD)return; // a form with unsaved input is open — see FORM_GUARD above; a foreground Save/Cancel will re-render explicitly
+  if(route.startsWith('m_')&&(!canSee(routeGroup(route))||!MODULES[modKey()])){route='dashboard';} // !MODULES[...] guards a stale saved route to a module that's since been removed
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,hr_employees:renderHrEmployees,hr_attendance:renderLiveAttendance,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,hr_employees:renderHrEmployees,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
@@ -2567,6 +3774,7 @@ document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop')
       if(!canSee(routeGroup(route)))route='dashboard';
       nav();render();restored=true;
       pullSharedMaster();
+      lvPollPending();
     }catch(e){localStorage.removeItem('erp_jwt');}
   }
   if(!restored)await showLogin();
