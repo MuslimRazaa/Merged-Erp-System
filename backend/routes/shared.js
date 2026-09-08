@@ -214,6 +214,45 @@ router.delete('/employees/:id', requireGroup('Human Resources'), async (req, res
   res.json({ ok: true });
 });
 
+// Bulk delete — same per-row guards as the single DELETE above (can't
+// delete yourself; a Sub Admin can't delete an Administrator/Sub Admin),
+// applied per employee so one protected row never blocks the rest of the
+// batch. Body is either { ids: [...] } (selected rows) or { all: true }
+// (every employee on file, e.g. to undo a bad bulk import from scratch).
+router.delete('/employees', requireGroup('Human Resources'), async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  let ids;
+  if (req.body && req.body.all === true) {
+    const [rows] = await pool.query('SELECT id FROM employees');
+    ids = rows.map((r) => r.id);
+  } else {
+    ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  }
+  if (!ids.length) return res.status(400).json({ error: 'No employees selected.' });
+  if (ids.length > 5000) return res.status(400).json({ error: 'Too many employees in one request (max 5000).' });
+
+  let deleted = 0;
+  const skipped = [];
+  for (const id of ids) {
+    if (id === req.erpUser.id) { skipped.push({ id, reason: 'This is your own account — cannot self-delete.' }); continue; }
+    if (req.erpUser.role === 'Sub Admin') {
+      const [target] = await pool.query('SELECT role FROM erp_employee_roles WHERE employee_id = ? AND active = 1', [id]);
+      if (target.length && (target[0].role === 'Administrator' || target[0].role === 'Sub Admin')) {
+        skipped.push({ id, reason: 'Only an Administrator can delete this employee.' });
+        continue;
+      }
+    }
+    try {
+      const [result] = await pool.query('DELETE FROM employees WHERE id = ?', [id]);
+      if (result.affectedRows) deleted++; else skipped.push({ id, reason: 'Not found.' });
+    } catch (e) {
+      skipped.push({ id, reason: e.message });
+    }
+  }
+  await audit(req.erpUser.employeeId, 'employees-bulk-deleted', `deleted=${deleted} skipped=${skipped.length}`);
+  res.json({ deleted, skipped });
+});
+
 // Emp Code equality used everywhere in this file — leading-zero tolerant
 // ("9" == "09") but never crosses genuinely different numbers ("9" vs "90"
 // vs "19" vs "999" all stay distinct), matching the same rule the
@@ -222,6 +261,27 @@ function normEmpCode(v) {
   const s = String(v == null ? '' : v).trim();
   if (/^[0-9]+$/.test(s)) return String(parseInt(s, 10));
   return s.toLowerCase();
+}
+
+// CSV "Status" columns are usually a plain Yes/No (currently employed?)
+// rather than this system's Active/Inactive wording — map the common
+// spellings, and pass anything unrecognized straight through untouched
+// rather than guessing at it.
+function mapCsvStatus(raw) {
+  const s = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (!s) return undefined;
+  if (['yes', 'y', 'active', 'a'].includes(s)) return 'Active';
+  if (['no', 'n', 'inactive', 'resigned', 'terminated', 'left'].includes(s)) return 'Inactive';
+  return String(raw).trim();
+}
+
+// "Mr Basheer Ahmed" -> { first: 'Mr Basheer', last: 'Ahmed' } — last word
+// is the last name, everything before it (titles like Mr/Syed included)
+// stays in the first name, matching how this company's HR data is written.
+function splitEmployeeName(full) {
+  const parts = String(full == null ? '' : full).trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { first: parts[0] || '', last: '' };
+  return { first: parts.slice(0, -1).join(' '), last: parts[parts.length - 1] };
 }
 
 // Bulk import from CSV (Employees screen -> "Import Employees"). Matches
@@ -261,9 +321,10 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
         // Existing employee (already on file, or created earlier in this
         // same CSV) — update the core row, leave department/location/
         // status alone unless the CSV actually carries a value for them.
+        const mappedStatus = mapCsvStatus(row.status);
         const fields = ['full_name = ?']; const values = [name];
         if (row.email) { fields.push('email = ?'); values.push(row.email); }
-        if (row.status) { fields.push('status = ?'); values.push(row.status); }
+        if (mappedStatus) { fields.push('status = ?'); values.push(mappedStatus); }
         values.push(empRowId);
         await pool.query(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values);
         updated++;
@@ -272,7 +333,7 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
         const hashed = await bcrypt.hash(randomPassword, 10);
         const [result] = await pool.query(
           'INSERT INTO employees (employee_id, full_name, email, password, department, location, status) VALUES (?,?,?,?,?,?,?)',
-          [employeeId, name, row.email || null, hashed, '', '', row.status || 'Active']
+          [employeeId, name, row.email || null, hashed, '', '', mapCsvStatus(row.status) || 'Active']
         );
         empRowId = result.insertId;
         byCode.set(code, empRowId);
@@ -281,7 +342,9 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
 
       // Upsert the HR profile fields the CSV carries (only non-empty ones,
       // so a blank cell never clobbers data already on file).
+      const { first: firstName, last: lastName } = splitEmployeeName(name);
       const profile = {
+        first_name: firstName, last_name: lastName,
         father_husband_name: row.fatherHusbandName, mother_name: row.motherName,
         phone_number: row.phoneNumber, nic_number: row.nicNumber,
         bank_name: row.bankName, account_no: row.accountNo, iban: row.iban, account_title: row.accountTitle,

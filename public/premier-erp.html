@@ -2196,13 +2196,20 @@ async function empDelete(){
     renderHrEmployees();
   }catch(e){alert(e.message);}
 }
+let EMP_SELECTED=new Set();
 async function renderHrEmployees(){
+  EMP_SELECTED=new Set();
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">Employees<span class="hint" style="font-weight:400"> — HR master list, shared with ISO</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="emp-search" placeholder="Search ID or name" oninput="empFilterList()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
    '<button class="btn ghost" onclick="empOpenImport()">⇪ Import Employees</button>'+
    '<button class="btn" onclick="empOpenForm(null)">+ Add Employee</button></span></div>'+
-   '<div class="card-b"><div id="emp-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+   '<div class="card-b">'+
+   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+
+    '<button class="btn ghost small" id="emp-delsel-btn" disabled onclick="empDeleteSelected()">🗑 Delete Selected (0)</button>'+
+    '<button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="empDeleteAll()">🗑 Delete All Employees</button>'+
+   '</div>'+
+   '<div id="emp-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   await empRefresh();
 }
 async function empRefresh(){
@@ -2216,13 +2223,63 @@ async function empRefresh(){
 function empFilterList(){
   const qEl=document.getElementById('emp-search');const q=qEl?qEl.value.trim().toLowerCase():'';
   const rows=EMP_LIST.filter(e=>!q||e.employeeId.toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
-  const body='<table><thead><tr><th>ID</th><th>Name</th><th>Department</th><th>Location</th><th>Status</th><th>ERP Access</th><th class="no-print"></th></tr></thead><tbody>'+
-   rows.map(e=>'<tr style="cursor:pointer" onclick="empOpenForm(\''+e.id+'\')"><td><b>'+esc(e.employeeId)+'</b></td><td>'+esc(e.name)+'</td><td>'+esc(e.department||'')+'</td><td>'+esc(e.location||'')+'</td>'+
+  const allChecked=rows.length>0&&rows.every(e=>EMP_SELECTED.has(e.id));
+  const body='<table><thead><tr><th style="width:28px"><input type="checkbox" '+(allChecked?'checked':'')+' onclick="empToggleSelectAllVisible(this.checked)"></th><th>ID</th><th>Name</th><th>Department</th><th>Location</th><th>Status</th><th>ERP Access</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(e=>'<tr style="cursor:pointer" onclick="empOpenForm(\''+e.id+'\')"><td onclick="event.stopPropagation()"><input type="checkbox" '+(EMP_SELECTED.has(e.id)?'checked':'')+' onchange="empToggleSelect('+e.id+',this.checked)"></td><td><b>'+esc(e.employeeId)+'</b></td><td>'+esc(e.name)+'</td><td>'+esc(e.department||'')+'</td><td>'+esc(e.location||'')+'</td>'+
     '<td><span class="pill '+(e.status==='Active'?'g':'r')+'">'+esc(e.status||'')+'</span></td>'+
     '<td>'+(e.erpRole?'<span class="pill b">'+esc(e.erpRole)+'</span>':'<span class="hint">—</span>')+'</td>'+
     '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();empOpenForm(\''+e.id+'\')">Edit</button></td></tr>').join('')+
    '</tbody></table>';
   const el=document.getElementById('emp-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No employees found.</div>';
+  empUpdateSelBar();
+}
+function empToggleSelect(id,checked){
+  if(checked)EMP_SELECTED.add(id);else EMP_SELECTED.delete(id);
+  empUpdateSelBar();
+}
+function empToggleSelectAllVisible(checked){
+  const qEl=document.getElementById('emp-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=EMP_LIST.filter(e=>!q||e.employeeId.toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
+  rows.forEach(e=>{if(checked)EMP_SELECTED.add(e.id);else EMP_SELECTED.delete(e.id);});
+  empFilterList();
+}
+function empUpdateSelBar(){
+  const btn=document.getElementById('emp-delsel-btn');if(!btn)return;
+  btn.textContent='🗑 Delete Selected ('+EMP_SELECTED.size+')';
+  btn.disabled=EMP_SELECTED.size===0;
+}
+async function empDeleteSelected(){
+  const n=EMP_SELECTED.size;if(!n)return;
+  if(!confirm('Delete '+n+' selected employee(s)? This removes their ERP login, HR profile and records. This cannot be undone.'))return;
+  try{
+    const res=await api('/api/shared/employees',{method:'DELETE',body:JSON.stringify({ids:[...EMP_SELECTED]})});
+    let msg=res.deleted+' employee(s) deleted.';
+    if(res.skipped&&res.skipped.length){
+      msg+=' '+res.skipped.length+' skipped.';
+      toast(msg+' See console for details.','info');
+      console.warn('Bulk delete skipped:',res.skipped);
+    }else toast(msg,'ok');
+    EMP_SELECTED=new Set();
+    await empRefresh();
+  }catch(e){toast(e.message,'err');}
+}
+async function empDeleteAll(){
+  const n=EMP_LIST.length;
+  if(!n){toast('No employees to delete.','info');return;}
+  const warn='This deletes ALL '+n+' employee(s) — this table is SHARED with the ISO/LMS system, so this also removes their ISO/LMS logins and records, not just ERP. This cannot be undone.\n\nType DELETE ALL to confirm:';
+  const typed=prompt(warn);
+  if(typed!=='DELETE ALL'){if(typed!==null)toast('Confirmation text did not match — nothing deleted.','info');return;}
+  try{
+    const res=await api('/api/shared/employees',{method:'DELETE',body:JSON.stringify({all:true})});
+    let msg=res.deleted+' employee(s) deleted.';
+    if(res.skipped&&res.skipped.length){
+      msg+=' '+res.skipped.length+' skipped.';
+      console.warn('Bulk delete skipped:',res.skipped);
+    }
+    toast(msg,'ok');
+    EMP_SELECTED=new Set();
+    await empRefresh();
+  }catch(e){toast(e.message,'err');}
 }
 
 /* ---------- Import Employees from CSV ---------- */
