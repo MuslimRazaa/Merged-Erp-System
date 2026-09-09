@@ -120,6 +120,65 @@ router.delete('/customers/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Bulk delete — { ids: [...] } for a selection, or { all: true } for every
+// customer on file. Same guard as the single DELETE above, applied per
+// row so one customer with RFQs on file never blocks the rest of the batch.
+router.delete('/customers', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  let ids;
+  if (req.body && req.body.all === true) {
+    const [rows] = await pool.query('SELECT id FROM erp_crm_customers');
+    ids = rows.map((r) => r.id);
+  } else {
+    ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  }
+  if (!ids.length) return res.status(400).json({ error: 'No customers selected.' });
+  if (ids.length > 5000) return res.status(400).json({ error: 'Too many customers in one request (max 5000).' });
+
+  let deleted = 0;
+  const skipped = [];
+  for (const id of ids) {
+    const [rfqs] = await pool.query('SELECT COUNT(*) c FROM erp_crm_rfqs WHERE customer_id = ?', [id]);
+    if (rfqs[0].c > 0) { skipped.push({ id, reason: `Has ${rfqs[0].c} RFQ(s) on file.` }); continue; }
+    const [result] = await pool.query('DELETE FROM erp_crm_customers WHERE id = ?', [id]);
+    if (result.affectedRows) deleted++; else skipped.push({ id, reason: 'Not found.' });
+  }
+  await audit(req.erpUser.employeeId, 'crm-customers-bulk-deleted', `deleted=${deleted} skipped=${skipped.length}`);
+  res.json({ deleted, skipped });
+});
+
+// Bulk import — the simplest possible intake: just Name + Address per row
+// (everything else — bank details, tax numbers, contact info — gets
+// filled in later via Edit). No dedupe key like the Employees import has
+// (no Emp Code equivalent here), so every row becomes a new customer.
+router.post('/customers/import', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows in one import (max 5000).' });
+
+  let created = 0;
+  const errors = [];
+  for (let i = 0; i < rows.length; i++) {
+    const name = String((rows[i] || {}).name || '').trim();
+    const address = String((rows[i] || {}).address || '').trim();
+    if (!name) { errors.push({ row: i + 1, message: 'Missing Name.' }); continue; }
+    try {
+      const [result] = await pool.query(
+        'INSERT INTO erp_crm_customers (code, name, address, customer_type, status, created_by) VALUES (?,?,?,?,?,?)',
+        [`TEMP-${Date.now()}-${i}`, name, address || null, 'Customer', 'Active', req.erpUser.id]
+      );
+      const code = `CUST-${String(result.insertId).padStart(4, '0')}`;
+      await pool.query('UPDATE erp_crm_customers SET code = ? WHERE id = ?', [code, result.insertId]);
+      created++;
+    } catch (e) {
+      errors.push({ row: i + 1, message: e.message });
+    }
+  }
+  await audit(req.erpUser.employeeId, 'crm-customers-imported', `created=${created} errors=${errors.length}`);
+  res.json({ created, errors });
+});
+
 /* ---------------- RFQs ---------------- */
 const RFQ_SELECT = `
   SELECT r.*, c.name AS customer_name, c.code AS customer_code, e.full_name AS entered_by_name
