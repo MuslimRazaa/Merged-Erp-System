@@ -452,7 +452,64 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments ready (no ISO tables were altered).');
+  // Service Catalogue reference data — Equipment -> Standards -> Item
+  // Descriptions, a 3-level cascading hierarchy imported from the
+  // company's inspection-services CSV (yellow/green/pink header groups —
+  // see routes/crm.js's CSV parser for the exact layout). A Standard only
+  // makes sense under its one Equipment, an Item Description only under
+  // its one Standard — hence the nested FKs instead of one flat list.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_equipment (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      name        VARCHAR(255) NOT NULL UNIQUE,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_standards (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      equipment_id  INT NOT NULL,
+      name          VARCHAR(255) NOT NULL,
+      CONSTRAINT fk_std_equipment FOREIGN KEY (equipment_id) REFERENCES erp_crm_equipment(id) ON DELETE CASCADE,
+      UNIQUE KEY uniq_std (equipment_id, name)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_item_descriptions (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      standard_id   INT NOT NULL,
+      description   TEXT NOT NULL,
+      CONSTRAINT fk_itemdesc_standard FOREIGN KEY (standard_id) REFERENCES erp_crm_standards(id) ON DELETE CASCADE,
+      INDEX idx_itemdesc_standard (standard_id)
+    )
+  `);
+
+  // Service Catalogue itself — one priced/quotable line, built by picking
+  // an Equipment -> Standard -> Item Description off the reference data
+  // above (equipment_id/standard_id kept too, not just item_description_id,
+  // so the cascading selection can be reconstructed and re-edited later).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_services (
+      id                    INT AUTO_INCREMENT PRIMARY KEY,
+      code                  VARCHAR(50) UNIQUE NOT NULL,
+      equipment_id          INT NULL,
+      standard_id           INT NULL,
+      item_description_id   INT NULL,
+      uom                   VARCHAR(50) NULL,
+      standard_rate         DECIMAL(14,2) NULL,
+      currency              VARCHAR(10) NULL,
+      min_qty               DECIMAL(14,2) NULL,
+      status                VARCHAR(20) NOT NULL DEFAULT 'Active',
+      created_by            INT NULL,
+      created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_svc_equipment FOREIGN KEY (equipment_id) REFERENCES erp_crm_equipment(id),
+      CONSTRAINT fk_svc_standard FOREIGN KEY (standard_id) REFERENCES erp_crm_standards(id),
+      CONSTRAINT fk_svc_itemdesc FOREIGN KEY (item_description_id) REFERENCES erp_crm_item_descriptions(id)
+    )
+  `);
+
+  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

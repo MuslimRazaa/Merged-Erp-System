@@ -402,4 +402,229 @@ router.delete('/rfqs/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+/* ============================================================
+   Service Catalogue reference data — Equipment -> Standards -> Item
+   Descriptions. Imported from a spreadsheet with a distinctive layout
+   (the company's own convention, colour-coded yellow/green/pink there):
+
+     Drill Pipe,,,,,,                              <- Equipment name (own row)
+     DS-1 Cat 5,DS-1 Cat 4,...,API RP 7G-2 - DP,,  <- one Standard per column
+     I) Visual...,I) Visual...,...,I) Visual...    <- one Item Description
+     ,,,,"MPI of End Areas...",,                      per column per row,
+     ,,,,Visual Thread Inspection,,                    blank where a
+                                                        column has no more
+     <blank row = next Equipment block starts>          items on that row
+
+   A block with only ONE populated Standard column (e.g. "Transportation"
+   / "Tran" / a long single-column list) is just the general case with
+   1 standard instead of many — no special-casing needed.
+   ============================================================ */
+
+// Collapses a value that may contain a literal newline (the sheet just
+// word-wrapped a label) into one line, trimming stray whitespace.
+function normCell(s) {
+  return String(s == null ? '' : s).replace(/\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Full CSV text -> 2D array. Needs its own parser (not a per-line split)
+// because real cells here contain literal newlines inside quotes.
+function parseCsvText(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQuotes = false; }
+      else cell += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\r') { /* skip — \n follows */ }
+    else if (c === '\n') { row.push(cell); cell = ''; rows.push(row); row = []; }
+    else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+// rows -> [{ name, standards: [{ name, items: [...] }] }]
+function parseEquipmentCatalog(rows) {
+  const isEmptyRow = (r) => !r || r.every((c) => !String(c || '').trim());
+  const equipment = [];
+  let i = 0;
+  while (i < rows.length) {
+    while (i < rows.length && isEmptyRow(rows[i])) i++;
+    if (i >= rows.length) break;
+    const equipName = normCell(rows[i].find((c) => String(c || '').trim()) || '');
+    i++;
+    if (i >= rows.length || isEmptyRow(rows[i])) { if (equipName) equipment.push({ name: equipName, standards: [] }); continue; }
+    const standards = rows[i].map((s) => ({ name: normCell(s), items: [] }));
+    i++;
+    while (i < rows.length && !isEmptyRow(rows[i])) {
+      const r = rows[i];
+      for (let c = 0; c < standards.length; c++) {
+        const val = normCell(r[c]);
+        if (val && standards[c].name) standards[c].items.push(val);
+      }
+      i++;
+    }
+    if (equipName) equipment.push({ name: equipName, standards: standards.filter((s) => s.name) });
+  }
+  return equipment;
+}
+
+// Imports the CSV, merging into the reference tables — existing
+// Equipment/Standard names are reused (not duplicated), and an Item
+// Description already on file for a Standard is skipped, so re-uploading
+// an updated version of the same sheet only adds what's new.
+router.post('/equipment-catalog/import', upload.single('file'), handleUploadErrors, async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  const catalog = parseEquipmentCatalog(parseCsvText(req.file.buffer.toString('utf8')));
+  if (!catalog.length) return res.status(400).json({ error: 'Could not find any Equipment blocks in this file.' });
+
+  const [existingEquip] = await pool.query('SELECT id, name FROM erp_crm_equipment');
+  const equipByName = new Map(existingEquip.map((e) => [e.name.toLowerCase(), e.id]));
+  const [existingStd] = await pool.query('SELECT id, equipment_id, name FROM erp_crm_standards');
+  const stdByKey = new Map(existingStd.map((s) => [s.equipment_id + '|' + s.name.toLowerCase(), s.id]));
+  const [existingItems] = await pool.query('SELECT standard_id, description FROM erp_crm_item_descriptions');
+  const itemSeen = new Set(existingItems.map((it) => it.standard_id + '|' + it.description));
+
+  let equipmentAdded = 0, standardsAdded = 0, itemsAdded = 0;
+  for (const e of catalog) {
+    let equipId = equipByName.get(e.name.toLowerCase());
+    if (!equipId) {
+      const [r] = await pool.query('INSERT INTO erp_crm_equipment (name) VALUES (?)', [e.name]);
+      equipId = r.insertId; equipByName.set(e.name.toLowerCase(), equipId); equipmentAdded++;
+    }
+    for (const s of e.standards) {
+      const stdKey = equipId + '|' + s.name.toLowerCase();
+      let stdId = stdByKey.get(stdKey);
+      if (!stdId) {
+        const [r] = await pool.query('INSERT INTO erp_crm_standards (equipment_id, name) VALUES (?,?)', [equipId, s.name]);
+        stdId = r.insertId; stdByKey.set(stdKey, stdId); standardsAdded++;
+      }
+      for (const desc of s.items) {
+        const itemKey = stdId + '|' + desc;
+        if (itemSeen.has(itemKey)) continue;
+        await pool.query('INSERT INTO erp_crm_item_descriptions (standard_id, description) VALUES (?,?)', [stdId, desc]);
+        itemSeen.add(itemKey); itemsAdded++;
+      }
+    }
+  }
+  await audit(req.erpUser.employeeId, 'crm-equipment-catalog-imported', `equip+${equipmentAdded} std+${standardsAdded} items+${itemsAdded}`);
+  res.json({ equipmentAdded, standardsAdded, itemsAdded, equipmentInFile: catalog.length });
+});
+
+// One call, all three levels — small enough dataset that the cascading
+// Equipment -> Standard -> Item Description dropdowns just filter this
+// client-side rather than round-tripping per selection.
+router.get('/equipment-catalog', async (req, res) => {
+  const [equipment] = await pool.query('SELECT id, name FROM erp_crm_equipment ORDER BY name');
+  const [standards] = await pool.query('SELECT id, equipment_id, name FROM erp_crm_standards ORDER BY name');
+  const [items] = await pool.query('SELECT id, standard_id, description FROM erp_crm_item_descriptions ORDER BY description');
+  res.json({
+    equipment: equipment.map((e) => ({ id: e.id, name: e.name })),
+    standards: standards.map((s) => ({ id: s.id, equipmentId: s.equipment_id, name: s.name })),
+    itemDescriptions: items.map((it) => ({ id: it.id, standardId: it.standard_id, description: it.description })),
+  });
+});
+
+// Manual "+ Add new" for each level — same three tables the CSV import
+// writes to, so a manually-added Equipment/Standard/Item Description
+// shows up identically in the cascading dropdowns.
+router.post('/equipment', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const name = normCell(req.body.name);
+  if (!name) return res.status(400).json({ error: 'Equipment name is required.' });
+  const [existing] = await pool.query('SELECT id FROM erp_crm_equipment WHERE name = ?', [name]);
+  if (existing.length) return res.json({ id: existing[0].id, name });
+  const [r] = await pool.query('INSERT INTO erp_crm_equipment (name) VALUES (?)', [name]);
+  res.status(201).json({ id: r.insertId, name });
+});
+router.post('/standards', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const equipmentId = +req.body.equipmentId;
+  const name = normCell(req.body.name);
+  if (!equipmentId) return res.status(400).json({ error: 'Equipment is required.' });
+  if (!name) return res.status(400).json({ error: 'Standard name is required.' });
+  const [existing] = await pool.query('SELECT id FROM erp_crm_standards WHERE equipment_id = ? AND name = ?', [equipmentId, name]);
+  if (existing.length) return res.json({ id: existing[0].id, equipmentId, name });
+  const [r] = await pool.query('INSERT INTO erp_crm_standards (equipment_id, name) VALUES (?,?)', [equipmentId, name]);
+  res.status(201).json({ id: r.insertId, equipmentId, name });
+});
+router.post('/item-descriptions', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const standardId = +req.body.standardId;
+  const description = normCell(req.body.description);
+  if (!standardId) return res.status(400).json({ error: 'Standard is required.' });
+  if (!description) return res.status(400).json({ error: 'Item description is required.' });
+  const [r] = await pool.query('INSERT INTO erp_crm_item_descriptions (standard_id, description) VALUES (?,?)', [standardId, description]);
+  res.status(201).json({ id: r.insertId, standardId, description });
+});
+
+/* ---------------- Service Catalogue ---------------- */
+const SVC_SELECT = `
+  SELECT sv.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description
+  FROM erp_crm_services sv
+  LEFT JOIN erp_crm_equipment eq ON eq.id = sv.equipment_id
+  LEFT JOIN erp_crm_standards st ON st.id = sv.standard_id
+  LEFT JOIN erp_crm_item_descriptions it ON it.id = sv.item_description_id`;
+function shapeService(r) {
+  return {
+    id: r.id, code: r.code, equipmentId: r.equipment_id, equipmentName: r.equipment_name,
+    standardId: r.standard_id, standardName: r.standard_name,
+    itemDescriptionId: r.item_description_id, itemDescription: r.item_description,
+    uom: r.uom, standardRate: r.standard_rate, currency: r.currency, minQty: r.min_qty,
+    status: r.status, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+router.get('/services', async (req, res) => {
+  const [rows] = await pool.query(`${SVC_SELECT} ORDER BY sv.id DESC`);
+  res.json(rows.map(shapeService));
+});
+const SERVICE_FIELD_MAP = {
+  equipmentId: 'equipment_id', standardId: 'standard_id', itemDescriptionId: 'item_description_id',
+  uom: 'uom', standardRate: 'standard_rate', currency: 'currency', minQty: 'min_qty', status: 'status',
+};
+router.post('/services', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  let code = String(req.body.code || '').trim();
+  const cols = ['code', 'created_by']; const values = [code || `TEMP-${Date.now()}`, req.erpUser.id];
+  for (const [k, col] of Object.entries(SERVICE_FIELD_MAP)) {
+    if (req.body[k] !== undefined) { cols.push(col); values.push(req.body[k] || null); }
+  }
+  if (!cols.includes('status')) { cols.push('status'); values.push('Active'); }
+  const [result] = await pool.query(`INSERT INTO erp_crm_services (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, values);
+  if (!code) {
+    code = `SVC-${String(result.insertId).padStart(4, '0')}`;
+    await pool.query('UPDATE erp_crm_services SET code = ? WHERE id = ?', [code, result.insertId]);
+  }
+  const [rows] = await pool.query(`${SVC_SELECT} WHERE sv.id = ?`, [result.insertId]);
+  await audit(req.erpUser.employeeId, 'crm-service-created', code);
+  res.status(201).json(shapeService(rows[0]));
+});
+router.put('/services/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const fields = []; const values = [];
+  const map = { code: 'code', ...SERVICE_FIELD_MAP };
+  for (const [k, col] of Object.entries(map)) {
+    if (req.body[k] !== undefined) { fields.push(`${col} = ?`); values.push(req.body[k] || null); }
+  }
+  if (!fields.length) return res.status(400).json({ error: 'Nothing to update.' });
+  values.push(req.params.id);
+  const [result] = await pool.query(`UPDATE erp_crm_services SET ${fields.join(', ')} WHERE id = ?`, values);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Service not found.' });
+  await audit(req.erpUser.employeeId, 'crm-service-updated', String(req.params.id));
+  res.json({ ok: true });
+});
+router.delete('/services/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const [result] = await pool.query('DELETE FROM erp_crm_services WHERE id = ?', [req.params.id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Service not found.' });
+  await audit(req.erpUser.employeeId, 'crm-service-deleted', String(req.params.id));
+  res.json({ ok: true });
+});
+
 module.exports = router;
