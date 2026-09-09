@@ -15,12 +15,31 @@
    ============================================================ */
 'use strict';
 const express = require('express');
+const multer = require('multer');
 const pool = require('../db');
 const { requireAuth, audit } = require('./auth');
 const { canAccess } = require('../roles');
 
 const router = express.Router();
 router.use(requireAuth);
+
+// RFQ attachments go over real multipart/form-data (memory storage — no
+// disk writes, straight into erp_crm_rfq_attachments as a BLOB, same as
+// before), not base64 embedded in a JSON body. A base64 blob inside JSON
+// is a known WAF-evasion pattern some hosts' firewalls (Imunify360,
+// ModSecurity) flag and block outright regardless of the file's actual
+// size or content — a real file upload field is the normal, expected
+// shape and doesn't trip that.
+const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024; // 15MB per file
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 10 } });
+function handleUploadErrors(err, req, res, next) {
+  if (!err) return next();
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'One of the attached files is over the 15MB limit.' });
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
+}
 
 function requireGroup(group) {
   return (req, res, next) => {
@@ -250,16 +269,14 @@ async function saveRfqItems(rfqId, items) {
   }
 }
 
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // 8MB per file — comfortably under the 25mb JSON body limit even with a few files at once
-async function saveRfqAttachments(rfqId, attachments, uploadedBy) {
-  const list = Array.isArray(attachments) ? attachments : [];
-  for (const a of list) {
-    if (!a || !a.fileName || !a.dataBase64) continue;
-    const buf = Buffer.from(a.dataBase64, 'base64');
-    if (buf.length > MAX_ATTACHMENT_BYTES) throw Object.assign(new Error(`"${a.fileName}" is too large (max 8MB per file).`), { status: 400 });
+// files: multer's req.files (memory storage) — real multipart uploads, not
+// base64-in-JSON (see the note by MAX_ATTACHMENT_BYTES above for why).
+async function saveRfqAttachmentFiles(rfqId, files, uploadedBy) {
+  const list = Array.isArray(files) ? files : [];
+  for (const f of list) {
     await pool.query(
       'INSERT INTO erp_crm_rfq_attachments (rfq_id, file_name, mime_type, file_size, file_data, uploaded_by) VALUES (?,?,?,?,?,?)',
-      [rfqId, a.fileName, a.mimeType || null, buf.length, buf, uploadedBy]
+      [rfqId, f.originalname, f.mimetype || null, f.size, f.buffer, uploadedBy]
     );
   }
 }
@@ -287,9 +304,10 @@ async function nextRfqSerial(dateStr) {
   return `${fyLabel}/${String(max + 1).padStart(3, '0')}`;
 }
 
-// One call creates the RFQ header AND its line items — the whole "simple
-// single form" the Sales/CRM person fills in becomes one request.
-router.post('/rfqs', async (req, res) => {
+// One call creates the RFQ header AND its line items AND its attachments —
+// multipart/form-data now (not JSON): text fields as usual, "items" as a
+// JSON-stringified array field, files under the "attachments" field name.
+router.post('/rfqs', upload.array('attachments', 10), handleUploadErrors, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const customerId = +req.body.customerId;
   const receivedDate = String(req.body.receivedDate || '').trim();
@@ -297,6 +315,9 @@ router.post('/rfqs', async (req, res) => {
   if (!receivedDate) return res.status(400).json({ error: 'Received date is required.' });
   const [cust] = await pool.query('SELECT id FROM erp_crm_customers WHERE id = ?', [customerId]);
   if (!cust.length) return res.status(400).json({ error: 'Selected customer was not found.' });
+
+  let items = [];
+  try { items = JSON.parse(req.body.items || '[]'); } catch (e) { return res.status(400).json({ error: 'Malformed items.' }); }
 
   const [result] = await pool.query(
     `INSERT INTO erp_crm_rfqs (received_date, source, customer_id, subject, due_date, status, notes, entered_by)
@@ -306,23 +327,14 @@ router.post('/rfqs', async (req, res) => {
   );
   const rfqNo = await nextRfqSerial(receivedDate);
   await pool.query('UPDATE erp_crm_rfqs SET rfq_no = ? WHERE id = ?', [rfqNo, result.insertId]);
-  await saveRfqItems(result.insertId, req.body.items);
-  try {
-    await saveRfqAttachments(result.insertId, req.body.attachments, req.erpUser.id);
-  } catch (e) {
-    // RFQ itself is already saved at this point — surface the attachment
-    // problem but don't pretend the whole RFQ failed to save.
-    const [rows2] = await pool.query(`${RFQ_SELECT} WHERE r.id = ?`, [result.insertId]);
-    const [items2] = await pool.query('SELECT * FROM erp_crm_rfq_items WHERE rfq_id = ? ORDER BY sort_order', [result.insertId]);
-    await audit(req.erpUser.employeeId, 'crm-rfq-created', rfqNo);
-    return res.status(201).json({ ...shapeRfq(rows2[0], items2, []), attachmentError: e.message });
-  }
+  await saveRfqItems(result.insertId, items);
+  await saveRfqAttachmentFiles(result.insertId, req.files, req.erpUser.id);
 
   const [rows] = await pool.query(`${RFQ_SELECT} WHERE r.id = ?`, [result.insertId]);
-  const [items] = await pool.query('SELECT * FROM erp_crm_rfq_items WHERE rfq_id = ? ORDER BY sort_order', [result.insertId]);
+  const [savedItems] = await pool.query('SELECT * FROM erp_crm_rfq_items WHERE rfq_id = ? ORDER BY sort_order', [result.insertId]);
   const [atts] = await pool.query('SELECT id, rfq_id, file_name, mime_type, file_size, uploaded_at FROM erp_crm_rfq_attachments WHERE rfq_id = ? ORDER BY id', [result.insertId]);
   await audit(req.erpUser.employeeId, 'crm-rfq-created', rfqNo);
-  res.status(201).json(shapeRfq(rows[0], items, atts));
+  res.status(201).json(shapeRfq(rows[0], savedItems, atts));
 });
 
 router.put('/rfqs/:id', async (req, res) => {
@@ -346,17 +358,13 @@ router.put('/rfqs/:id', async (req, res) => {
 });
 
 // Attachments on an already-saved RFQ — uploaded/removed immediately
-// (unlike a brand-new RFQ, where they're staged client-side and sent
-// embedded in the POST /rfqs body above).
-router.post('/rfqs/:id/attachments', async (req, res) => {
+// (unlike a brand-new RFQ, where files ride along with the create above).
+// Multipart/form-data, file(s) under field name "files".
+router.post('/rfqs/:id/attachments', upload.array('files', 10), handleUploadErrors, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const [rfq] = await pool.query('SELECT id FROM erp_crm_rfqs WHERE id = ?', [req.params.id]);
   if (!rfq.length) return res.status(404).json({ error: 'RFQ not found.' });
-  try {
-    await saveRfqAttachments(req.params.id, [req.body], req.erpUser.id);
-  } catch (e) {
-    return res.status(e.status || 500).json({ error: e.message });
-  }
+  await saveRfqAttachmentFiles(req.params.id, req.files, req.erpUser.id);
   const [atts] = await pool.query('SELECT id, rfq_id, file_name, mime_type, file_size, uploaded_at FROM erp_crm_rfq_attachments WHERE rfq_id = ? ORDER BY id', [req.params.id]);
   await audit(req.erpUser.employeeId, 'crm-rfq-attachment-added', String(req.params.id));
   res.status(201).json(atts.map(shapeAttachmentMeta));
@@ -369,8 +377,12 @@ router.get('/rfqs/:id/attachments/:attId/download', async (req, res) => {
   );
   if (!rows.length) return res.status(404).json({ error: 'Attachment not found.' });
   const a = rows[0];
+  // ?inline=1 lets the browser render it in a new tab (PDF viewer, image,
+  // etc.) instead of forcing a save-to-disk — used by the RFQ View page's
+  // "View" button; "Download" (no query param) keeps the old force-save.
+  const disposition = req.query.inline ? 'inline' : 'attachment';
   res.setHeader('Content-Type', a.mime_type || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${String(a.file_name).replace(/"/g, '')}"`);
+  res.setHeader('Content-Disposition', `${disposition}; filename="${String(a.file_name).replace(/"/g, '')}"`);
   res.send(a.file_data);
 });
 
