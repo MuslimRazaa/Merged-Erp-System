@@ -362,6 +362,32 @@ async function migrate() {
       updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+  // Extended customer-intake fields (the "Business Partner" onboarding
+  // form) — additive columns on top of the original set above. name/phone/
+  // email/address/payment_terms are reused as Business Partner Name/
+  // Mobile Number/Email/Address/Payment Terms respectively; everything
+  // else here is new. bank_address_2 is the form's "Address 1" line — a
+  // second line for the bank's address, not the customer's own address.
+  for (const col of [
+    'telephone_number VARCHAR(50) NULL',
+    'country VARCHAR(100) NULL',
+    'district VARCHAR(100) NULL',
+    'city VARCHAR(100) NULL',
+    'cnic VARCHAR(50) NULL',
+    'ntn VARCHAR(50) NULL',
+    'strn VARCHAR(50) NULL',
+    'preferred_currency VARCHAR(10) NULL',
+    'bank_name VARCHAR(150) NULL',
+    'iban VARCHAR(50) NULL',
+    'bank_address VARCHAR(255) NULL',
+    'bank_address_2 VARCHAR(255) NULL',
+    'bank_account_number VARCHAR(50) NULL',
+    'account_type VARCHAR(50) NULL',
+    'branch_code VARCHAR(50) NULL',
+  ]) {
+    try { await pool.query(`ALTER TABLE erp_crm_customers ADD COLUMN ${col}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  }
 
   // CRM — RFQs. Every RFQ (however it actually arrived — call/email/PDF)
   // gets one fixed rfq_no the moment a Sales/CRM user enters it, and every

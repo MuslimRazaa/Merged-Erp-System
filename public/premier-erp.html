@@ -277,19 +277,38 @@ body.locked #app{display:none}
   </div>
 </div></div>
 
-<div class="modal" id="crmcustmodal"><div class="box" style="max-width:520px">
+<div class="modal" id="crmcustmodal"><div class="box" style="max-width:640px">
   <h3 id="crmcust-modal-title">Add Customer</h3>
-  <div class="field"><label>Company name *</label><input id="cc-name"></div>
+  <div class="field"><label>Business Partner Name *</label><input id="cc-name"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
-    <div class="field"><label>Contact person</label><input id="cc-contact"></div>
-    <div class="field"><label>Phone</label><input id="cc-phone"></div>
+    <div class="field"><label>Mobile Number</label><input id="cc-phone"></div>
+    <div class="field"><label>Telephone Number</label><input id="cc-telephone"></div>
     <div class="field"><label>Email</label><input id="cc-email" type="email"></div>
-    <div class="field"><label>Type</label><select id="cc-type"><option>Customer</option><option>Vendor</option><option>Both</option></select></div>
-    <div class="field"><label>Tax reg. no.</label><input id="cc-trn"></div>
-    <div class="field"><label>Payment terms</label><input id="cc-terms" placeholder="Net 30"></div>
+    <div class="field"><label>Preferred Currency</label><input id="cc-currency" placeholder="AED"></div>
+    <div class="field"><label>Country</label><input id="cc-country"></div>
+    <div class="field"><label>District</label><input id="cc-district"></div>
+    <div class="field"><label>City</label><input id="cc-city"></div>
+    <div class="field"><label>Payment Terms</label><input id="cc-terms" placeholder="Net 30"></div>
+    <div class="field"><label>CNIC#</label><input id="cc-cnic"></div>
+    <div class="field"><label>NTN#</label><input id="cc-ntn"></div>
+    <div class="field"><label>STRN</label><input id="cc-strn"></div>
     <div class="field"><label>Status</label><select id="cc-status"><option>Active</option><option>Inactive</option></select></div>
   </div>
   <div class="field" style="margin-top:9px"><label>Address</label><textarea id="cc-addr" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
+
+  <h3 style="margin-top:18px;font-size:14px">Bank Details</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="field"><label>Bank Name</label><input id="cc-bankname"></div>
+    <div class="field"><label>Branch Code</label><input id="cc-branchcode"></div>
+    <div class="field"><label>Bank Account Number</label><input id="cc-bankacc"></div>
+    <div class="field"><label>Account Type</label><input id="cc-accttype"></div>
+    <div class="field"><label>IBAN Number</label><input id="cc-iban"></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
+    <div class="field"><label>Bank Address</label><input id="cc-bankaddr"></div>
+    <div class="field"><label>Address 1</label><input id="cc-bankaddr2"></div>
+  </div>
+
   <div class="lerr" id="crmcust-err" style="display:none"></div>
   <div class="actions" style="justify-content:space-between">
     <button class="btn ghost" id="crmcust-delete-btn" style="color:#b42318" onclick="crmDeleteCustomer()">Delete</button>
@@ -2464,8 +2483,8 @@ async function renderCrmCustomers(){
 function crmFilterCustomers(){
   const qEl=document.getElementById('crmcust-search');const q=qEl?qEl.value.trim().toLowerCase():'';
   const rows=CRM_CUSTOMERS.filter(c=>!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q));
-  const body='<table><thead><tr><th>Code</th><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Type</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
-   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td><td>'+esc(c.contactPerson||'')+'</td><td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.customerType||'')+'</td>'+
+  const body='<table><thead><tr><th>Code</th><th>Business Partner Name</th><th>Mobile</th><th>Email</th><th>City</th><th>Country</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td><td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.city||'')+'</td><td>'+esc(c.country||'')+'</td>'+
     '<td><span class="pill '+(c.status==='Active'?'g':'r')+'">'+esc(c.status||'')+'</span></td>'+
     '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();crmOpenCustomerForm('+c.id+')">Edit</button></td></tr>').join('')+
    '</tbody></table>';
@@ -2476,14 +2495,26 @@ function crmOpenCustomerForm(id){
   const c=CRM_CUST_EDIT||{};
   document.getElementById('crmcust-modal-title').textContent=CRM_CUST_EDIT?'Edit Customer':'Add Customer';
   document.getElementById('cc-name').value=c.name||'';
-  document.getElementById('cc-contact').value=c.contactPerson||'';
   document.getElementById('cc-phone').value=c.phone||'';
+  document.getElementById('cc-telephone').value=c.telephoneNumber||'';
   document.getElementById('cc-email').value=c.email||'';
-  document.getElementById('cc-type').value=c.customerType||'Customer';
-  document.getElementById('cc-trn').value=c.taxRegNo||'';
+  document.getElementById('cc-currency').value=c.preferredCurrency||'';
+  document.getElementById('cc-country').value=c.country||'';
+  document.getElementById('cc-district').value=c.district||'';
+  document.getElementById('cc-city').value=c.city||'';
   document.getElementById('cc-terms').value=c.paymentTerms||'';
-  document.getElementById('cc-addr').value=c.address||'';
+  document.getElementById('cc-cnic').value=c.cnic||'';
+  document.getElementById('cc-ntn').value=c.ntn||'';
+  document.getElementById('cc-strn').value=c.strn||'';
   document.getElementById('cc-status').value=c.status||'Active';
+  document.getElementById('cc-addr').value=c.address||'';
+  document.getElementById('cc-bankname').value=c.bankName||'';
+  document.getElementById('cc-branchcode').value=c.branchCode||'';
+  document.getElementById('cc-bankacc').value=c.bankAccountNumber||'';
+  document.getElementById('cc-accttype').value=c.accountType||'';
+  document.getElementById('cc-iban').value=c.iban||'';
+  document.getElementById('cc-bankaddr').value=c.bankAddress||'';
+  document.getElementById('cc-bankaddr2').value=c.bankAddress2||'';
   document.getElementById('crmcust-delete-btn').style.display=CRM_CUST_EDIT?'':'none';
   document.getElementById('crmcust-err').style.display='none';
   openModal('crmcustmodal');
@@ -2491,13 +2522,19 @@ function crmOpenCustomerForm(id){
 async function crmSaveCustomer(){
   const err=document.getElementById('crmcust-err');err.style.display='none';
   const name=document.getElementById('cc-name').value.trim();
-  if(!name)return showErrEl(err,'Company name is required.');
+  if(!name)return showErrEl(err,'Business Partner Name is required.');
   const body={
-    name,contactPerson:document.getElementById('cc-contact').value.trim(),
-    phone:document.getElementById('cc-phone').value.trim(),email:document.getElementById('cc-email').value.trim(),
-    customerType:document.getElementById('cc-type').value,taxRegNo:document.getElementById('cc-trn').value.trim(),
-    paymentTerms:document.getElementById('cc-terms').value.trim(),address:document.getElementById('cc-addr').value.trim(),
+    name,phone:document.getElementById('cc-phone').value.trim(),telephoneNumber:document.getElementById('cc-telephone').value.trim(),
+    email:document.getElementById('cc-email').value.trim(),preferredCurrency:document.getElementById('cc-currency').value.trim(),
+    country:document.getElementById('cc-country').value.trim(),district:document.getElementById('cc-district').value.trim(),
+    city:document.getElementById('cc-city').value.trim(),paymentTerms:document.getElementById('cc-terms').value.trim(),
+    cnic:document.getElementById('cc-cnic').value.trim(),ntn:document.getElementById('cc-ntn').value.trim(),
+    strn:document.getElementById('cc-strn').value.trim(),address:document.getElementById('cc-addr').value.trim(),
     status:document.getElementById('cc-status').value,
+    bankName:document.getElementById('cc-bankname').value.trim(),branchCode:document.getElementById('cc-branchcode').value.trim(),
+    bankAccountNumber:document.getElementById('cc-bankacc').value.trim(),accountType:document.getElementById('cc-accttype').value.trim(),
+    iban:document.getElementById('cc-iban').value.trim(),bankAddress:document.getElementById('cc-bankaddr').value.trim(),
+    bankAddress2:document.getElementById('cc-bankaddr2').value.trim(),
   };
   try{
     if(CRM_CUST_EDIT)await api('/api/crm/customers/'+CRM_CUST_EDIT.id,{method:'PUT',body:JSON.stringify(body)});

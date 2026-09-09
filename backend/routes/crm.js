@@ -45,6 +45,10 @@ function shapeCustomer(r) {
     id: r.id, code: r.code, name: r.name, contactPerson: r.contact_person, email: r.email, phone: r.phone,
     customerType: r.customer_type, taxRegNo: r.tax_reg_no, paymentTerms: r.payment_terms, address: r.address,
     status: r.status, createdAt: r.created_at, updatedAt: r.updated_at,
+    telephoneNumber: r.telephone_number, country: r.country, district: r.district, city: r.city,
+    cnic: r.cnic, ntn: r.ntn, strn: r.strn, preferredCurrency: r.preferred_currency,
+    bankName: r.bank_name, iban: r.iban, bankAddress: r.bank_address, bankAddress2: r.bank_address_2,
+    bankAccountNumber: r.bank_account_number, accountType: r.account_type, branchCode: r.branch_code,
   };
 }
 
@@ -54,17 +58,34 @@ router.get('/customers', async (req, res) => {
   res.json(rows.map(shapeCustomer));
 });
 
+// camelCase (request body) -> DB column, shared by create and update so
+// the "Business Partner" onboarding fields are handled in exactly one
+// place. name/phone/email/address/paymentTerms double as Business Partner
+// Name/Mobile Number/Email/Address/Payment Terms on the form.
+const CUSTOMER_FIELD_MAP = {
+  code: 'code', name: 'name', contactPerson: 'contact_person', email: 'email', phone: 'phone',
+  customerType: 'customer_type', taxRegNo: 'tax_reg_no', paymentTerms: 'payment_terms', address: 'address', status: 'status',
+  telephoneNumber: 'telephone_number', country: 'country', district: 'district', city: 'city',
+  cnic: 'cnic', ntn: 'ntn', strn: 'strn', preferredCurrency: 'preferred_currency',
+  bankName: 'bank_name', iban: 'iban', bankAddress: 'bank_address', bankAddress2: 'bank_address_2',
+  bankAccountNumber: 'bank_account_number', accountType: 'account_type', branchCode: 'branch_code',
+};
+
 router.post('/customers', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const name = String(req.body.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Customer name is required.' });
+  if (!name) return res.status(400).json({ error: 'Business Partner Name is required.' });
   let code = String(req.body.code || '').trim();
+  const cols = ['code', 'created_by']; const values = [code || `TEMP-${Date.now()}`, req.erpUser.id];
+  for (const [k, col] of Object.entries(CUSTOMER_FIELD_MAP)) {
+    if (k === 'code') continue;
+    if (req.body[k] !== undefined) { cols.push(col); values.push(req.body[k] || null); }
+  }
+  if (!cols.includes('customer_type')) { cols.push('customer_type'); values.push('Customer'); }
+  if (!cols.includes('status')) { cols.push('status'); values.push('Active'); }
   const [result] = await pool.query(
-    `INSERT INTO erp_crm_customers (code, name, contact_person, email, phone, customer_type, tax_reg_no, payment_terms, address, status, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [code || `TEMP-${Date.now()}`, name, req.body.contactPerson || null, req.body.email || null, req.body.phone || null,
-     req.body.customerType || 'Customer', req.body.taxRegNo || null, req.body.paymentTerms || null, req.body.address || null,
-     req.body.status || 'Active', req.erpUser.id]
+    `INSERT INTO erp_crm_customers (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+    values
   );
   if (!code) {
     code = `CUST-${String(result.insertId).padStart(4, '0')}`;
@@ -78,11 +99,7 @@ router.post('/customers', async (req, res) => {
 router.put('/customers/:id', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const fields = []; const values = [];
-  const map = {
-    code: 'code', name: 'name', contactPerson: 'contact_person', email: 'email', phone: 'phone',
-    customerType: 'customer_type', taxRegNo: 'tax_reg_no', paymentTerms: 'payment_terms', address: 'address', status: 'status',
-  };
-  for (const [k, col] of Object.entries(map)) {
+  for (const [k, col] of Object.entries(CUSTOMER_FIELD_MAP)) {
     if (req.body[k] !== undefined) { fields.push(`${col} = ?`); values.push(req.body[k] || null); }
   }
   if (!fields.length) return res.status(400).json({ error: 'Nothing to update.' });
