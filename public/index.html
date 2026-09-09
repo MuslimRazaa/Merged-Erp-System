@@ -138,6 +138,9 @@ tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
 .modal{position:fixed;inset:0;background:rgba(8,14,25,.5);display:none;align-items:center;justify-content:center;z-index:100}
 .modal.open{display:flex}
 .modal .box{background:#fff;border-radius:14px;max-width:520px;width:92%;padding:22px 24px;box-shadow:0 24px 70px rgba(0,0,0,.35);max-height:88vh;overflow:auto}
+.crm-dd-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;max-height:220px;overflow:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.15);margin-top:2px}
+.crm-dd-item{padding:7px 10px;cursor:pointer;font-size:13px}
+.crm-dd-item:hover{background:var(--soft)}
 .modal h3{font-family:var(--disp);font-size:16px;margin-bottom:4px}
 .modal p{font-size:12.5px;color:var(--soft);margin-bottom:12px}
 .synclog{margin-top:12px;font-size:11px;color:var(--soft);max-height:130px;overflow:auto;background:#F6F8FB;border-radius:8px;padding:8px 10px;font-family:var(--mono)}
@@ -328,6 +331,59 @@ body.locked #app{display:none}
   </div>
 </div></div>
 
+<div class="modal" id="crmsvcimportmodal"><div class="box" style="max-width:560px">
+  <h3>Import Equipment Catalog from CSV</h3>
+  <div class="hint" style="margin-bottom:10px">The Equipment / Standards / Item Descriptions sheet (Equipment on its own row, one Standard per column below it, then Item Descriptions column-aligned to each Standard). Re-uploading an updated version of the same sheet only adds what's new — nothing already on file gets duplicated.</div>
+  <div class="field"><input type="file" id="crmsvcimport-file" accept=".csv,text/csv"></div>
+  <div id="crmsvcimport-result" style="margin-top:12px"></div>
+  <div class="lerr" id="crmsvcimport-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('crmsvcimportmodal')">Cancel</button>
+    <button class="btn" id="crmsvcimport-go" onclick="crmSvcImportRun()">Import</button>
+  </div>
+</div></div>
+
+<div class="modal" id="crmsvcmodal"><div class="box" style="max-width:560px">
+  <h3 id="crmsvc-modal-title">Add Service</h3>
+  <div class="field"><label>Equipment *</label>
+   <div style="display:flex;gap:8px">
+    <div style="position:relative;flex:1">
+     <input type="text" id="sv-equipment-q" placeholder="Search equipment…" autocomplete="off" style="width:100%" oninput="crmSvcFilterDropdown('equipment')" onfocus="crmSvcFilterDropdown('equipment')" onblur="crmSvcHideDropdown('equipment')">
+     <input type="hidden" id="sv-equipment">
+     <div id="sv-equipment-list" class="crm-dd-list" style="display:none"></div>
+    </div>
+    <button type="button" class="btn ghost small" onclick="crmSvcAddEquipment()">+ New</button></div></div>
+  <div class="field" style="margin-top:9px"><label>Standard *</label>
+   <div style="display:flex;gap:8px">
+    <div style="position:relative;flex:1">
+     <input type="text" id="sv-standard-q" placeholder="Search standard…" autocomplete="off" style="width:100%" oninput="crmSvcFilterDropdown('standard')" onfocus="crmSvcFilterDropdown('standard')" onblur="crmSvcHideDropdown('standard')">
+     <input type="hidden" id="sv-standard">
+     <div id="sv-standard-list" class="crm-dd-list" style="display:none"></div>
+    </div>
+    <button type="button" class="btn ghost small" onclick="crmSvcAddStandard()">+ New</button></div></div>
+  <div class="field" style="margin-top:9px"><label>Item Description *</label>
+   <div style="display:flex;gap:8px">
+    <div style="position:relative;flex:1">
+     <input type="text" id="sv-itemdesc-q" placeholder="Search item description…" autocomplete="off" style="width:100%" oninput="crmSvcFilterDropdown('itemdesc')" onfocus="crmSvcFilterDropdown('itemdesc')" onblur="crmSvcHideDropdown('itemdesc')">
+     <input type="hidden" id="sv-itemdesc">
+     <div id="sv-itemdesc-list" class="crm-dd-list" style="display:none"></div>
+    </div>
+    <button type="button" class="btn ghost small" onclick="crmSvcAddItemDesc()">+ New</button></div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
+    <div class="field"><label>Service code</label><input id="sv-code" placeholder="auto if left blank"></div>
+    <div class="field"><label>Status</label><select id="sv-status"><option>Active</option><option>On request</option><option>Discontinued</option></select></div>
+    <div class="field"><label>UoM</label><input id="sv-uom" placeholder="per joint"></div>
+    <div class="field"><label>Standard rate</label><input id="sv-rate" type="number" step="0.01"></div>
+    <div class="field"><label>Currency</label><select id="sv-currency"></select></div>
+    <div class="field"><label>Min. qty / charge</label><input id="sv-minqty" type="number" step="0.01"></div>
+  </div>
+  <div class="lerr" id="crmsvc-err" style="display:none"></div>
+  <div class="actions" style="justify-content:space-between">
+    <button class="btn ghost" id="crmsvc-delete-btn" style="color:#b42318" onclick="crmSvcDelete()">Delete</button>
+    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmsvcmodal')">Cancel</button><button class="btn" onclick="crmSvcSave()">Save</button></span>
+  </div>
+</div></div>
+
 <div class="modal" id="crmrfqmodal"><div class="box" style="max-width:680px">
   <h3 id="crmrfq-modal-title">New RFQ</h3>
   <div class="hint" style="margin-bottom:10px">However the RFQ actually arrived (call, email, PDF) — just key in what it says below. It gets a fixed Serial No. (financial-year format, e.g. 2026-27/001) the moment you save.</div>
@@ -391,7 +447,6 @@ const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
 /* Each: key, name, group, icon, fields, list (cols in table), badge, kpi */
 const MODULES={
 /* ---------------- CRM ---------------- */
-services:{g:'CRM',ic:'⚙',name:'Service Catalogue',fields:[T('code','Service code','SVC-001'),T('name','Service description'),S('cat','Category',['Tubular Inspection','NDT Services','Calibration','Rig Inspection','Lifting Gear Survey','Machine Shop / Repair','Storage & Yard Services','Rental','Consultancy / Audit','Other']),T('std','Standard / method','DS-1 Vol 3 / API RP 7G-2'),T('unit','UoM','per joint'),N('price','Standard rate'),T('cur','Currency','AED'),N('mindur','Min. qty / charge'),S('status','Status',['Active','On request','Discontinued']),A('scope','Scope / inclusions')],list:['code','name','cat','unit','price','cur','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active services'}]},
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
 quotes:{g:'CRM',ic:'▤',name:'Quotations',lines:true,fields:[T('no','Quotation no.','QTN-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),T('subject','Subject'),T('cur','Currency','AED'),N('vat','VAT %'),S('status','Status',['Draft','Sent','Accepted','Rejected','Expired']),D('validity','Valid until'),T('terms','Payment terms','Net 30'),T('delivery','Delivery / lead time'),A('scope','Scope / notes')],list:['no','date','customer','subject','amount','cur','status'],badge:r=>r.status},
 salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[T('no','SO no.','SO-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
@@ -440,22 +495,43 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
-  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_rfqs',ic:'✉',name:'RFQs'}],
+  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_rfqs',ic:'✉',name:'RFQs'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
 let route=lsGet('ui_route','dashboard');
+// Explicit tab order for a group \u2014 a mix of EXTRA_NAV route ids (dedicated
+// backend-driven screens) and MODULES keys (generic localStorage CRUD
+// screens, rendered as 'm_'+key) in the exact sequence they should appear.
+// A group not listed here keeps the old default (all EXTRA_NAV items,
+// then all MODULES items, each in their own definition order).
+const GROUP_NAV_ORDER={
+  'CRM':['crm_customers','crm_services','crm_rfqs','quotes','salesorders','leads','activities'],
+};
+function navExtraItemHtml(x){
+  const badge=(x.id==='leave_requests'&&LEAVE_PENDING_COUNT>0)?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
+  return '<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')" style="display:flex;align-items:center;gap:6px"><span class="ic">'+x.ic+'</span>'+x.name+badge+'</button>';
+}
+function navModuleItemHtml(k,m){
+  return '<button class="nitem'+(route==='m_'+k?' on':'')+'" onclick="go(\'m_'+k+'\')"><span class="ic">'+m.ic+'</span>'+m.name+'</button>';
+}
 function nav(){
   const el=document.getElementById('nav');
   el.innerHTML=GROUPS.filter(g=>canSee(g)).map(g=>{
     let items='';
-    (EXTRA_NAV[g]||[]).forEach(x=>{
-      const badge=(x.id==='leave_requests'&&LEAVE_PENDING_COUNT>0)?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
-      items+='<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')" style="display:flex;align-items:center;gap:6px"><span class="ic">'+x.ic+'</span>'+x.name+badge+'</button>';
-    });
-    Object.entries(MODULES).filter(([k,m])=>m.g===g).forEach(([k,m])=>{
-      items+='<button class="nitem'+(route==='m_'+k?' on':'')+'" onclick="go(\'m_'+k+'\')"><span class="ic">'+m.ic+'</span>'+m.name+'</button>';});
+    const order=GROUP_NAV_ORDER[g];
+    if(order){
+      order.forEach(id=>{
+        const x=(EXTRA_NAV[g]||[]).find(e=>e.id===id);
+        if(x){items+=navExtraItemHtml(x);return;}
+        const m=MODULES[id];
+        if(m&&m.g===g)items+=navModuleItemHtml(id,m);
+      });
+    }else{
+      (EXTRA_NAV[g]||[]).forEach(x=>{items+=navExtraItemHtml(x);});
+      Object.entries(MODULES).filter(([k,m])=>m.g===g).forEach(([k,m])=>{items+=navModuleItemHtml(k,m);});
+    }
     return items?'<div class="ngrp"><h5>'+g+'</h5>'+items+'</div>':'';
   }).join('')+
   (isAdmin()?'<div class="ngrp"><h5>Administration</h5><button class="nitem'+(route==='users'?' on':'')+'" onclick="go(\'users\')"><span class="ic">\u26bf</span>Users &amp; Roles</button></div>':'');
@@ -3229,6 +3305,180 @@ async function renderCrmRfqView(){
   }
 }
 
+/* ---------- Service Catalogue: Equipment -> Standard -> Item Description ---------- */
+const CRM_CURRENCIES=[['AED','UAE Dirham'],['USD','US Dollar'],['PKR','Pakistani Rupee'],['SAR','Saudi Riyal'],['QAR','Qatari Riyal'],['KWD','Kuwaiti Dinar'],['BHD','Bahraini Dinar'],['OMR','Omani Rial'],['EUR','Euro'],['GBP','British Pound'],['INR','Indian Rupee'],['CNY','Chinese Yuan'],['JPY','Japanese Yen'],['CAD','Canadian Dollar'],['AUD','Australian Dollar'],['CHF','Swiss Franc'],['SGD','Singapore Dollar'],['MYR','Malaysian Ringgit'],['IDR','Indonesian Rupiah'],['THB','Thai Baht'],['PHP','Philippine Peso'],['VND','Vietnamese Dong'],['BDT','Bangladeshi Taka'],['LKR','Sri Lankan Rupee'],['NPR','Nepalese Rupee'],['AFN','Afghan Afghani'],['IRR','Iranian Rial'],['IQD','Iraqi Dinar'],['TRY','Turkish Lira'],['EGP','Egyptian Pound'],['JOD','Jordanian Dinar'],['LBP','Lebanese Pound'],['ILS','Israeli Shekel'],['ZAR','South African Rand'],['NGN','Nigerian Naira'],['KES','Kenyan Shilling'],['GHS','Ghanaian Cedi'],['MAD','Moroccan Dirham'],['DZD','Algerian Dinar'],['TND','Tunisian Dinar'],['LYD','Libyan Dinar'],['SDG','Sudanese Pound'],['RUB','Russian Ruble'],['KZT','Kazakhstani Tenge'],['UZS','Uzbekistani Som'],['AZN','Azerbaijani Manat'],['GEL','Georgian Lari'],['UAH','Ukrainian Hryvnia'],['PLN','Polish Zloty'],['CZK','Czech Koruna'],['HUF','Hungarian Forint'],['RON','Romanian Leu'],['SEK','Swedish Krona'],['NOK','Norwegian Krone'],['DKK','Danish Krone'],['NZD','New Zealand Dollar'],['HKD','Hong Kong Dollar'],['KRW','South Korean Won'],['TWD','New Taiwan Dollar'],['BRL','Brazilian Real'],['MXN','Mexican Peso'],['ARS','Argentine Peso'],['CLP','Chilean Peso'],['COP','Colombian Peso'],['PEN','Peruvian Sol']];
+let CRM_EQUIPMENT=[],CRM_STANDARDS=[],CRM_ITEMDESCS=[],CRM_SERVICES=[];
+async function crmLoadCatalogRef(){
+  const ref=await api('/api/crm/equipment-catalog');
+  CRM_EQUIPMENT=ref.equipment;CRM_STANDARDS=ref.standards;CRM_ITEMDESCS=ref.itemDescriptions;
+}
+async function renderCrmServices(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Service Catalogue<span class="hint" style="font-weight:400"> — Equipment → Standard → Item Description</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmsvc-search" placeholder="Search code, equipment, standard…" oninput="crmFilterServices()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px">'+
+   '<button class="btn ghost" onclick="crmOpenServiceImport()">⇪ Import Equipment Catalog</button>'+
+   '<button class="btn" onclick="crmOpenServiceForm(null)">+ Add Service</button></span></div>'+
+   '<div class="card-b"><div id="crmsvc-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  try{
+    await crmLoadCatalogRef();
+    CRM_SERVICES=await api('/api/crm/services');
+    crmFilterServices();
+  }catch(e){const el=document.getElementById('crmsvc-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function crmFilterServices(){
+  const qEl=document.getElementById('crmsvc-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=CRM_SERVICES.filter(s=>!q||[s.code,s.equipmentName,s.standardName,s.itemDescription].some(v=>(v||'').toLowerCase().includes(q)));
+  const body='<table><thead><tr><th>Code</th><th>Equipment</th><th>Standard</th><th>Item Description</th><th>UoM</th><th class="num">Rate</th><th>Currency</th><th class="num">Min Qty</th><th>Status</th></tr></thead><tbody>'+
+   rows.map(s=>'<tr style="cursor:pointer" onclick="crmOpenServiceForm('+s.id+')"><td><b>'+esc(s.code)+'</b></td><td>'+esc(s.equipmentName||'')+'</td><td>'+esc(s.standardName||'')+'</td><td>'+esc((s.itemDescription||'').slice(0,60))+((s.itemDescription||'').length>60?'…':'')+'</td><td>'+esc(s.uom||'')+'</td><td class="num">'+esc(s.standardRate||'')+'</td><td>'+esc(s.currency||'')+'</td><td class="num">'+esc(s.minQty||'')+'</td>'+
+    '<td><span class="pill '+(s.status==='Active'?'g':s.status==='Discontinued'?'r':'')+'">'+esc(s.status||'')+'</span></td></tr>').join('')+
+   '</tbody></table>';
+  const el=document.getElementById('crmsvc-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No services yet — import the Equipment Catalog CSV or add one manually.</div>';
+}
+let CRM_SVC_EDIT=null;
+// Searchable Equipment/Standard/Item Description combos — a plain <select>
+// gets unusable once a list runs into the hundreds (Calibration alone has
+// 500+ items), so these are a text-input + filtered-list widget instead:
+// type to filter, click a row to pick it (writes both the hidden id input
+// and the visible search-box text), each level cascading into the next.
+function crmSvcOptionsFor(kind){
+  if(kind==='equipment')return CRM_EQUIPMENT.map(e=>({id:e.id,label:e.name}));
+  if(kind==='standard'){
+    const equipmentId=+document.getElementById('sv-equipment').value||null;
+    return CRM_STANDARDS.filter(s=>s.equipmentId===equipmentId).map(s=>({id:s.id,label:s.name}));
+  }
+  if(kind==='itemdesc'){
+    const standardId=+document.getElementById('sv-standard').value||null;
+    return CRM_ITEMDESCS.filter(it=>it.standardId===standardId).map(it=>({id:it.id,label:it.description}));
+  }
+  return [];
+}
+function crmSvcFilterDropdown(kind){
+  const q=(document.getElementById('sv-'+kind+'-q').value||'').trim().toLowerCase();
+  const all=crmSvcOptionsFor(kind);
+  const matches=(q?all.filter(o=>o.label.toLowerCase().includes(q)):all).slice(0,200);
+  const listEl=document.getElementById('sv-'+kind+'-list');
+  listEl.innerHTML=matches.length
+   ?matches.map(o=>'<div class="crm-dd-item" onmousedown="crmSvcPick(\''+kind+'\','+o.id+',\''+esc(o.label).replace(/'/g,"\\'").replace(/\n/g,' ')+'\')">'+esc(o.label)+'</div>').join('')
+   +(all.length>matches.length?'<div class="crm-dd-item hint" style="cursor:default">…'+(all.length-matches.length)+' more, keep typing to narrow down</div>':'')
+   :'<div class="crm-dd-item hint" style="cursor:default">No matches.</div>';
+  listEl.style.display='block';
+}
+function crmSvcHideDropdown(kind){setTimeout(()=>{const el=document.getElementById('sv-'+kind+'-list');if(el)el.style.display='none';},150);}
+function crmSvcPick(kind,id,label){
+  document.getElementById('sv-'+kind).value=id;
+  document.getElementById('sv-'+kind+'-q').value=label;
+  document.getElementById('sv-'+kind+'-list').style.display='none';
+  if(kind==='equipment'){
+    document.getElementById('sv-standard').value='';document.getElementById('sv-standard-q').value='';
+    document.getElementById('sv-itemdesc').value='';document.getElementById('sv-itemdesc-q').value='';
+  }else if(kind==='standard'){
+    document.getElementById('sv-itemdesc').value='';document.getElementById('sv-itemdesc-q').value='';
+  }
+}
+async function crmSvcAddEquipment(){
+  const name=prompt('New Equipment name:');
+  if(!name||!name.trim())return;
+  try{
+    const e=await api('/api/crm/equipment',{method:'POST',body:JSON.stringify({name:name.trim()})});
+    if(!CRM_EQUIPMENT.some(x=>x.id===e.id))CRM_EQUIPMENT.push(e);
+    crmSvcPick('equipment',e.id,e.name);
+  }catch(err){toast(err.message,'err');}
+}
+async function crmSvcAddStandard(){
+  const equipmentId=+document.getElementById('sv-equipment').value;
+  if(!equipmentId)return toast('Choose an Equipment first.','err');
+  const name=prompt('New Standard name (under this Equipment):');
+  if(!name||!name.trim())return;
+  try{
+    const s=await api('/api/crm/standards',{method:'POST',body:JSON.stringify({equipmentId,name:name.trim()})});
+    if(!CRM_STANDARDS.some(x=>x.id===s.id))CRM_STANDARDS.push(s);
+    crmSvcPick('standard',s.id,s.name);
+  }catch(err){toast(err.message,'err');}
+}
+async function crmSvcAddItemDesc(){
+  const standardId=+document.getElementById('sv-standard').value;
+  if(!standardId)return toast('Choose a Standard first.','err');
+  const description=prompt('New Item Description (under this Standard):');
+  if(!description||!description.trim())return;
+  try{
+    const it=await api('/api/crm/item-descriptions',{method:'POST',body:JSON.stringify({standardId,description:description.trim()})});
+    if(!CRM_ITEMDESCS.some(x=>x.id===it.id))CRM_ITEMDESCS.push(it);
+    crmSvcPick('itemdesc',it.id,it.description);
+  }catch(err){toast(err.message,'err');}
+}
+function crmOpenServiceForm(id){
+  CRM_SVC_EDIT=id?CRM_SERVICES.find(s=>s.id===id):null;
+  const s=CRM_SVC_EDIT||{};
+  document.getElementById('crmsvc-modal-title').textContent=CRM_SVC_EDIT?'Edit Service':'Add Service';
+  document.getElementById('sv-equipment').value=s.equipmentId||'';
+  document.getElementById('sv-equipment-q').value=s.equipmentName||'';
+  document.getElementById('sv-standard').value=s.standardId||'';
+  document.getElementById('sv-standard-q').value=s.standardName||'';
+  document.getElementById('sv-itemdesc').value=s.itemDescriptionId||'';
+  document.getElementById('sv-itemdesc-q').value=s.itemDescription||'';
+  ['equipment','standard','itemdesc'].forEach(k=>document.getElementById('sv-'+k+'-list').style.display='none');
+  document.getElementById('sv-code').value=s.code||'';
+  document.getElementById('sv-status').value=s.status||'Active';
+  document.getElementById('sv-uom').value=s.uom||'';
+  document.getElementById('sv-rate').value=s.standardRate||'';
+  document.getElementById('sv-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]===(s.currency||'AED')?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
+  document.getElementById('sv-minqty').value=s.minQty||'';
+  document.getElementById('crmsvc-delete-btn').style.display=CRM_SVC_EDIT?'':'none';
+  document.getElementById('crmsvc-err').style.display='none';
+  openModal('crmsvcmodal');
+}
+async function crmSvcSave(){
+  const err=document.getElementById('crmsvc-err');err.style.display='none';
+  const equipmentId=+document.getElementById('sv-equipment').value||null;
+  const standardId=+document.getElementById('sv-standard').value||null;
+  const itemDescriptionId=+document.getElementById('sv-itemdesc').value||null;
+  if(!equipmentId)return showErrEl(err,'Please select an Equipment.');
+  if(!standardId)return showErrEl(err,'Please select a Standard.');
+  if(!itemDescriptionId)return showErrEl(err,'Please select an Item Description.');
+  const body={
+    equipmentId,standardId,itemDescriptionId,code:document.getElementById('sv-code').value.trim()||undefined,
+    status:document.getElementById('sv-status').value,uom:document.getElementById('sv-uom').value.trim(),
+    standardRate:document.getElementById('sv-rate').value||null,
+    currency:(document.getElementById('sv-currency').value||'').split(' — ')[0],
+    minQty:document.getElementById('sv-minqty').value||null,
+  };
+  try{
+    if(CRM_SVC_EDIT)await api('/api/crm/services/'+CRM_SVC_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
+    else await api('/api/crm/services',{method:'POST',body:JSON.stringify(body)});
+    closeModal('crmsvcmodal');toast('Service saved.','ok');
+    await renderCrmServices();
+  }catch(e){showErrEl(err,e.message);}
+}
+async function crmSvcDelete(){
+  if(!CRM_SVC_EDIT)return;
+  if(!confirm('Delete service "'+CRM_SVC_EDIT.code+'"?'))return;
+  try{
+    await api('/api/crm/services/'+CRM_SVC_EDIT.id,{method:'DELETE'});
+    closeModal('crmsvcmodal');toast('Service deleted.','ok');
+    await renderCrmServices();
+  }catch(e){toast(e.message,'err');}
+}
+function crmOpenServiceImport(){
+  document.getElementById('crmsvcimport-file').value='';
+  document.getElementById('crmsvcimport-result').innerHTML='';
+  const err=document.getElementById('crmsvcimport-err');err.style.display='none';err.textContent='';
+  openModal('crmsvcimportmodal');
+}
+async function crmSvcImportRun(){
+  const err=document.getElementById('crmsvcimport-err');err.style.display='none';
+  const fileEl=document.getElementById('crmsvcimport-file');
+  const file=fileEl.files&&fileEl.files[0];
+  if(!file)return showErrEl(err,'Choose a CSV file first.');
+  const btn=document.getElementById('crmsvcimport-go');btn.disabled=true;btn.textContent='Importing…';
+  try{
+    const fd=new FormData();fd.append('file',file,file.name);
+    const res=await api('/api/crm/equipment-catalog/import',{method:'POST',body:fd});
+    document.getElementById('crmsvcimport-result').innerHTML='<div class="hint">Done — '+res.equipmentAdded+' new Equipment, '+res.standardsAdded+' new Standards, '+res.itemsAdded+' new Item Descriptions added ('+res.equipmentInFile+' Equipment blocks found in the file).</div>';
+    toast('Equipment catalog imported.','ok');
+  }catch(e){showErrEl(err,e.message);}
+  finally{btn.disabled=false;btn.textContent='Import';}
+}
+
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
 function refOptions(collName,dk,sel){
@@ -4756,7 +5006,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -4765,7 +5015,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
