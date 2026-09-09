@@ -277,6 +277,50 @@ body.locked #app{display:none}
   </div>
 </div></div>
 
+<div class="modal" id="crmcustmodal"><div class="box" style="max-width:520px">
+  <h3 id="crmcust-modal-title">Add Customer</h3>
+  <div class="field"><label>Company name *</label><input id="cc-name"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
+    <div class="field"><label>Contact person</label><input id="cc-contact"></div>
+    <div class="field"><label>Phone</label><input id="cc-phone"></div>
+    <div class="field"><label>Email</label><input id="cc-email" type="email"></div>
+    <div class="field"><label>Type</label><select id="cc-type"><option>Customer</option><option>Vendor</option><option>Both</option></select></div>
+    <div class="field"><label>Tax reg. no.</label><input id="cc-trn"></div>
+    <div class="field"><label>Payment terms</label><input id="cc-terms" placeholder="Net 30"></div>
+    <div class="field"><label>Status</label><select id="cc-status"><option>Active</option><option>Inactive</option></select></div>
+  </div>
+  <div class="field" style="margin-top:9px"><label>Address</label><textarea id="cc-addr" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
+  <div class="lerr" id="crmcust-err" style="display:none"></div>
+  <div class="actions" style="justify-content:space-between">
+    <button class="btn ghost" id="crmcust-delete-btn" style="color:#b42318" onclick="crmDeleteCustomer()">Delete</button>
+    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmcustmodal')">Cancel</button><button class="btn" onclick="crmSaveCustomer()">Save</button></span>
+  </div>
+</div></div>
+
+<div class="modal" id="crmrfqmodal"><div class="box" style="max-width:680px">
+  <h3 id="crmrfq-modal-title">New RFQ</h3>
+  <div class="hint" style="margin-bottom:10px">However the RFQ actually arrived (call, email, PDF) — just key in what it says below. It gets a fixed Serial No. (financial-year format, e.g. 2026-27/001) the moment you save.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="field"><label>RFQ-Quotation Date *</label><input id="rf-received" type="date"></div>
+    <div class="field"><label>Source</label><select id="rf-source"><option>Call</option><option>Email</option><option>Document</option></select></div>
+  </div>
+  <div class="field" style="margin-top:9px"><label>Customer *</label><select id="rf-customer" style="width:100%"></select></div>
+  <div class="field" style="margin-top:9px"><label>Subject / scope</label><input id="rf-subject" style="width:100%"></div>
+  <div class="field" id="rf-status-wrap" style="margin-top:9px;display:none"><label>Status</label><select id="rf-status"><option>Open</option><option>Quoted</option><option>Declined</option><option>Closed</option></select></div>
+  <div class="field" style="margin-top:12px"><label>Items</label><div id="rf-items"></div></div>
+  <div class="field" style="margin-top:12px"><label>Attachments <span class="hint">(original email / PDF / scanned document)</span></label>
+   <input type="file" id="rf-attach-file" multiple style="display:none" onchange="crmAttachFilePicked(event)">
+   <div id="rf-attachments"></div>
+   <button type="button" class="btn ghost small" style="margin-top:6px" onclick="document.getElementById('rf-attach-file').click()">+ Add attachment</button>
+  </div>
+  <div class="field" style="margin-top:9px"><label>Remarks (optional)</label><textarea id="rf-notes" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
+  <div class="lerr" id="crmrfq-err" style="display:none"></div>
+  <div class="actions" style="justify-content:space-between">
+    <button class="btn ghost" id="rf-delete-btn" style="color:#b42318" onclick="crmDeleteRfq()">Delete</button>
+    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmrfqmodal')">Cancel</button><button class="btn" onclick="crmSaveRfq()">Save RFQ</button></span>
+  </div>
+</div></div>
+
 <script>
 /* ================================================================
    PREMIER ERP — single-file, offline-first
@@ -316,10 +360,8 @@ const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
 /* Each: key, name, group, icon, fields, list (cols in table), badge, kpi */
 const MODULES={
 /* ---------------- CRM ---------------- */
-customers:{g:'CRM',ic:'◆',name:'Customers',fields:[T('code','Code','CUST-001'),T('name','Company name'),T('contact','Contact person'),T('email','Email'),T('phone','Phone'),S('ctype','Type',['Customer','Vendor','Both']),T('trn','Tax reg. no.'),T('terms','Payment terms','Net 30'),A('addr','Address')],list:['code','name','contact','phone','ctype','terms'],badge:r=>r.ctype},
 services:{g:'CRM',ic:'⚙',name:'Service Catalogue',fields:[T('code','Service code','SVC-001'),T('name','Service description'),S('cat','Category',['Tubular Inspection','NDT Services','Calibration','Rig Inspection','Lifting Gear Survey','Machine Shop / Repair','Storage & Yard Services','Rental','Consultancy / Audit','Other']),T('std','Standard / method','DS-1 Vol 3 / API RP 7G-2'),T('unit','UoM','per joint'),N('price','Standard rate'),T('cur','Currency','AED'),N('mindur','Min. qty / charge'),S('status','Status',['Active','On request','Discontinued']),A('scope','Scope / inclusions')],list:['code','name','cat','unit','price','cur','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active services'}]},
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
-rfqs:{g:'CRM',ic:'✉',name:'RFQs',fields:[T('no','RFQ no.','RFQ-2026-001'),D('date','Received'),REF('customer','Customer','customers','name'),T('subject','Subject / scope'),D('due','Quote due'),S('status','Status',['Open','Quoted','Declined','Closed']),A('detail','Details')],list:['no','date','customer','subject','due','status'],badge:r=>r.status},
 quotes:{g:'CRM',ic:'▤',name:'Quotations',lines:true,fields:[T('no','Quotation no.','QTN-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),T('subject','Subject'),T('cur','Currency','AED'),N('vat','VAT %'),S('status','Status',['Draft','Sent','Accepted','Rejected','Expired']),D('validity','Valid until'),T('terms','Payment terms','Net 30'),T('delivery','Delivery / lead time'),A('scope','Scope / notes')],list:['no','date','customer','subject','amount','cur','status'],badge:r=>r.status},
 salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[T('no','SO no.','SO-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
 activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type','Type',['Call','Meeting','Email','Site visit','Follow-up']),REF('customer','Customer','customers','name'),T('who','By'),A('notes','Summary / outcome'),D('next','Next follow-up')],list:['date','type','customer','who','next'],badge:r=>r.type},
@@ -367,6 +409,7 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
+  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_rfqs',ic:'✉',name:'RFQs'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
@@ -2396,6 +2439,240 @@ async function empImportRun(){
   }
 }
 
+/* ---------- CRM: Customers ---------- */
+let CRM_CUSTOMERS=[],CRM_CUST_EDIT=null;
+// Mirrors the backend customer list into the same localStorage shape the
+// still-local Quotations/Sales Orders/Activities screens read via their
+// REF('customer',...,'customers','name') fields, so those keep working
+// against real customers until they're moved to the backend too.
+function crmMirrorCustomersToLocalStorage(){
+  lsSet('customers',CRM_CUSTOMERS.map(c=>({code:c.code,name:c.name,contact:c.contactPerson,email:c.email,phone:c.phone,ctype:c.customerType,trn:c.taxRegNo,terms:c.paymentTerms,addr:c.address})));
+}
+async function crmLoadCustomers(){
+  CRM_CUSTOMERS=await api('/api/crm/customers');
+  crmMirrorCustomersToLocalStorage();
+}
+async function renderCrmCustomers(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Customers<span class="hint" style="font-weight:400"> — CRM master list</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmcust-search" placeholder="Search code or name" oninput="crmFilterCustomers()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+   '<button class="btn" onclick="crmOpenCustomerForm(null)">+ Add Customer</button></span></div>'+
+   '<div class="card-b"><div id="crmcust-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  try{await crmLoadCustomers();crmFilterCustomers();}
+  catch(e){const el=document.getElementById('crmcust-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function crmFilterCustomers(){
+  const qEl=document.getElementById('crmcust-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=CRM_CUSTOMERS.filter(c=>!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q));
+  const body='<table><thead><tr><th>Code</th><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Type</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td><td>'+esc(c.contactPerson||'')+'</td><td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.customerType||'')+'</td>'+
+    '<td><span class="pill '+(c.status==='Active'?'g':'r')+'">'+esc(c.status||'')+'</span></td>'+
+    '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();crmOpenCustomerForm('+c.id+')">Edit</button></td></tr>').join('')+
+   '</tbody></table>';
+  const el=document.getElementById('crmcust-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No customers yet.</div>';
+}
+function crmOpenCustomerForm(id){
+  CRM_CUST_EDIT=id?CRM_CUSTOMERS.find(c=>c.id===id):null;
+  const c=CRM_CUST_EDIT||{};
+  document.getElementById('crmcust-modal-title').textContent=CRM_CUST_EDIT?'Edit Customer':'Add Customer';
+  document.getElementById('cc-name').value=c.name||'';
+  document.getElementById('cc-contact').value=c.contactPerson||'';
+  document.getElementById('cc-phone').value=c.phone||'';
+  document.getElementById('cc-email').value=c.email||'';
+  document.getElementById('cc-type').value=c.customerType||'Customer';
+  document.getElementById('cc-trn').value=c.taxRegNo||'';
+  document.getElementById('cc-terms').value=c.paymentTerms||'';
+  document.getElementById('cc-addr').value=c.address||'';
+  document.getElementById('cc-status').value=c.status||'Active';
+  document.getElementById('crmcust-delete-btn').style.display=CRM_CUST_EDIT?'':'none';
+  document.getElementById('crmcust-err').style.display='none';
+  openModal('crmcustmodal');
+}
+async function crmSaveCustomer(){
+  const err=document.getElementById('crmcust-err');err.style.display='none';
+  const name=document.getElementById('cc-name').value.trim();
+  if(!name)return showErrEl(err,'Company name is required.');
+  const body={
+    name,contactPerson:document.getElementById('cc-contact').value.trim(),
+    phone:document.getElementById('cc-phone').value.trim(),email:document.getElementById('cc-email').value.trim(),
+    customerType:document.getElementById('cc-type').value,taxRegNo:document.getElementById('cc-trn').value.trim(),
+    paymentTerms:document.getElementById('cc-terms').value.trim(),address:document.getElementById('cc-addr').value.trim(),
+    status:document.getElementById('cc-status').value,
+  };
+  try{
+    if(CRM_CUST_EDIT)await api('/api/crm/customers/'+CRM_CUST_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
+    else await api('/api/crm/customers',{method:'POST',body:JSON.stringify(body)});
+    closeModal('crmcustmodal');toast('Customer saved.','ok');
+    await renderCrmCustomers();
+  }catch(e){showErrEl(err,e.message);}
+}
+async function crmDeleteCustomer(){
+  if(!CRM_CUST_EDIT)return;
+  if(!confirm('Delete customer "'+CRM_CUST_EDIT.name+'"?'))return;
+  try{
+    await api('/api/crm/customers/'+CRM_CUST_EDIT.id,{method:'DELETE'});
+    closeModal('crmcustmodal');toast('Customer deleted.','ok');
+    await renderCrmCustomers();
+  }catch(e){toast(e.message,'err');}
+}
+
+/* ---------- CRM: RFQs ---------- */
+let CRM_RFQS=[],CRM_RFQ_EDIT=null,CRM_RFQ_ITEMS=[];
+async function renderCrmRfqs(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">RFQs<span class="hint" style="font-weight:400"> — Request for Quotation intake</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmrfq-search" placeholder="Search RFQ no., customer or subject" oninput="crmFilterRfqs()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px">'+
+   '<button class="btn" onclick="crmOpenRfqForm(null)">+ New RFQ</button></span></div>'+
+   '<div class="card-b"><div id="crmrfq-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  try{
+    await crmLoadCustomers();
+    CRM_RFQS=await api('/api/crm/rfqs');
+    crmFilterRfqs();
+  }catch(e){const el=document.getElementById('crmrfq-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function crmFilterRfqs(){
+  const qEl=document.getElementById('crmrfq-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=CRM_RFQS.filter(r=>!q||(r.rfqNo||'').toLowerCase().includes(q)||(r.customerName||'').toLowerCase().includes(q)||(r.subject||'').toLowerCase().includes(q));
+  const statusPill=s=>s==='Open'?'b':s==='Quoted'?'g':s==='Declined'?'r':'';
+  const body='<table><thead><tr><th>Serial No.</th><th>RFQ-Quotation Date</th><th>Source</th><th>Customer</th><th>Subject</th><th>Remarks</th><th>Items</th><th>Attach.</th><th>Status</th><th>Entered By</th></tr></thead><tbody>'+
+   rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenRfqForm('+r.id+')"><td><b>'+esc(r.rfqNo||'—')+'</b></td><td>'+esc(r.receivedDate||'')+'</td><td><b>'+esc(r.source||'')+'</b></td><td><b>'+esc(r.customerName||'')+'</b></td><td>'+esc(r.subject||'')+'</td><td>'+esc(r.notes||'')+'</td><td>'+(r.items?r.items.length:0)+'</td><td>'+(r.attachments&&r.attachments.length?'📎 '+r.attachments.length:'')+'</td>'+
+    '<td><span class="pill '+statusPill(r.status)+'">'+esc(r.status||'')+'</span></td><td>'+esc(r.enteredByName||'')+'</td></tr>').join('')+
+   '</tbody></table>';
+  const el=document.getElementById('crmrfq-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No RFQs yet.</div>';
+}
+function crmOpenRfqForm(id){
+  CRM_RFQ_EDIT=id?CRM_RFQS.find(r=>r.id===id):null;
+  const r=CRM_RFQ_EDIT||{};
+  CRM_RFQ_ITEMS=r.items&&r.items.length?r.items.map(it=>({itemDesc:it.itemDesc,qty:it.qty,unit:it.unit,spec:it.spec,scope:it.scope})):[{itemDesc:'',qty:'',unit:'',spec:'',scope:'Scope'}];
+  document.getElementById('crmrfq-modal-title').textContent=CRM_RFQ_EDIT?('Edit RFQ '+(r.rfqNo||'')):'New RFQ';
+  document.getElementById('rf-received').value=r.receivedDate||today();
+  document.getElementById('rf-source').value=r.source||'Email';
+  document.getElementById('rf-customer').innerHTML='<option value="">— choose —</option>'+
+   CRM_CUSTOMERS.map(c=>'<option value="'+c.id+'"'+(r.customerId===c.id?' selected':'')+'>'+esc(c.name)+' ('+esc(c.code)+')</option>').join('');
+  document.getElementById('rf-subject').value=r.subject||'';
+  document.getElementById('rf-notes').value=r.notes||'';
+  const statusWrap=document.getElementById('rf-status-wrap');
+  statusWrap.style.display=CRM_RFQ_EDIT?'':'none';
+  if(CRM_RFQ_EDIT)document.getElementById('rf-status').value=r.status||'Open';
+  document.getElementById('rf-delete-btn').style.display=CRM_RFQ_EDIT?'':'none';
+  crmRenderRfqItems();
+  CRM_RFQ_PENDING_ATTACHMENTS=[];
+  CRM_RFQ_ATTACHMENTS=(CRM_RFQ_EDIT&&CRM_RFQ_EDIT.attachments)?CRM_RFQ_EDIT.attachments:[];
+  crmRenderAttachments();
+  document.getElementById('crmrfq-err').style.display='none';
+  openModal('crmrfqmodal');
+}
+function crmRenderRfqItems(){
+  const wrap=document.getElementById('rf-items');
+  wrap.innerHTML='<table style="width:100%"><thead><tr><th>Item / Description</th><th style="width:70px">Qty</th><th style="width:80px">Unit</th><th>Spec / Remarks</th><th style="width:110px">Scope</th><th style="width:30px"></th></tr></thead><tbody>'+
+   CRM_RFQ_ITEMS.map((it,i)=>'<tr>'+
+    '<td><input value="'+esc(it.itemDesc)+'" oninput="CRM_RFQ_ITEMS['+i+'].itemDesc=this.value" style="width:100%"></td>'+
+    '<td><input value="'+esc(it.qty)+'" oninput="CRM_RFQ_ITEMS['+i+'].qty=this.value" style="width:100%"></td>'+
+    '<td><input value="'+esc(it.unit)+'" oninput="CRM_RFQ_ITEMS['+i+'].unit=this.value" style="width:100%"></td>'+
+    '<td><input value="'+esc(it.spec)+'" oninput="CRM_RFQ_ITEMS['+i+'].spec=this.value" style="width:100%"></td>'+
+    '<td><select oninput="CRM_RFQ_ITEMS['+i+'].scope=this.value" style="width:100%">'+
+     '<option'+(it.scope!=='Out of Scope'?' selected':'')+'>Scope</option>'+
+     '<option'+(it.scope==='Out of Scope'?' selected':'')+'>Out of Scope</option></select></td>'+
+    '<td><button type="button" class="btn ghost small" onclick="crmRemoveRfqItem('+i+')">✕</button></td></tr>').join('')+
+   '</tbody></table><button type="button" class="btn ghost small" style="margin-top:6px" onclick="crmAddRfqItem()">+ Add line</button>';
+}
+function crmAddRfqItem(){CRM_RFQ_ITEMS.push({itemDesc:'',qty:'',unit:'',spec:'',scope:'Scope'});crmRenderRfqItems();}
+function crmRemoveRfqItem(i){CRM_RFQ_ITEMS.splice(i,1);if(!CRM_RFQ_ITEMS.length)CRM_RFQ_ITEMS.push({itemDesc:'',qty:'',unit:'',spec:'',scope:'Scope'});crmRenderRfqItems();}
+
+/* ---- RFQ attachments: staged (unsaved, new RFQ) vs already-uploaded (existing RFQ) ---- */
+let CRM_RFQ_PENDING_ATTACHMENTS=[]; // {fileName,mimeType,dataBase64,fileSize} — sent embedded in the create POST
+let CRM_RFQ_ATTACHMENTS=[];         // {id,fileName,mimeType,fileSize,uploadedAt} — already on the server (edit mode)
+const CRM_MAX_ATTACHMENT_BYTES=8*1024*1024;
+function crmFmtBytes(n){n=+n||0;if(n<1024)return n+' B';if(n<1024*1024)return (n/1024).toFixed(1)+' KB';return (n/1024/1024).toFixed(1)+' MB';}
+function crmRenderAttachments(){
+  const wrap=document.getElementById('rf-attachments');
+  const existing=CRM_RFQ_ATTACHMENTS.map(a=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'+
+    '<span>📎 '+esc(a.fileName)+' <span class="hint">('+crmFmtBytes(a.fileSize)+')</span></span>'+
+    '<button type="button" class="btn ghost small" onclick="crmDownloadAttachment('+a.id+',\''+esc(a.fileName).replace(/'/g,"\\'")+'\')">Download</button>'+
+    '<button type="button" class="btn ghost small" style="color:#b42318" onclick="crmDeleteAttachment('+a.id+')">Remove</button></div>').join('');
+  const pending=CRM_RFQ_PENDING_ATTACHMENTS.map((a,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'+
+    '<span>📎 '+esc(a.fileName)+' <span class="hint">('+crmFmtBytes(a.fileSize)+' — not yet saved)</span></span>'+
+    '<button type="button" class="btn ghost small" style="color:#b42318" onclick="crmRemovePendingAttachment('+i+')">Remove</button></div>').join('');
+  wrap.innerHTML=(existing+pending)||'<div class="hint">No attachments yet.</div>';
+}
+function crmAttachFilePicked(ev){
+  const files=[...(ev.target.files||[])];
+  ev.target.value='';
+  files.forEach(f=>{
+    if(f.size>CRM_MAX_ATTACHMENT_BYTES){toast('"'+f.name+'" is too large (max 8MB per file).','err');return;}
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const dataUrl=String(reader.result||'');
+      const base64=dataUrl.slice(dataUrl.indexOf(',')+1);
+      if(CRM_RFQ_EDIT){
+        try{
+          CRM_RFQ_ATTACHMENTS=await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id+'/attachments',{method:'POST',body:JSON.stringify({fileName:f.name,mimeType:f.type,dataBase64:base64})});
+          crmRenderAttachments();
+          toast('Attachment uploaded.','ok');
+        }catch(e){toast(e.message,'err');}
+      }else{
+        CRM_RFQ_PENDING_ATTACHMENTS.push({fileName:f.name,mimeType:f.type,dataBase64:base64,fileSize:f.size});
+        crmRenderAttachments();
+      }
+    };
+    reader.onerror=()=>toast('Could not read "'+f.name+'".','err');
+    reader.readAsDataURL(f);
+  });
+}
+function crmRemovePendingAttachment(i){CRM_RFQ_PENDING_ATTACHMENTS.splice(i,1);crmRenderAttachments();}
+async function crmDeleteAttachment(attId){
+  if(!CRM_RFQ_EDIT)return;
+  if(!confirm('Remove this attachment?'))return;
+  try{
+    await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id+'/attachments/'+attId,{method:'DELETE'});
+    CRM_RFQ_ATTACHMENTS=CRM_RFQ_ATTACHMENTS.filter(a=>a.id!==attId);
+    crmRenderAttachments();
+    toast('Attachment removed.','ok');
+  }catch(e){toast(e.message,'err');}
+}
+async function crmDownloadAttachment(attId,fileName){
+  try{
+    const token=localStorage.getItem('erp_jwt');
+    const res=await fetch('/api/crm/rfqs/'+CRM_RFQ_EDIT.id+'/attachments/'+attId+'/download',{headers:token?{Authorization:'Bearer '+token}:{}});
+    if(!res.ok)throw new Error('Download failed.');
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  }catch(e){toast(e.message,'err');}
+}
+async function crmSaveRfq(){
+  const err=document.getElementById('crmrfq-err');err.style.display='none';
+  const customerId=+document.getElementById('rf-customer').value;
+  const receivedDate=document.getElementById('rf-received').value;
+  if(!customerId)return showErrEl(err,'Please select a customer.');
+  if(!receivedDate)return showErrEl(err,'RFQ-Quotation Date is required.');
+  const items=CRM_RFQ_ITEMS.filter(it=>it.itemDesc&&it.itemDesc.trim());
+  const body={
+    customerId,receivedDate,source:document.getElementById('rf-source').value,
+    subject:document.getElementById('rf-subject').value.trim(),
+    notes:document.getElementById('rf-notes').value.trim(),items,
+  };
+  if(CRM_RFQ_EDIT)body.status=document.getElementById('rf-status').value;
+  else body.attachments=CRM_RFQ_PENDING_ATTACHMENTS;
+  try{
+    if(CRM_RFQ_EDIT)await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
+    else await api('/api/crm/rfqs',{method:'POST',body:JSON.stringify(body)});
+    CRM_RFQ_PENDING_ATTACHMENTS=[];
+    closeModal('crmrfqmodal');toast('RFQ saved.','ok');
+    await renderCrmRfqs();
+  }catch(e){showErrEl(err,e.message);}
+}
+async function crmDeleteRfq(){
+  if(!CRM_RFQ_EDIT)return;
+  if(!confirm('Delete RFQ '+(CRM_RFQ_EDIT.rfqNo||'')+'? This cannot be undone.'))return;
+  try{
+    await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id,{method:'DELETE'});
+    closeModal('crmrfqmodal');toast('RFQ deleted.','ok');
+    await renderCrmRfqs();
+  }catch(e){toast(e.message,'err');}
+}
+
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
 function refOptions(collName,dk,sel){
@@ -3756,7 +4033,7 @@ function renderDashboard(){
    {l:'Calibration overdue',n:cal.filter(r=>r.status==='Overdue').length,warn:cal.some(r=>r.status==='Overdue')},
    {l:'Active employees',n:emp.filter(r=>r.status==='Active').length},
    {l:'Saved inspection reports',n:lib.length}];
-  const quick=[['m_customers','Customers'],['m_leads','Leads'],['m_invoices','Invoices'],['m_purchaseorders','Purchase Orders'],['m_items','Item Master'],['m_assets','Assets'],['m_employees','Employees'],['m_ncrs','NCR / CAPA'],['m_audits','Audits'],['gl_je','Journal Entry'],['insp_report','Inspection Report'],['m_calibrations','M&TE Register']];
+  const quick=[['crm_customers','Customers'],['crm_rfqs','RFQs'],['m_leads','Leads'],['m_invoices','Invoices'],['m_purchaseorders','Purchase Orders'],['m_items','Item Master'],['m_assets','Assets'],['hr_employees','Employees'],['m_ncrs','NCR / CAPA'],['m_audits','Audits'],['gl_je','Journal Entry'],['insp_report','Inspection Report'],['m_calibrations','M&TE Register']];
   document.getElementById('content').innerHTML=
   '<div class="kpis">'+kpis.map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>'+
   '<div class="card"><div class="card-h">Quick actions</div><div class="card-b"><div class="fgrid">'+
@@ -3923,7 +4200,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],hr_employees:['Human Resources','Employees'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_rfqs:['CRM','RFQs'],hr_employees:['Human Resources','Employees'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -3932,7 +4209,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,hr_employees:renderHrEmployees,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_rfqs:renderCrmRfqs,hr_employees:renderHrEmployees,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
