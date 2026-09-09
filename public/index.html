@@ -316,6 +316,18 @@ body.locked #app{display:none}
   </div>
 </div></div>
 
+<div class="modal" id="crmcustimportmodal"><div class="box" style="max-width:560px">
+  <h3>Import Customers from CSV</h3>
+  <div class="hint" style="margin-bottom:10px">Just two columns needed: <b>Name</b> and <b>Address</b>. Everything else (bank details, tax numbers, contact info) can be filled in later by editing each customer.</div>
+  <div class="field"><input type="file" id="crmcustimport-file" accept=".csv,text/csv" onchange="crmCustImportFileChosen(event)"></div>
+  <div id="crmcustimport-preview" style="margin-top:12px"></div>
+  <div class="lerr" id="crmcustimport-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('crmcustimportmodal')">Cancel</button>
+    <button class="btn" id="crmcustimport-go" onclick="crmCustImportRun()" disabled>Import</button>
+  </div>
+</div></div>
+
 <div class="modal" id="crmrfqmodal"><div class="box" style="max-width:680px">
   <h3 id="crmrfq-modal-title">New RFQ</h3>
   <div class="hint" style="margin-bottom:10px">However the RFQ actually arrived (call, email, PDF) — just key in what it says below. It gets a fixed Serial No. (financial-year format, e.g. 2026-27/001) the moment you save.</div>
@@ -560,6 +572,12 @@ async function pullSharedMaster(){
     if(route==='m_employees')render();
     checkBirthdayReminders(emps);
   }catch(e){console.warn('shared master data pull failed:',e.message);}
+  // Keep the CRM customer list fresh even for a session that never opens
+  // the Customers/RFQ screens directly — Quotations/Sales Orders/
+  // Activities read it via the mirrored localStorage 'customers' collection
+  // (see crmMirrorCustomersToLocalStorage). Silently skipped for a role
+  // with no CRM access.
+  try{await crmLoadCustomers();}catch(e){}
 }
 /* Birthday reminder — pops up once per day (per browser) whenever any
    employee's birthday falls today, tomorrow, or the day after. Only ever
@@ -2290,7 +2308,7 @@ function empFilterList(){
    rows.map(e=>'<tr style="cursor:pointer" onclick="empOpenForm(\''+e.id+'\')"><td onclick="event.stopPropagation()"><input type="checkbox" '+(EMP_SELECTED.has(e.id)?'checked':'')+' onchange="empToggleSelect('+e.id+',this.checked)"></td><td><b>'+esc(e.employeeId)+'</b></td><td>'+esc(e.name)+'</td><td>'+esc(e.department||'')+'</td><td>'+esc(e.location||'')+'</td>'+
     '<td><span class="pill '+(e.status==='Active'?'g':'r')+'">'+esc(e.status||'')+'</span></td>'+
     '<td>'+(e.erpRole?'<span class="pill b">'+esc(e.erpRole)+'</span>':'<span class="hint">—</span>')+'</td>'+
-    '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();empOpenForm(\''+e.id+'\')">Edit</button></td></tr>').join('')+
+    '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();empOpenView(\''+e.id+'\')">View</button> <button class="btn ghost small" onclick="event.stopPropagation();empOpenForm(\''+e.id+'\')">Edit</button></td></tr>').join('')+
    '</tbody></table>';
   const el=document.getElementById('emp-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No employees found.</div>';
   empUpdateSelBar();
@@ -2342,6 +2360,281 @@ async function empDeleteAll(){
     EMP_SELECTED=new Set();
     await empRefresh();
   }catch(e){toast(e.message,'err');}
+}
+
+/* ---------- Employee detail (read-only "View") — separate page, no input fields ---------- */
+let EMP_VIEW_ID=null,EMP_VIEW_TAB='general';
+function empOpenView(id){
+  EMP_VIEW_ID=id;EMP_VIEW_TAB='general';
+  route='hr_employee_view';lsSet('ui_route',route);
+  nav();render();window.scrollTo(0,0);
+}
+function evField(label,value){
+  return '<div><div class="hint" style="margin-bottom:2px">'+esc(label)+'</div><div>'+(value?esc(value):'<span class="hint">—</span>')+'</div></div>';
+}
+function evCard(title,fieldsHtml){
+  return '<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px">'+
+   '<div style="font-weight:700;margin-bottom:12px">'+esc(title)+'</div>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 20px">'+fieldsHtml+'</div></div>';
+}
+async function renderEmpView(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  try{
+    if(!EMP_LIST||!EMP_LIST.length)EMP_LIST=await api('/api/shared/employees');
+    const e=EMP_LIST.find(r=>String(r.id)===String(EMP_VIEW_ID));
+    if(!e){c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Employee not found.</div></div></div>';return;}
+    const p=e.profile||{};
+    const ini=(e.name||'?').split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const hod=p.reportsTo?(EMP_LIST.find(r=>String(r.id)===String(p.reportsTo))||{}).name:'';
+    const phone=[p.phoneCode,p.phoneNumber].filter(Boolean).join(' ');
+    const emgPhone=[p.emergencyCode,p.emergencyNumber].filter(Boolean).join(' ')||p.kinContact;
+
+    const tabs=[['general','General'],['payroll','Payroll'],['attendance','Attendance'],['leave','Leave'],['performance','Performance'],['documents','Documents']];
+
+    let body='';
+    if(EMP_VIEW_TAB==='general'){
+      body=
+       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">'+
+        evCard('Detail Employee',
+         evField('Full Name',e.name)+evField('Work Email',e.email)+
+         evField('Phone Number',phone)+evField('Date of Birth',p.dateOfBirth)+
+         evField('Gender',p.gender)+evField('Marital Status',p.maritalStatus)+
+         '<div style="grid-column:1/-1">'+evField('Address',p.homeAddress)+'</div>')+
+        evCard('Employment Details',
+         evField('Employee ID',e.employeeId)+evField('Job Title',p.designation)+
+         evField('Department',e.department)+evField('Reporting To',hod)+
+         evField('Employment Type',p.employmentType)+evField('Work Schedule',e.shiftStart&&e.shiftEnd?(e.shiftStart+' – '+e.shiftEnd):'')+
+         evField('Status',e.status)+evField('Start Date',p.joinDate))+
+       '</div>'+
+       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">'+
+        evCard('Emergency Contact',
+         evField('Name',p.kinName)+evField('Relationship',p.kinRelation)+
+         evField('Phone',emgPhone)+evField('Email',p.kinEmail))+
+        evCard('Reference',
+         evField('Name',p.refName)+evField('Office',p.refOffice)+
+         evField('Contact',p.refContact)+evField('Email',p.refEmail))+
+       '</div>'+
+       evCard('Compensation & Benefits',
+        evField('Currency',p.currency)+evField('Gross Salary',p.grossSalary)+
+        evField('Bank Name',p.bankName)+evField('Account No.',p.accountNo)+
+        evField('IBAN',p.iban)+evField('Account Title',p.accountTitle));
+    }else if(EMP_VIEW_TAB==='payroll'){
+      body=evCard('Compensation Summary',
+       evField('Currency',p.currency)+evField('Gross Salary',p.grossSalary)+
+       evField('Utility Allowance',p.utilityAllowance)+evField('HRA',p.hra)+
+       evField('Field Allowance',p.fieldAllowance)+evField('Cost Center',p.costCenter))+
+       '<div style="margin-top:12px"><button class="btn ghost small" onclick="go(\'hr_payroll\')">Open Payroll module ›</button></div>';
+    }else if(EMP_VIEW_TAB==='attendance'){
+      body='<div id="ev-att-kpis" class="kpis" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
+       '<div class="fgrid" style="margin-bottom:16px">'+
+        '<div class="field"><label>From</label><input type="date" id="ev-att-from"></div>'+
+        '<div class="field"><label>To</label><input type="date" id="ev-att-to"></div>'+
+        '<div class="field" style="align-self:end"><button class="btn" onclick="evAttGenerate()">▸ Generate</button></div>'+
+       '</div>'+
+       '<div id="ev-att-result" style="display:none">'+
+        '<div id="ev-att-preview" class="tblwrap" style="margin-bottom:16px"></div>'+
+        '<div style="display:flex;gap:8px;margin-bottom:12px">'+
+         '<button class="btn ghost small" onclick="evAttExportPdf()">⬇ PDF</button>'+
+         '<button class="btn ghost small" onclick="evAttExportXlsx()">⬇ Excel</button>'+
+         '<button class="btn ghost small" onclick="evAttExportCsv()">⬇ CSV</button>'+
+        '</div>'+
+        '<div class="hint" style="margin-bottom:6px">PDF preview</div>'+
+        '<iframe id="ev-att-pdf-frame" style="width:100%;height:420px;border:1px solid var(--line);border-radius:8px;display:none"></iframe>'+
+        '<div id="ev-att-pdf-empty" class="empty" style="display:none">No data to preview.</div>'+
+       '</div>';
+    }else if(EMP_VIEW_TAB==='leave'){
+      body='<div id="ev-leave-kpis" class="kpis" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
+       '<div id="ev-leave-table" class="tblwrap"><div class="empty">Loading…</div></div>';
+    }else{
+      body='<div class="empty">No '+esc(EMP_VIEW_TAB)+' records on file yet.</div>';
+    }
+
+    c.innerHTML='<div class="card"><div class="card-h">'+
+      '<button class="btn ghost small" onclick="go(\'hr_employees\')">‹ Employees</button>'+
+      '<span style="margin-left:auto;display:flex;gap:8px">'+
+       '<button class="btn ghost" onclick="empOpenForm(\''+e.id+'\')">✎ Edit</button>'+
+       '<button class="btn ghost small" style="color:#b42318" onclick="empViewDelete()">🗑 Delete</button>'+
+      '</span></div>'+
+     '<div class="card-b">'+
+      '<div style="display:flex;align-items:center;gap:14px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
+       '<div style="width:56px;height:56px;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex-shrink:0">'+esc(ini)+'</div>'+
+       '<div><div style="font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px">'+esc(e.name)+
+        '<span class="pill '+(e.status==='Active'?'g':'r')+'">'+esc(e.status||'')+'</span></div>'+
+        '<div class="hint">'+esc(e.employeeId)+'</div></div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
+       evField('Job Title',p.designation)+evField('Department',e.department)+
+       evField('Employment Type',p.employmentType)+evField('Work Location',e.location)+
+      '</div>'+
+      '<div class="att-tabs">'+tabs.map(t=>'<button class="att-tab'+(EMP_VIEW_TAB===t[0]?' on':'')+'" onclick="empViewSwitchTab(\''+t[0]+'\')">'+t[1]+'</button>').join('')+'</div>'+
+      '<div style="margin-top:16px">'+body+'</div>'+
+     '</div></div>';
+
+    if(EMP_VIEW_TAB==='attendance')evAttInit(e);
+    else if(EMP_VIEW_TAB==='leave')evLeaveInit(e);
+  }catch(err){
+    c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
+  }
+}
+function empViewSwitchTab(tab){EMP_VIEW_TAB=tab;render();}
+
+/* ---- Employee View: Attendance tab (this-month KPIs + own date-range report + PDF/Excel/CSV) ---- */
+async function evAttInit(e){
+  const now=new Date();
+  const monthFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  const lastDay=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+  const monthTo=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+  const fromEl=document.getElementById('ev-att-from'),toEl=document.getElementById('ev-att-to');
+  if(fromEl)fromEl.value=monthFrom;
+  if(toEl)toEl.value=monthTo;
+  const kEl=document.getElementById('ev-att-kpis');
+  try{
+    const rows=await api('/api/attendance/summary?from='+monthFrom+'&to='+monthTo+'&q='+encodeURIComponent(e.employeeId));
+    const lates=rows.filter(r=>r.late).length;
+    const absents=rows.filter(r=>r.dayType==='Absent').length;
+    const presents=rows.filter(r=>r.dayType==='Present').length;
+    const leaves=rows.filter(r=>r.dayType==='Leave'||r.dayType==='LeaveWithoutPay').length;
+    if(kEl)kEl.innerHTML=
+     '<div class="kpi"><span>Lates (this month)</span><b'+(lates?' class="warn"':'')+'>'+lates+'</b></div>'+
+     '<div class="kpi"><span>Absents (this month)</span><b'+(absents?' class="warn"':'')+'>'+absents+'</b></div>'+
+     '<div class="kpi"><span>Presents (this month)</span><b>'+presents+'</b></div>'+
+     '<div class="kpi"><span>Leaves (this month)</span><b>'+leaves+'</b></div>';
+  }catch(err){
+    if(kEl)kEl.innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
+  }
+  await evAttGenerate();
+}
+let EV_ATT_ROWS=[],EV_ATT_EMP=null,EV_ATT_PDF_URL=null;
+async function evAttGenerate(){
+  const e=EMP_LIST.find(r=>String(r.id)===String(EMP_VIEW_ID));
+  if(!e)return;
+  EV_ATT_EMP=e;
+  const fromEl=document.getElementById('ev-att-from'),toEl=document.getElementById('ev-att-to');
+  const from=fromEl?fromEl.value:today(),to=toEl?toEl.value:today();
+  const resEl=document.getElementById('ev-att-result');
+  if(!resEl)return;
+  resEl.style.display='block';
+  try{
+    const rows=await api('/api/attendance/summary?from='+from+'&to='+to+'&q='+encodeURIComponent(e.employeeId));
+    EV_ATT_ROWS=rows.slice().sort((a,b)=>a.date.localeCompare(b.date));
+    window.__evAttFrom=from;window.__evAttTo=to;
+    const{headers,rows:tblRows}=evAttBuildDetailed();
+    document.getElementById('ev-att-preview').innerHTML=tblRows.length
+     ?'<table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
+       tblRows.map(r=>'<tr>'+r.map(cel=>'<td>'+esc(cel)+'</td>').join('')+'</tr>').join('')+'</tbody></table>'
+     :'<div class="empty">No attendance found for this range.</div>';
+    evAttRenderPdfPreview();
+  }catch(err){
+    document.getElementById('ev-att-preview').innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
+  }
+}
+function evAttBuildDetailed(){
+  const headers=['Sr#','Date','Day','Time In','Time Out'];
+  const rows=EV_ATT_ROWS.map((r,i)=>{
+    const label=rptDayTypeLabel(r);
+    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptFmtTime(r.checkIn),label?(r.leaveDocNo||''):rptFmtTime(r.checkOut)];
+  });
+  return{headers,rows};
+}
+function evAttBuildPdfDoc(){
+  const{headers,rows}=evAttBuildDetailed();
+  if(!rows.length)return null;
+  const doc=new PdfDoc();
+  doc.header('ATTENDANCE REPORT',(EV_ATT_EMP?EV_ATT_EMP.name+' ('+EV_ATT_EMP.employeeId+')':'')+' · '+window.__evAttFrom+' to '+window.__evAttTo);
+  doc.table(headers,rows);
+  return doc;
+}
+function evAttExportPdf(){
+  const doc=evAttBuildPdfDoc();
+  if(!doc)return toast('No attendance found for this range.','info');
+  doc.out('Attendance_'+(EV_ATT_EMP?EV_ATT_EMP.employeeId:'')+'_'+window.__evAttFrom+'_to_'+window.__evAttTo);
+}
+function evAttRenderPdfPreview(){
+  const frame=document.getElementById('ev-att-pdf-frame');if(!frame)return;
+  if(EV_ATT_PDF_URL){URL.revokeObjectURL(EV_ATT_PDF_URL);EV_ATT_PDF_URL=null;}
+  const doc=evAttBuildPdfDoc();
+  const emptyEl=document.getElementById('ev-att-pdf-empty');
+  if(!doc){frame.style.display='none';if(emptyEl)emptyEl.style.display='block';return;}
+  const blob=new Blob([doc.bytes()],{type:'application/pdf'});
+  EV_ATT_PDF_URL=URL.createObjectURL(blob);
+  frame.src=EV_ATT_PDF_URL;frame.style.display='block';if(emptyEl)emptyEl.style.display='none';
+}
+function evAttExportXlsx(){
+  const{headers,rows}=evAttBuildDetailed();
+  if(!rows.length)return toast('No attendance found for this range.','info');
+  const grid=[headers].concat(rows.map(r=>r.map(c=>c==null?'':String(c))));
+  dlXlsx(buildXlsxBlob(grid),'Attendance_'+(EV_ATT_EMP?EV_ATT_EMP.employeeId:'')+'_'+window.__evAttFrom+'_to_'+window.__evAttTo+'.xlsx');
+}
+function evAttExportCsv(){
+  const{headers,rows}=evAttBuildDetailed();
+  if(!rows.length)return toast('No attendance found for this range.','info');
+  const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+  dlBlob('﻿'+lines.join('\r\n'),'text/csv;charset=utf-8','Attendance_'+(EV_ATT_EMP?EV_ATT_EMP.employeeId:'')+'_'+window.__evAttFrom+'_to_'+window.__evAttTo+'.csv');
+}
+
+/* ---- Employee View: Leave tab (Casual/Medical/Annual balances + all other leave types availed) ---- */
+// Casual/Medical: 12 days/year each, Permanent employees only. Annual: 1
+// day/year, Permanent employees only, and only once they've completed a
+// full year of service (join date). Every other leave type in LV_TYPES
+// (Field Break, Compensatory Leave, Work From Home, Maternity Leave,
+// Leave Without Pay, Field Shift) has no fixed quota — those are entirely
+// HR/HOD approval-based, so only an "Availed" count is shown for them.
+function evLeaveDays(r){
+  const d1=new Date(r.fromDate),d2=new Date(r.toDate);
+  return Math.max(1,Math.round((d2-d1)/86400000)+1);
+}
+function evBuildLeaveBalanceTable(mine,p){
+  const isPermanent=p.employmentType==='Permanent';
+  const joinDate=p.joinDate?new Date(p.joinDate):null;
+  const oneYearDone=!!(joinDate&&(Date.now()-joinDate.getTime())>=365*86400000);
+  const annualEntitled=isPermanent&&oneYearDone?1:0;
+  const thisYear=new Date().getFullYear();
+  const approved=mine.filter(r=>r.status==='Approved'&&new Date(r.fromDate).getFullYear()===thisYear);
+  const availedByType={};
+  approved.forEach(r=>{availedByType[r.leaveType]=(availedByType[r.leaveType]||0)+evLeaveDays(r);});
+  return LV_TYPES.map(t=>{
+    let entitled=null;
+    if(t==='Casual Leave')entitled=isPermanent?12:0;
+    else if(t==='Medical Leave')entitled=isPermanent?12:0;
+    else if(t==='Annual Leave')entitled=annualEntitled;
+    const availed=availedByType[t]||0;
+    const remaining=entitled!=null?Math.max(0,entitled-availed):null;
+    return{type:t,entitled,availed,remaining};
+  });
+}
+async function evLeaveInit(e){
+  const kEl=document.getElementById('ev-leave-kpis'),tEl=document.getElementById('ev-leave-table');
+  try{
+    const all=await api('/api/leave');
+    const mine=all.filter(r=>String(r.employeeId)===String(e.id));
+    const rows=evBuildLeaveBalanceTable(mine,e.profile||{});
+    const quotaRows=rows.filter(r=>r.entitled!==null);
+    const totalEntitled=quotaRows.reduce((s,r)=>s+r.entitled,0);
+    const totalRemaining=quotaRows.reduce((s,r)=>s+r.remaining,0);
+    const totalAvailedAll=rows.reduce((s,r)=>s+r.availed,0);
+    if(kEl)kEl.innerHTML=
+     '<div class="kpi"><span>Total Entitled ('+new Date().getFullYear()+')</span><b>'+totalEntitled+'</b></div>'+
+     '<div class="kpi"><span>Total Availed</span><b>'+totalAvailedAll+'</b></div>'+
+     '<div class="kpi"><span>Total Remaining</span><b>'+totalRemaining+'</b></div>';
+    if(tEl)tEl.innerHTML='<table><thead><tr><th>Leave Type</th><th>Entitled ('+new Date().getFullYear()+')</th><th>Availed</th><th>Remaining</th></tr></thead><tbody>'+
+     rows.map(r=>'<tr><td>'+esc(r.type)+'</td><td>'+(r.entitled==null?'<span class="hint">Approval-based</span>':r.entitled)+'</td><td>'+r.availed+'</td><td>'+(r.remaining==null?'—':r.remaining)+'</td></tr>').join('')+
+     '</tbody></table>';
+  }catch(err){
+    if(kEl)kEl.innerHTML='';
+    if(tEl)tEl.innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
+  }
+}
+async function empViewDelete(){
+  const e=EMP_LIST.find(r=>String(r.id)===String(EMP_VIEW_ID));
+  if(!e)return;
+  if(!confirm('Delete employee "'+e.name+'"? This removes their login and all records. This cannot be undone.'))return;
+  try{
+    await api('/api/shared/employees/'+e.id,{method:'DELETE'});
+    toast('Employee deleted.','ok');
+    go('hr_employees');
+  }catch(err){toast(err.message,'err');}
 }
 
 /* ---------- Import Employees from CSV ---------- */
@@ -2471,25 +2764,154 @@ async function crmLoadCustomers(){
   CRM_CUSTOMERS=await api('/api/crm/customers');
   crmMirrorCustomersToLocalStorage();
 }
+let CRM_CUST_SELECTED=new Set();
 async function renderCrmCustomers(){
+  CRM_CUST_SELECTED=new Set();
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">Customers<span class="hint" style="font-weight:400"> — CRM master list</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmcust-search" placeholder="Search code or name" oninput="crmFilterCustomers()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+   '<button class="btn ghost" onclick="crmOpenCustomerImport()">⇪ Import Customers</button>'+
    '<button class="btn" onclick="crmOpenCustomerForm(null)">+ Add Customer</button></span></div>'+
-   '<div class="card-b"><div id="crmcust-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+   '<div class="card-b">'+
+   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+
+    '<button class="btn ghost small" id="crmcust-delsel-btn" disabled onclick="crmDeleteSelectedCustomers()">🗑 Delete Selected (0)</button>'+
+    '<button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="crmDeleteAllCustomers()">🗑 Delete All Customers</button>'+
+   '</div>'+
+   '<div id="crmcust-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{await crmLoadCustomers();crmFilterCustomers();}
   catch(e){const el=document.getElementById('crmcust-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 function crmFilterCustomers(){
   const qEl=document.getElementById('crmcust-search');const q=qEl?qEl.value.trim().toLowerCase():'';
   const rows=CRM_CUSTOMERS.filter(c=>!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q));
-  const body='<table><thead><tr><th>Code</th><th>Business Partner Name</th><th>Mobile</th><th>Email</th><th>City</th><th>Country</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
-   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td><td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.city||'')+'</td><td>'+esc(c.country||'')+'</td>'+
+  const allChecked=rows.length>0&&rows.every(c=>CRM_CUST_SELECTED.has(c.id));
+  const body='<table><thead><tr><th style="width:28px"><input type="checkbox" '+(allChecked?'checked':'')+' onclick="crmToggleSelectAllCustomers(this.checked)"></th><th>Code</th><th>Business Partner Name</th><th>Mobile</th><th>Email</th><th>City</th><th>Country</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td onclick="event.stopPropagation()"><input type="checkbox" '+(CRM_CUST_SELECTED.has(c.id)?'checked':'')+' onchange="crmToggleSelectCustomer('+c.id+',this.checked)"></td><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td><td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.city||'')+'</td><td>'+esc(c.country||'')+'</td>'+
     '<td><span class="pill '+(c.status==='Active'?'g':'r')+'">'+esc(c.status||'')+'</span></td>'+
     '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();crmOpenCustomerForm('+c.id+')">Edit</button></td></tr>').join('')+
    '</tbody></table>';
   const el=document.getElementById('crmcust-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No customers yet.</div>';
+  crmUpdateCustSelBar();
 }
+function crmToggleSelectCustomer(id,checked){
+  if(checked)CRM_CUST_SELECTED.add(id);else CRM_CUST_SELECTED.delete(id);
+  crmUpdateCustSelBar();
+}
+function crmToggleSelectAllCustomers(checked){
+  const qEl=document.getElementById('crmcust-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=CRM_CUSTOMERS.filter(c=>!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q));
+  rows.forEach(c=>{if(checked)CRM_CUST_SELECTED.add(c.id);else CRM_CUST_SELECTED.delete(c.id);});
+  crmFilterCustomers();
+}
+function crmUpdateCustSelBar(){
+  const btn=document.getElementById('crmcust-delsel-btn');if(!btn)return;
+  btn.textContent='🗑 Delete Selected ('+CRM_CUST_SELECTED.size+')';
+  btn.disabled=CRM_CUST_SELECTED.size===0;
+}
+// Deletion here always needs a typed "DELETE"/"DELETE ALL" confirmation —
+// customer records carry bank details/tax numbers, so a plain OK/Cancel
+// confirm() isn't enough of a speed-bump for this screen.
+async function crmDeleteSelectedCustomers(){
+  const n=CRM_CUST_SELECTED.size;if(!n)return;
+  const typed=prompt('Delete '+n+' selected customer(s)? This cannot be undone.\n\nType DELETE to confirm:');
+  if(typed!=='DELETE'){if(typed!==null)toast('Confirmation text did not match — nothing deleted.','info');return;}
+  try{
+    const res=await api('/api/crm/customers',{method:'DELETE',body:JSON.stringify({ids:[...CRM_CUST_SELECTED]})});
+    let msg=res.deleted+' customer(s) deleted.';
+    if(res.skipped&&res.skipped.length){msg+=' '+res.skipped.length+' skipped (has RFQs on file).';console.warn('Bulk delete skipped:',res.skipped);}
+    toast(msg,res.skipped&&res.skipped.length?'info':'ok');
+    CRM_CUST_SELECTED=new Set();
+    await renderCrmCustomers();
+  }catch(e){toast(e.message,'err');}
+}
+async function crmDeleteAllCustomers(){
+  const n=CRM_CUSTOMERS.length;
+  if(!n){toast('No customers to delete.','info');return;}
+  const typed=prompt('This deletes ALL '+n+' customer(s). This cannot be undone.\n\nType DELETE ALL to confirm:');
+  if(typed!=='DELETE ALL'){if(typed!==null)toast('Confirmation text did not match — nothing deleted.','info');return;}
+  try{
+    const res=await api('/api/crm/customers',{method:'DELETE',body:JSON.stringify({all:true})});
+    let msg=res.deleted+' customer(s) deleted.';
+    if(res.skipped&&res.skipped.length){msg+=' '+res.skipped.length+' skipped (has RFQs on file).';console.warn('Bulk delete skipped:',res.skipped);}
+    toast(msg,res.skipped&&res.skipped.length?'info':'ok');
+    CRM_CUST_SELECTED=new Set();
+    await renderCrmCustomers();
+  }catch(e){toast(e.message,'err');}
+}
+
+/* ---- Customers: bulk CSV import (Name + Address only — everything else via Edit) ---- */
+let CRM_CUST_IMPORT_ROWS=[];
+function crmOpenCustomerImport(){
+  CRM_CUST_IMPORT_ROWS=[];
+  document.getElementById('crmcustimport-file').value='';
+  document.getElementById('crmcustimport-preview').innerHTML='';
+  const err=document.getElementById('crmcustimport-err');err.style.display='none';err.textContent='';
+  document.getElementById('crmcustimport-go').disabled=true;
+  openModal('crmcustimportmodal');
+}
+function crmCustImportFileChosen(ev){
+  const file=ev.target.files&&ev.target.files[0];
+  const err=document.getElementById('crmcustimport-err');err.style.display='none';
+  document.getElementById('crmcustimport-go').disabled=true;
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const text=String(reader.result||'').replace(/^﻿/,'');
+      const lines=text.split(/\r\n|\n|\r/).filter(l=>l.trim()!=='');
+      if(lines.length<2)throw new Error('CSV has no data rows.');
+      const headers=empCsvParseLine(lines[0]).map(h=>h.trim().toLowerCase());
+      const nameIdx=headers.findIndex(h=>h==='name'||h==='business partner name'||h==='customer name');
+      const addrIdx=headers.findIndex(h=>h==='address'||h==='address1'||h==='address 1');
+      if(nameIdx<0)throw new Error('Could not find a "Name" column in the CSV header.');
+      const rows=[];
+      for(let i=1;i<lines.length;i++){
+        const cells=empCsvParseLine(lines[i]);
+        const name=(cells[nameIdx]||'').trim();
+        const address=addrIdx>=0?(cells[addrIdx]||'').trim():'';
+        if(name)rows.push({name,address});
+      }
+      CRM_CUST_IMPORT_ROWS=rows;
+      document.getElementById('crmcustimport-preview').innerHTML=
+        '<div class="hint">'+rows.length+' row(s) found.</div>'+
+        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Name</th><th>Address</th></tr></thead><tbody>'+
+        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+esc(r.address)+'</td></tr>').join('')+
+        '</tbody></table></div>'+(rows.length>50?'<div class="hint">…and '+(rows.length-50)+' more.</div>':'');
+      document.getElementById('crmcustimport-go').disabled=rows.length===0;
+    }catch(e){
+      CRM_CUST_IMPORT_ROWS=[];
+      document.getElementById('crmcustimport-preview').innerHTML='';
+      showErrEl(err,e.message);
+    }
+  };
+  reader.onerror=()=>showErrEl(err,'Could not read the file.');
+  reader.readAsText(file);
+}
+async function crmCustImportRun(){
+  const err=document.getElementById('crmcustimport-err');err.style.display='none';
+  if(!CRM_CUST_IMPORT_ROWS.length)return;
+  const btn=document.getElementById('crmcustimport-go');btn.disabled=true;btn.textContent='Importing…';
+  try{
+    const res=await api('/api/crm/customers/import',{method:'POST',body:JSON.stringify({rows:CRM_CUST_IMPORT_ROWS})});
+    let msg=res.created+' customer(s) created.';
+    if(res.errors&&res.errors.length){
+      msg+=' '+res.errors.length+' row(s) skipped.';
+      document.getElementById('crmcustimport-preview').innerHTML+=
+        '<div class="lerr" style="display:block;margin-top:10px">Skipped rows:<br>'+
+        res.errors.slice(0,30).map(e=>'Row '+e.row+': '+esc(e.message)).join('<br>')+'</div>';
+      toast(msg,'info');
+    }else{
+      toast(msg,'ok');
+      closeModal('crmcustimportmodal');
+    }
+    await renderCrmCustomers();
+  }catch(e){
+    showErrEl(err,e.message);
+  }finally{
+    btn.disabled=false;btn.textContent='Import';
+  }
+}
+
 function crmOpenCustomerForm(id){
   CRM_CUST_EDIT=id?CRM_CUSTOMERS.find(c=>c.id===id):null;
   const c=CRM_CUST_EDIT||{};
@@ -4237,7 +4659,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_rfqs:['CRM','RFQs'],hr_employees:['Human Resources','Employees'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_rfqs:['CRM','RFQs'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -4246,7 +4668,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_rfqs:renderCrmRfqs,hr_employees:renderHrEmployees,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_rfqs:renderCrmRfqs,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
