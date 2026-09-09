@@ -485,7 +485,11 @@ let SESSION=null;
 /* ---------------- backend API (shares the ISO/LMS MySQL database) ---------------- */
 async function api(path,opts={}){
   const token=localStorage.getItem('erp_jwt');
-  const res=await fetch(path,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
+  // FormData bodies (file uploads) must NOT get a manual Content-Type —
+  // the browser sets multipart/form-data with the correct boundary itself;
+  // overriding it here would corrupt the upload.
+  const isFormData=typeof FormData!=='undefined'&&opts.body instanceof FormData;
+  const res=await fetch(path,{...opts,headers:{...(isFormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
   const body=await res.json().catch(()=>({}));
   if(res.status===401){localStorage.removeItem('erp_jwt');throw new Error(body.error||'Session expired — please log in again.');}
   if(!res.ok)throw new Error(body.error||res.statusText);
@@ -3020,9 +3024,10 @@ function crmFilterRfqs(){
   const qEl=document.getElementById('crmrfq-search');const q=qEl?qEl.value.trim().toLowerCase():'';
   const rows=CRM_RFQS.filter(r=>!q||(r.rfqNo||'').toLowerCase().includes(q)||(r.customerName||'').toLowerCase().includes(q)||(r.subject||'').toLowerCase().includes(q));
   const statusPill=s=>s==='Open'?'b':s==='Quoted'?'g':s==='Declined'?'r':'';
-  const body='<table><thead><tr><th>Serial No.</th><th>RFQ-Quotation Date</th><th>Source</th><th>Customer</th><th>Subject</th><th>Remarks</th><th>Items</th><th>Attach.</th><th>Status</th><th>Entered By</th></tr></thead><tbody>'+
+  const body='<table><thead><tr><th>Serial No.</th><th>RFQ-Quotation Date</th><th>Source</th><th>Customer</th><th>Subject</th><th>Remarks</th><th>Items</th><th>Attach.</th><th>Status</th><th>Entered By</th><th class="no-print"></th></tr></thead><tbody>'+
    rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenRfqForm('+r.id+')"><td><b>'+esc(r.rfqNo||'—')+'</b></td><td>'+esc(r.receivedDate||'')+'</td><td><b>'+esc(r.source||'')+'</b></td><td><b>'+esc(r.customerName||'')+'</b></td><td>'+esc(r.subject||'')+'</td><td>'+esc(r.notes||'')+'</td><td>'+(r.items?r.items.length:0)+'</td><td>'+(r.attachments&&r.attachments.length?'📎 '+r.attachments.length:'')+'</td>'+
-    '<td><span class="pill '+statusPill(r.status)+'">'+esc(r.status||'')+'</span></td><td>'+esc(r.enteredByName||'')+'</td></tr>').join('')+
+    '<td><span class="pill '+statusPill(r.status)+'">'+esc(r.status||'')+'</span></td><td>'+esc(r.enteredByName||'')+'</td>'+
+    '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();crmOpenRfqView('+r.id+')">View</button></td></tr>').join('')+
    '</tbody></table>';
   const el=document.getElementById('crmrfq-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No RFQs yet.</div>';
 }
@@ -3066,44 +3071,39 @@ function crmAddRfqItem(){CRM_RFQ_ITEMS.push({itemDesc:'',qty:'',unit:'',spec:'',
 function crmRemoveRfqItem(i){CRM_RFQ_ITEMS.splice(i,1);if(!CRM_RFQ_ITEMS.length)CRM_RFQ_ITEMS.push({itemDesc:'',qty:'',unit:'',spec:'',scope:'Scope'});crmRenderRfqItems();}
 
 /* ---- RFQ attachments: staged (unsaved, new RFQ) vs already-uploaded (existing RFQ) ---- */
-let CRM_RFQ_PENDING_ATTACHMENTS=[]; // {fileName,mimeType,dataBase64,fileSize} — sent embedded in the create POST
+let CRM_RFQ_PENDING_ATTACHMENTS=[]; // raw File objects — sent as multipart/form-data with the create POST (never base64/JSON — see backend/routes/crm.js's note on why)
 let CRM_RFQ_ATTACHMENTS=[];         // {id,fileName,mimeType,fileSize,uploadedAt} — already on the server (edit mode)
-const CRM_MAX_ATTACHMENT_BYTES=8*1024*1024;
+const CRM_MAX_ATTACHMENT_BYTES=15*1024*1024;
 function crmFmtBytes(n){n=+n||0;if(n<1024)return n+' B';if(n<1024*1024)return (n/1024).toFixed(1)+' KB';return (n/1024/1024).toFixed(1)+' MB';}
 function crmRenderAttachments(){
   const wrap=document.getElementById('rf-attachments');
   const existing=CRM_RFQ_ATTACHMENTS.map(a=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'+
     '<span>📎 '+esc(a.fileName)+' <span class="hint">('+crmFmtBytes(a.fileSize)+')</span></span>'+
-    '<button type="button" class="btn ghost small" onclick="crmDownloadAttachment('+a.id+',\''+esc(a.fileName).replace(/'/g,"\\'")+'\')">Download</button>'+
+    '<button type="button" class="btn ghost small" onclick="crmViewAttachment('+CRM_RFQ_EDIT.id+','+a.id+')">View</button>'+
+    '<button type="button" class="btn ghost small" onclick="crmDownloadAttachment('+CRM_RFQ_EDIT.id+','+a.id+',\''+esc(a.fileName).replace(/'/g,"\\'")+'\')">Download</button>'+
     '<button type="button" class="btn ghost small" style="color:#b42318" onclick="crmDeleteAttachment('+a.id+')">Remove</button></div>').join('');
-  const pending=CRM_RFQ_PENDING_ATTACHMENTS.map((a,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'+
-    '<span>📎 '+esc(a.fileName)+' <span class="hint">('+crmFmtBytes(a.fileSize)+' — not yet saved)</span></span>'+
+  const pending=CRM_RFQ_PENDING_ATTACHMENTS.map((f,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'+
+    '<span>📎 '+esc(f.name)+' <span class="hint">('+crmFmtBytes(f.size)+' — not yet saved)</span></span>'+
     '<button type="button" class="btn ghost small" style="color:#b42318" onclick="crmRemovePendingAttachment('+i+')">Remove</button></div>').join('');
   wrap.innerHTML=(existing+pending)||'<div class="hint">No attachments yet.</div>';
 }
-function crmAttachFilePicked(ev){
+async function crmAttachFilePicked(ev){
   const files=[...(ev.target.files||[])];
   ev.target.value='';
-  files.forEach(f=>{
-    if(f.size>CRM_MAX_ATTACHMENT_BYTES){toast('"'+f.name+'" is too large (max 8MB per file).','err');return;}
-    const reader=new FileReader();
-    reader.onload=async()=>{
-      const dataUrl=String(reader.result||'');
-      const base64=dataUrl.slice(dataUrl.indexOf(',')+1);
-      if(CRM_RFQ_EDIT){
-        try{
-          CRM_RFQ_ATTACHMENTS=await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id+'/attachments',{method:'POST',body:JSON.stringify({fileName:f.name,mimeType:f.type,dataBase64:base64})});
-          crmRenderAttachments();
-          toast('Attachment uploaded.','ok');
-        }catch(e){toast(e.message,'err');}
-      }else{
-        CRM_RFQ_PENDING_ATTACHMENTS.push({fileName:f.name,mimeType:f.type,dataBase64:base64,fileSize:f.size});
+  for(const f of files){
+    if(f.size>CRM_MAX_ATTACHMENT_BYTES){toast('"'+f.name+'" is too large (max 15MB per file).','err');continue;}
+    if(CRM_RFQ_EDIT){
+      const fd=new FormData();fd.append('files',f,f.name);
+      try{
+        CRM_RFQ_ATTACHMENTS=await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id+'/attachments',{method:'POST',body:fd});
         crmRenderAttachments();
-      }
-    };
-    reader.onerror=()=>toast('Could not read "'+f.name+'".','err');
-    reader.readAsDataURL(f);
-  });
+        toast('Attachment uploaded.','ok');
+      }catch(e){toast(e.message,'err');}
+    }else{
+      CRM_RFQ_PENDING_ATTACHMENTS.push(f);
+      crmRenderAttachments();
+    }
+  }
 }
 function crmRemovePendingAttachment(i){CRM_RFQ_PENDING_ATTACHMENTS.splice(i,1);crmRenderAttachments();}
 async function crmDeleteAttachment(attId){
@@ -3116,15 +3116,29 @@ async function crmDeleteAttachment(attId){
     toast('Attachment removed.','ok');
   }catch(e){toast(e.message,'err');}
 }
-async function crmDownloadAttachment(attId,fileName){
+async function crmDownloadAttachment(rfqId,attId,fileName){
   try{
     const token=localStorage.getItem('erp_jwt');
-    const res=await fetch('/api/crm/rfqs/'+CRM_RFQ_EDIT.id+'/attachments/'+attId+'/download',{headers:token?{Authorization:'Bearer '+token}:{}});
+    const res=await fetch('/api/crm/rfqs/'+rfqId+'/attachments/'+attId+'/download',{headers:token?{Authorization:'Bearer '+token}:{}});
     if(!res.ok)throw new Error('Download failed.');
     const blob=await res.blob();
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
+  }catch(e){toast(e.message,'err');}
+}
+// Opens the file in a new tab for inline viewing (PDF/image render in the
+// browser) instead of forcing a save — the ?inline=1 flag flips the
+// server's Content-Disposition from attachment to inline.
+async function crmViewAttachment(rfqId,attId){
+  try{
+    const token=localStorage.getItem('erp_jwt');
+    const res=await fetch('/api/crm/rfqs/'+rfqId+'/attachments/'+attId+'/download?inline=1',{headers:token?{Authorization:'Bearer '+token}:{}});
+    if(!res.ok)throw new Error('Could not open this attachment.');
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    window.open(url,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
   }catch(e){toast(e.message,'err');}
 }
 async function crmSaveRfq(){
@@ -3134,16 +3148,23 @@ async function crmSaveRfq(){
   if(!customerId)return showErrEl(err,'Please select a customer.');
   if(!receivedDate)return showErrEl(err,'RFQ-Quotation Date is required.');
   const items=CRM_RFQ_ITEMS.filter(it=>it.itemDesc&&it.itemDesc.trim());
-  const body={
-    customerId,receivedDate,source:document.getElementById('rf-source').value,
-    subject:document.getElementById('rf-subject').value.trim(),
-    notes:document.getElementById('rf-notes').value.trim(),items,
-  };
-  if(CRM_RFQ_EDIT)body.status=document.getElementById('rf-status').value;
-  else body.attachments=CRM_RFQ_PENDING_ATTACHMENTS;
+  const subject=document.getElementById('rf-subject').value.trim();
+  const source=document.getElementById('rf-source').value;
+  const notes=document.getElementById('rf-notes').value.trim();
   try{
-    if(CRM_RFQ_EDIT)await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
-    else await api('/api/crm/rfqs',{method:'POST',body:JSON.stringify(body)});
+    if(CRM_RFQ_EDIT){
+      const body={customerId,receivedDate,source,subject,notes,items,status:document.getElementById('rf-status').value};
+      await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
+    }else{
+      // multipart/form-data — text fields plus raw files, not JSON+base64
+      // (see backend/routes/crm.js's note on why: a base64 blob embedded in
+      // a JSON body is a pattern some hosts' firewalls flag/block outright).
+      const fd=new FormData();
+      fd.append('customerId',customerId);fd.append('receivedDate',receivedDate);fd.append('source',source);
+      fd.append('subject',subject);fd.append('notes',notes);fd.append('items',JSON.stringify(items));
+      CRM_RFQ_PENDING_ATTACHMENTS.forEach(f=>fd.append('attachments',f,f.name));
+      await api('/api/crm/rfqs',{method:'POST',body:fd});
+    }
     CRM_RFQ_PENDING_ATTACHMENTS=[];
     closeModal('crmrfqmodal');toast('RFQ saved.','ok');
     await renderCrmRfqs();
@@ -3157,6 +3178,55 @@ async function crmDeleteRfq(){
     closeModal('crmrfqmodal');toast('RFQ deleted.','ok');
     await renderCrmRfqs();
   }catch(e){toast(e.message,'err');}
+}
+
+/* ---------- RFQ detail (read-only "View") — separate page, matches Employee View ---------- */
+let CRM_RFQ_VIEW_ID=null;
+function crmOpenRfqView(id){
+  CRM_RFQ_VIEW_ID=id;
+  route='crm_rfq_view';lsSet('ui_route',route);
+  nav();render();window.scrollTo(0,0);
+}
+async function renderCrmRfqView(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  try{
+    if(!CRM_RFQS||!CRM_RFQS.length)CRM_RFQS=await api('/api/crm/rfqs');
+    let r=CRM_RFQS.find(x=>String(x.id)===String(CRM_RFQ_VIEW_ID));
+    if(!r){r=await api('/api/crm/rfqs/'+CRM_RFQ_VIEW_ID);}
+    if(!r){c.innerHTML='<div class="card"><div class="card-b"><div class="empty">RFQ not found.</div></div></div>';return;}
+    const statusPill=s=>s==='Open'?'b':s==='Quoted'?'g':s==='Declined'?'r':'';
+    const itemsBody=(r.items||[]).map(it=>'<tr><td>'+esc(it.itemDesc)+'</td><td>'+esc(it.qty||'')+'</td><td>'+esc(it.unit||'')+'</td><td>'+esc(it.spec||'')+'</td><td>'+esc(it.scope||'Scope')+'</td></tr>').join('');
+    const attBody=(r.attachments||[]).map(a=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'+
+      '<span>📎 '+esc(a.fileName)+' <span class="hint">('+crmFmtBytes(a.fileSize)+')</span></span>'+
+      '<button class="btn ghost small" onclick="crmViewAttachment('+r.id+','+a.id+')">View</button>'+
+      '<button class="btn ghost small" onclick="crmDownloadAttachment('+r.id+','+a.id+',\''+esc(a.fileName).replace(/'/g,"\\'")+'\')">Download</button></div>').join('');
+
+    c.innerHTML='<div class="card"><div class="card-h">'+
+      '<button class="btn ghost small" onclick="go(\'crm_rfqs\')">‹ RFQs</button>'+
+      '<span style="margin-left:auto;display:flex;gap:8px">'+
+       '<button class="btn ghost" onclick="crmOpenRfqForm('+r.id+')">✎ Edit</button>'+
+      '</span></div>'+
+     '<div class="card-b">'+
+      '<div style="display:flex;align-items:center;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
+       '<div style="font-size:18px;font-weight:700">'+esc(r.rfqNo||'—')+'</div>'+
+       '<span class="pill '+statusPill(r.status)+'">'+esc(r.status||'')+'</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
+       evField('RFQ-Quotation Date',r.receivedDate)+evField('Source',r.source)+
+       evField('Customer',r.customerName+(r.customerCode?' ('+r.customerCode+')':''))+evField('Subject / Scope',r.subject)+
+       evField('Entered By',r.enteredByName)+evField('Remarks',r.notes)+
+      '</div>'+
+      '<div style="font-weight:700;margin-bottom:8px">Items</div>'+
+      '<div class="tblwrap" style="margin-bottom:16px">'+
+       (itemsBody?'<table><thead><tr><th>Item / Description</th><th>Qty</th><th>Unit</th><th>Spec / Remarks</th><th>Scope</th></tr></thead><tbody>'+itemsBody+'</tbody></table>':'<div class="empty">No items.</div>')+
+      '</div>'+
+      '<div style="font-weight:700;margin-bottom:8px">Attachments</div>'+
+      '<div>'+(attBody||'<div class="empty">No attachments.</div>')+'</div>'+
+     '</div></div>';
+  }catch(err){
+    c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
+  }
 }
 
 function coll(k){return lsGet(k,[]);}
@@ -4686,7 +4756,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_rfqs:['CRM','RFQs'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -4695,7 +4765,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_rfqs:renderCrmRfqs,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
