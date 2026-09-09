@@ -1164,7 +1164,7 @@ function prMonthLabel(toDateStr){
 async function renderPayroll(){
   const c=document.getElementById('content');
   const to=window.__prTo||today();
-  const from=window.__prFrom||(()=>{const d=new Date(to+'T00:00:00');d.setMonth(d.getMonth()-1);d.setDate(26);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})();
+  const from=window.__prFrom||(()=>{const d=new Date(to+'T00:00:00');d.setMonth(d.getMonth()-1);d.setDate(25);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})();
   window.__prFrom=from;window.__prTo=to;
   c.innerHTML='<div class="card"><div class="card-h">Generate Payroll<span class="hint" style="font-weight:400"> — pulls from the live Attendance Report + each employee\'s Gross Salary on file</span></div><div class="card-b">'+
    '<div class="fgrid">'+
@@ -2431,6 +2431,7 @@ async function renderEmpView(){
         '<div class="field"><label>From</label><input type="date" id="ev-att-from"></div>'+
         '<div class="field"><label>To</label><input type="date" id="ev-att-to"></div>'+
         '<div class="field" style="align-self:end"><button class="btn" onclick="evAttGenerate()">▸ Generate</button></div>'+
+        '<div class="field" style="align-self:end"><button class="btn ghost" id="ev-att-toggle-btn" onclick="evAttToggleShow()">Show Attendance</button></div>'+
        '</div>'+
        '<div id="ev-att-result" style="display:none">'+
         '<div id="ev-att-preview" class="tblwrap" style="margin-bottom:16px"></div>'+
@@ -2445,7 +2446,9 @@ async function renderEmpView(){
        '</div>';
     }else if(EMP_VIEW_TAB==='leave'){
       body='<div id="ev-leave-kpis" class="kpis" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
-       '<div id="ev-leave-table" class="tblwrap"><div class="empty">Loading…</div></div>';
+       '<div id="ev-leave-table" class="tblwrap" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
+       '<div style="font-weight:700;margin-bottom:8px">Leave history — which days were applied for</div>'+
+       '<div id="ev-leave-history" class="tblwrap"><div class="empty">Loading…</div></div>';
     }else{
       body='<div class="empty">No '+esc(EMP_VIEW_TAB)+' records on file yet.</div>';
     }
@@ -2480,11 +2483,19 @@ async function renderEmpView(){
 function empViewSwitchTab(tab){EMP_VIEW_TAB=tab;render();}
 
 /* ---- Employee View: Attendance tab (this-month KPIs + own date-range report + PDF/Excel/CSV) ---- */
-async function evAttInit(e){
+// Company month = 25th of one month to 25th of the next (same cycle as
+// Payroll — see renderPayroll's hint text), but for "this month so far"
+// KPIs the end is always today, not the 25th (the cycle isn't over yet).
+function evCompanyMonthStart(){
   const now=new Date();
-  const monthFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
-  const lastDay=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
-  const monthTo=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+  const d=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  if(d.getDate()<=25)d.setMonth(d.getMonth()-1);
+  d.setDate(25);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+async function evAttInit(e){
+  const monthFrom=evCompanyMonthStart();
+  const monthTo=today();
   const fromEl=document.getElementById('ev-att-from'),toEl=document.getElementById('ev-att-to');
   if(fromEl)fromEl.value=monthFrom;
   if(toEl)toEl.value=monthTo;
@@ -2496,16 +2507,24 @@ async function evAttInit(e){
     const presents=rows.filter(r=>r.dayType==='Present').length;
     const leaves=rows.filter(r=>r.dayType==='Leave'||r.dayType==='LeaveWithoutPay').length;
     if(kEl)kEl.innerHTML=
-     '<div class="kpi"><span>Lates (this month)</span><b'+(lates?' class="warn"':'')+'>'+lates+'</b></div>'+
-     '<div class="kpi"><span>Absents (this month)</span><b'+(absents?' class="warn"':'')+'>'+absents+'</b></div>'+
-     '<div class="kpi"><span>Presents (this month)</span><b>'+presents+'</b></div>'+
-     '<div class="kpi"><span>Leaves (this month)</span><b>'+leaves+'</b></div>';
+     '<div class="hint" style="grid-column:1/-1;margin-bottom:2px">Company month-to-date: '+monthFrom+' → '+monthTo+'</div>'+
+     '<div class="kpi"><span>Lates</span><b'+(lates?' class="warn"':'')+'>'+lates+'</b></div>'+
+     '<div class="kpi"><span>Absents</span><b'+(absents?' class="warn"':'')+'>'+absents+'</b></div>'+
+     '<div class="kpi"><span>Presents</span><b>'+presents+'</b></div>'+
+     '<div class="kpi"><span>Leaves</span><b>'+leaves+'</b></div>';
   }catch(err){
     if(kEl)kEl.innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
   }
   await evAttGenerate();
 }
 let EV_ATT_ROWS=[],EV_ATT_EMP=null,EV_ATT_PDF_URL=null;
+function evAttToggleShow(){
+  const resEl=document.getElementById('ev-att-result'),btn=document.getElementById('ev-att-toggle-btn');
+  if(!resEl||!btn)return;
+  const showing=resEl.style.display!=='none';
+  resEl.style.display=showing?'none':'block';
+  btn.textContent=showing?'Show Attendance':'Hide Attendance';
+}
 async function evAttGenerate(){
   const e=EMP_LIST.find(r=>String(r.id)===String(EMP_VIEW_ID));
   if(!e)return;
@@ -2514,7 +2533,6 @@ async function evAttGenerate(){
   const from=fromEl?fromEl.value:today(),to=toEl?toEl.value:today();
   const resEl=document.getElementById('ev-att-result');
   if(!resEl)return;
-  resEl.style.display='block';
   try{
     const rows=await api('/api/attendance/summary?from='+from+'&to='+to+'&q='+encodeURIComponent(e.employeeId));
     EV_ATT_ROWS=rows.slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -2605,7 +2623,7 @@ function evBuildLeaveBalanceTable(mine,p){
   });
 }
 async function evLeaveInit(e){
-  const kEl=document.getElementById('ev-leave-kpis'),tEl=document.getElementById('ev-leave-table');
+  const kEl=document.getElementById('ev-leave-kpis'),tEl=document.getElementById('ev-leave-table'),hEl=document.getElementById('ev-leave-history');
   try{
     const all=await api('/api/leave');
     const mine=all.filter(r=>String(r.employeeId)===String(e.id));
@@ -2621,9 +2639,18 @@ async function evLeaveInit(e){
     if(tEl)tEl.innerHTML='<table><thead><tr><th>Leave Type</th><th>Entitled ('+new Date().getFullYear()+')</th><th>Availed</th><th>Remaining</th></tr></thead><tbody>'+
      rows.map(r=>'<tr><td>'+esc(r.type)+'</td><td>'+(r.entitled==null?'<span class="hint">Approval-based</span>':r.entitled)+'</td><td>'+r.availed+'</td><td>'+(r.remaining==null?'—':r.remaining)+'</td></tr>').join('')+
      '</tbody></table>';
+    // Every leave application this employee has filed — which days, what
+    // type, and where it stands — not just the aggregated counts above.
+    const hist=mine.slice().sort((a,b)=>new Date(b.fromDate)-new Date(a.fromDate));
+    if(hEl)hEl.innerHTML=hist.length
+     ?'<table><thead><tr><th>Doc No.</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th></tr></thead><tbody>'+
+       hist.map(r=>'<tr><td><b>'+esc(r.docNo)+'</b></td><td>'+esc(r.leaveType)+'</td><td>'+String(r.fromDate).slice(0,10)+'</td><td>'+String(r.toDate).slice(0,10)+'</td><td>'+evLeaveDays(r)+'</td><td>'+lvStatusPill(r.status,r)+'</td></tr>').join('')+
+      '</tbody></table>'
+     :'<div class="empty">No leave applications on file.</div>';
   }catch(err){
     if(kEl)kEl.innerHTML='';
     if(tEl)tEl.innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
+    if(hEl)hEl.innerHTML='';
   }
 }
 async function empViewDelete(){
