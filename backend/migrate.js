@@ -339,7 +339,94 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments ready (no ISO tables were altered).');
+  // CRM — Customers master list (brand-new ERP-only table; the old
+  // localStorage-only "Customers" module is superseded by this, but its
+  // data shape is mirrored back into localStorage by the frontend so the
+  // still-localStorage Quotations/Sales Orders/Activities screens keep
+  // working against the same names until they're migrated too).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_customers (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      code            VARCHAR(50) UNIQUE NOT NULL,
+      name            VARCHAR(255) NOT NULL,
+      contact_person  VARCHAR(150) NULL,
+      email           VARCHAR(255) NULL,
+      phone           VARCHAR(50) NULL,
+      customer_type   VARCHAR(20) NOT NULL DEFAULT 'Customer',
+      tax_reg_no      VARCHAR(100) NULL,
+      payment_terms   VARCHAR(100) NULL,
+      address         TEXT NULL,
+      status          VARCHAR(20) NOT NULL DEFAULT 'Active',
+      created_by      INT NULL,
+      created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  // CRM — RFQs. Every RFQ (however it actually arrived — call/email/PDF)
+  // gets one fixed rfq_no the moment a Sales/CRM user enters it, and every
+  // Quotation built against it (see erp_crm_rfqs.status) references this
+  // row, so a Quotation always traces back to the RFQ (and its line items)
+  // it was quoted from, no matter what the original document looked like.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_rfqs (
+      id             INT AUTO_INCREMENT PRIMARY KEY,
+      rfq_no         VARCHAR(30) UNIQUE NULL,
+      received_date  DATE NOT NULL,
+      source         VARCHAR(20) NOT NULL DEFAULT 'Email',
+      customer_id    INT NOT NULL,
+      subject        VARCHAR(255) NULL,
+      due_date       DATE NULL,
+      status         VARCHAR(20) NOT NULL DEFAULT 'Open',
+      notes          TEXT NULL,
+      entered_by     INT NULL,
+      created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_rfq_customer FOREIGN KEY (customer_id) REFERENCES erp_crm_customers(id),
+      INDEX idx_rfq_customer (customer_id)
+    )
+  `);
+  // One row per line item on an RFQ (multi-item RFQs — a single scope/qty
+  // line still works fine as a one-item RFQ). scope: is this line actually
+  // being quoted ('Scope') or explicitly excluded/flagged as not something
+  // we're quoting for ('Out of Scope') — set per line, not per whole RFQ.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_rfq_items (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      rfq_id      INT NOT NULL,
+      sort_order  INT NOT NULL DEFAULT 0,
+      item_desc   VARCHAR(500) NOT NULL,
+      qty         DECIMAL(14,2) NULL,
+      unit        VARCHAR(30) NULL,
+      spec        VARCHAR(500) NULL,
+      scope       VARCHAR(20) NOT NULL DEFAULT 'Scope',
+      CONSTRAINT fk_rfqitem_rfq FOREIGN KEY (rfq_id) REFERENCES erp_crm_rfqs(id) ON DELETE CASCADE,
+      INDEX idx_rfqitem_rfq (rfq_id)
+    )
+  `);
+  try { await pool.query("ALTER TABLE erp_crm_rfq_items ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'Scope' AFTER spec"); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+
+  // RFQ attachments — the original email/PDF/scanned document, stored
+  // as-is (base64 in, BLOB in DB, out again on download) so no separate
+  // file-storage/CDN dependency is needed. Multiple per RFQ (an email body
+  // plus its PDF attachment, say).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_rfq_attachments (
+      id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+      rfq_id        INT NOT NULL,
+      file_name     VARCHAR(255) NOT NULL,
+      mime_type     VARCHAR(150) NULL,
+      file_size     INT NOT NULL,
+      file_data     LONGBLOB NOT NULL,
+      uploaded_by   INT NULL,
+      uploaded_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_rfqatt_rfq FOREIGN KEY (rfq_id) REFERENCES erp_crm_rfqs(id) ON DELETE CASCADE,
+      INDEX idx_rfqatt_rfq (rfq_id)
+    )
+  `);
+
+  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

@@ -284,6 +284,18 @@ function splitEmployeeName(full) {
   return { first: parts.slice(0, -1).join(' '), last: parts[parts.length - 1] };
 }
 
+// "Mr"/"MR" -> Male, "Ms"/"MS" -> Female, read off the leading title word
+// only (an exact "mr"/"ms" token — "Mrs" is deliberately NOT treated as
+// "Mr"). Any other/no title returns undefined so gender is left alone
+// rather than guessed.
+function detectGenderFromTitle(full) {
+  const firstWord = String(full == null ? '' : full).trim().split(/\s+/)[0] || '';
+  const t = firstWord.toLowerCase();
+  if (t === 'mr') return 'Male';
+  if (t === 'ms') return 'Female';
+  return undefined;
+}
+
 // Bulk import from CSV (Employees screen -> "Import Employees"). Matches
 // each row to an existing employee by Emp Code (leading-zero tolerant);
 // updates it if found, otherwise creates a brand-new employee record with
@@ -344,7 +356,7 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
       // so a blank cell never clobbers data already on file).
       const { first: firstName, last: lastName } = splitEmployeeName(name);
       const profile = {
-        first_name: firstName, last_name: lastName,
+        first_name: firstName, last_name: lastName, gender: detectGenderFromTitle(name),
         father_husband_name: row.fatherHusbandName, mother_name: row.motherName,
         phone_number: row.phoneNumber, nic_number: row.nicNumber,
         bank_name: row.bankName, account_no: row.accountNo, iban: row.iban, account_title: row.accountTitle,

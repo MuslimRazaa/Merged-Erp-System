@@ -40,6 +40,7 @@ const leaveRouter = require('./routes/leave');
 const holidaysRouter = require('./routes/holidays');
 const loansRouter = require('./routes/loans');
 const payrollRouter = require('./routes/payroll');
+const crmRouter = require('./routes/crm');
 
 const PORT = +(process.env.PORT || 5050);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -65,6 +66,7 @@ app.use('/api/leave', leaveRouter);
 app.use('/api/holidays', holidaysRouter);
 app.use('/api/loans', loansRouter);
 app.use('/api/payroll', payrollRouter);
+app.use('/api/crm', crmRouter);
 
 // Serve the existing HTML/JS front end unchanged.
 app.use(express.static(PUBLIC_DIR));
