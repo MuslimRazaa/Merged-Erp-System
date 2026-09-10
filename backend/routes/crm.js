@@ -208,7 +208,7 @@ const RFQ_SELECT = `
 function shapeAttachmentMeta(a) {
   return { id: a.id, fileName: a.file_name, mimeType: a.mime_type, fileSize: a.file_size, uploadedAt: a.uploaded_at };
 }
-function shapeRfq(r, items, attachments) {
+function shapeRfq(r, items, attachments, quotations) {
   return {
     id: r.id, rfqNo: r.rfq_no, receivedDate: dstr(r.received_date), source: r.source,
     customerId: r.customer_id, customerName: r.customer_name, customerCode: r.customer_code,
@@ -217,6 +217,7 @@ function shapeRfq(r, items, attachments) {
     createdAt: r.created_at, updatedAt: r.updated_at,
     items: (items || []).map((it) => ({ id: it.id, itemDesc: it.item_desc, qty: it.qty, unit: it.unit, spec: it.spec, scope: it.scope })),
     attachments: (attachments || []).map(shapeAttachmentMeta),
+    quotations: (quotations || []).map((q) => ({ id: q.id, quotationNo: q.quotation_no, revision: q.revision, status: q.status })),
   };
 }
 
@@ -235,7 +236,7 @@ async function fetchGrouped(table, columns, rfqIds) {
 }
 
 router.get('/rfqs', async (req, res) => {
-  const [rows] = await pool.query(`${RFQ_SELECT} ORDER BY r.received_date DESC, r.id DESC`);
+  const [rows] = await pool.query(`${RFQ_SELECT} WHERE r.deleted_at IS NULL ORDER BY r.received_date DESC, r.id DESC`);
   if (!rows.length) return res.json([]);
   const ids = rows.map((r) => r.id);
   const [items] = await pool.query(
@@ -245,15 +246,17 @@ router.get('/rfqs', async (req, res) => {
   const itemsByRfq = new Map();
   for (const it of items) { if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []); itemsByRfq.get(it.rfq_id).push(it); }
   const attByRfq = await fetchGrouped('erp_crm_rfq_attachments', 'id, rfq_id, file_name, mime_type, file_size, uploaded_at', ids);
-  res.json(rows.map((r) => shapeRfq(r, itemsByRfq.get(r.id), attByRfq.get(r.id))));
+  const qtnByRfq = await fetchGrouped('erp_crm_quotations', 'id, rfq_id, quotation_no, revision, status', ids);
+  res.json(rows.map((r) => shapeRfq(r, itemsByRfq.get(r.id), attByRfq.get(r.id), qtnByRfq.get(r.id))));
 });
 
 router.get('/rfqs/:id', async (req, res) => {
-  const [rows] = await pool.query(`${RFQ_SELECT} WHERE r.id = ?`, [req.params.id]);
+  const [rows] = await pool.query(`${RFQ_SELECT} WHERE r.id = ? AND r.deleted_at IS NULL`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'RFQ not found.' });
   const [items] = await pool.query('SELECT * FROM erp_crm_rfq_items WHERE rfq_id = ? ORDER BY sort_order', [req.params.id]);
   const [atts] = await pool.query('SELECT id, rfq_id, file_name, mime_type, file_size, uploaded_at FROM erp_crm_rfq_attachments WHERE rfq_id = ? ORDER BY id', [req.params.id]);
-  res.json(shapeRfq(rows[0], items, atts));
+  const [qtns] = await pool.query('SELECT id, rfq_id, quotation_no, revision, status FROM erp_crm_quotations WHERE rfq_id = ? ORDER BY id', [req.params.id]);
+  res.json(shapeRfq(rows[0], items, atts, qtns));
 });
 
 async function saveRfqItems(rfqId, items) {
@@ -396,10 +399,10 @@ router.delete('/rfqs/:id/attachments/:attId', async (req, res) => {
 
 router.delete('/rfqs/:id', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
-  const [result] = await pool.query('DELETE FROM erp_crm_rfqs WHERE id = ?', [req.params.id]);
-  if (!result.affectedRows) return res.status(404).json({ error: 'RFQ not found.' });
-  await audit(req.erpUser.employeeId, 'crm-rfq-deleted', String(req.params.id));
-  res.json({ ok: true });
+  const [rows] = await pool.query('SELECT id FROM erp_crm_rfqs WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'RFQ not found.' });
+  await softDeleteRfqUnit(+req.params.id, req.erpUser.employeeId); // also recycles its linked quotation(s)
+  res.json({ ok: true, recycled: true });
 });
 
 /* ============================================================
@@ -624,6 +627,320 @@ router.delete('/services/:id', async (req, res) => {
   const [result] = await pool.query('DELETE FROM erp_crm_services WHERE id = ?', [req.params.id]);
   if (!result.affectedRows) return res.status(404).json({ error: 'Service not found.' });
   await audit(req.erpUser.employeeId, 'crm-service-deleted', String(req.params.id));
+  res.json({ ok: true });
+});
+
+/* ---------------- Quotations (always against an RFQ) ---------------- */
+// Single shared Quotation terms block — edited once (rich HTML), used on
+// every quotation PDF (pages 4-5 in the paper document). This is the
+// best-effort seed; VERIFY against the authoritative wording.
+const DEFAULT_TERMS_HTML =
+  '<p><b>General Terms and Conditions</b></p>' +
+  '<p>PTIS will issue invoice after the completion of job attached with all supporting documentation and delivery notes and will submit to the finance department.</p>' +
+  '<p>All payments to PTIS shall be made by direct transfer within 15 days from the day of the submission of all invoices.</p>' +
+  "<p>Client shall provide PTIS team with accommodation and meals, which shall be of the standard as applicable to customer's own senior staff.</p>" +
+  '<p>Proof loads, Crane, Fork lifter and other accessories for load testing, Pipe racks, handling and dope to be supplied by the client.</p>' +
+  '<p>Client to support our services by providing Forklift, air pump and power supply for onsite jobs.</p>' +
+  '<p>PTIS shall provide two signed and stamped original hard copies of the inspection report upon completion of the job.</p>' +
+  '<p>Client must give a minimum notice of 24 hours before the start of the job.</p>' +
+  '<p>Day is considered as maximum of 10 working hours.</p>' +
+  '<p>General Sales Tax shall be added on top of the invoice amount (as all prices are exclusive of GST).</p>' +
+  '<p>All Covid-19 Protocols shall be adhered to as per the client policy but any charges shall be charged back to the client At Actual along with proof.</p>' +
+  '<p><b>Removal of Equipment / Grease</b></p>' +
+  '<p>The client is responsible for safely disassembling or removing any equipment, grease, or unwanted compounds that are attached to the equipment or plant that requires calibration.</p>' +
+  '<p>The client should ensure that the equipment is in a safe and suitable condition for calibration, including ensuring that all relevant accessories or attachments are in place.</p>' +
+  '<p><b>Functional Testing</b></p>' +
+  "<p>Prior to calibration, the PTIS calibration team will conduct a functional test of the equipment in the presence of the client's representative.</p>" +
+  '<p>The purpose of this test is to ensure that the equipment is in working order and its functional / operating parameters are within the standard for testing and measurement.</p>' +
+  '<p>Any discrepancies or issues identified during the functional testing will be reported to the client for necessary corrective actions.</p>';
+
+async function getCrmConfig() {
+  const [rows] = await pool.query('SELECT last_client_ref, quotation_terms_html FROM erp_crm_config WHERE id = 1');
+  const row = rows[0] || {};
+  return {
+    lastClientRef: row.last_client_ref || '',
+    quotationTermsHtml: row.quotation_terms_html || DEFAULT_TERMS_HTML,
+  };
+}
+// "FOT-100926-1190" -> "FOT-100926-1191" (increments the trailing number,
+// keeps its digit width). Returns '' if there's no trailing number.
+function nextClientRef(prev) {
+  const s = String(prev || '').trim();
+  const m = s.match(/^(.*?)(\d+)(\D*)$/);
+  if (!m) return '';
+  const width = m[2].length;
+  return m[1] + String(parseInt(m[2], 10) + 1).padStart(width, '0') + m[3];
+}
+
+async function nextQuotationSerial(dateStr) {
+  const fyLabel = financialYearLabel(dateStr);
+  const [rows] = await pool.query("SELECT quotation_no FROM erp_crm_quotations WHERE quotation_no LIKE ?", [`QTN-${fyLabel}/%`]);
+  let max = 0;
+  for (const r of rows) {
+    const m = String(r.quotation_no).match(/\/(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `QTN-${fyLabel}/${String(max + 1).padStart(3, '0')}`;
+}
+
+const QTN_SELECT = `
+  SELECT q.*, r.rfq_no, r.subject AS rfq_subject, r.deleted_at AS rfq_deleted_at,
+         c.id AS customer_id, c.name AS customer_name, c.code AS customer_code,
+         c.address AS customer_address, c.city AS customer_city, c.country AS customer_country,
+         c.contact_person AS customer_contact,
+         e.full_name AS created_by_name
+  FROM erp_crm_quotations q
+  JOIN erp_crm_rfqs r ON r.id = q.rfq_id
+  JOIN erp_crm_customers c ON c.id = r.customer_id
+  LEFT JOIN employees e ON e.id = q.created_by`;
+
+function shapeQuotationItem(it) {
+  const qty = it.qty == null ? null : Number(it.qty);
+  const rate = it.rate == null ? null : Number(it.rate);
+  return {
+    id: it.id, equipmentId: it.equipment_id, standardId: it.standard_id, itemDescriptionId: it.item_description_id,
+    equipmentName: it.equipment_name || null, standardName: it.standard_name || null, itemDescription: it.item_description || null,
+    size: it.size, unit: it.unit, qty, rate, spec: it.spec || null, scope: it.scope || null,
+    total: qty != null && rate != null ? +(qty * rate).toFixed(2) : null,
+  };
+}
+function shapeQuotation(q, items) {
+  const shapedItems = (items || []).map(shapeQuotationItem);
+  const totalCost = shapedItems.reduce((s, it) => s + (it.total || 0), 0);
+  const srbPercent = Number(q.srb_percent);
+  const srbAmount = +(totalCost * srbPercent / 100).toFixed(2);
+  return {
+    id: q.id, quotationNo: q.quotation_no, rfqId: q.rfq_id, rfqNo: q.rfq_no, rfqSubject: q.rfq_subject,
+    revision: q.revision, quotationDate: dstr(q.quotation_date), serviceType: q.service_type,
+    clientReferenceNo: q.client_reference_no, attentionName: q.attention_name, subject: q.subject,
+    currency: q.currency, srbPercent, status: q.status,
+    customerId: q.customer_id, customerName: q.customer_name, customerCode: q.customer_code,
+    customerAddress: q.customer_address, customerCity: q.customer_city, customerCountry: q.customer_country,
+    customerContact: q.customer_contact,
+    createdBy: q.created_by, createdByName: q.created_by_name, createdAt: q.created_at, updatedAt: q.updated_at,
+    items: shapedItems,
+    totalCost: +totalCost.toFixed(2), srbAmount, grandTotal: +(totalCost + srbAmount).toFixed(2),
+  };
+}
+
+async function fetchQuotationItems(quotationId) {
+  const [rows] = await pool.query(
+    `SELECT qi.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description
+     FROM erp_crm_quotation_items qi
+     LEFT JOIN erp_crm_equipment eq ON eq.id = qi.equipment_id
+     LEFT JOIN erp_crm_standards st ON st.id = qi.standard_id
+     LEFT JOIN erp_crm_item_descriptions it ON it.id = qi.item_description_id
+     WHERE qi.quotation_id = ? ORDER BY qi.sort_order`,
+    [quotationId]
+  );
+  return rows;
+}
+function normScope(s) { return s === 'Out of Scope' ? 'Out of Scope' : 'Scope'; }
+async function saveQuotationItems(quotationId, items) {
+  await pool.query('DELETE FROM erp_crm_quotation_items WHERE quotation_id = ?', [quotationId]);
+  const list = Array.isArray(items) ? items : [];
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i] || {};
+    if (!it.equipmentId && !it.standardId && !it.itemDescriptionId && !it.size && it.qty == null && it.rate == null && !it.spec) continue;
+    await pool.query(
+      `INSERT INTO erp_crm_quotation_items (quotation_id, sort_order, equipment_id, standard_id, item_description_id, size, unit, qty, rate, spec, scope)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [quotationId, i, it.equipmentId || null, it.standardId || null, it.itemDescriptionId || null,
+       it.size || null, it.unit || null, it.qty === '' || it.qty == null ? null : it.qty,
+       it.rate === '' || it.rate == null ? null : it.rate, it.spec || null, normScope(it.scope)]
+    );
+  }
+}
+// RFQ items are derived from the quotation's line items (one modal now).
+async function rfqItemsFromQuotationItems(items) {
+  const list = Array.isArray(items) ? items : [];
+  const idIds = [...new Set(list.map((it) => +it.itemDescriptionId).filter(Boolean))];
+  const descById = new Map();
+  if (idIds.length) {
+    const [rows] = await pool.query(`SELECT id, description FROM erp_crm_item_descriptions WHERE id IN (${idIds.map(() => '?').join(',')})`, idIds);
+    for (const r of rows) descById.set(r.id, r.description);
+  }
+  return list
+    .map((it) => ({
+      itemDesc: descById.get(+it.itemDescriptionId) || it.spec || it.size || '',
+      qty: it.qty, unit: it.unit, spec: it.spec || null, scope: normScope(it.scope),
+    }))
+    .filter((it) => String(it.itemDesc || '').trim());
+}
+
+// Combined "RFQ + Quotation" create — one modal submit, two linked
+// records. multipart/form-data (so the RFQ can still carry attachment
+// files); rfqItems / quotationItems come in as JSON-string fields.
+router.post('/rfq-quotation', upload.array('attachments', 10), handleUploadErrors, async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const b = req.body;
+  const customerId = +b.customerId;
+  const receivedDate = String(b.receivedDate || '').trim();
+  if (!customerId) return res.status(400).json({ error: 'Customer is required.' });
+  if (!receivedDate) return res.status(400).json({ error: 'RFQ-Quotation Date is required.' });
+  const [cust] = await pool.query('SELECT id FROM erp_crm_customers WHERE id = ?', [customerId]);
+  if (!cust.length) return res.status(400).json({ error: 'Selected customer was not found.' });
+
+  let quotationItems = [];
+  try { quotationItems = JSON.parse(b.quotationItems || '[]'); } catch (e) { return res.status(400).json({ error: 'Malformed quotation items.' }); }
+
+  // Client Reference No. — auto-numbered off the running counter unless
+  // one was typed in.
+  const cfg = await getCrmConfig();
+  let clientRef = String(b.clientReferenceNo || '').trim();
+  if (!clientRef) clientRef = nextClientRef(cfg.lastClientRef) || null;
+  if (clientRef) await pool.query('UPDATE erp_crm_config SET last_client_ref = ? WHERE id = 1', [clientRef]);
+
+  // 1) RFQ — its line items are derived from the quotation's line items.
+  const [rfqRes] = await pool.query(
+    `INSERT INTO erp_crm_rfqs (received_date, source, customer_id, subject, status, notes, entered_by)
+     VALUES (?,?,?,?,?,?,?)`,
+    [receivedDate, b.source || 'Email', customerId, b.subject || null, 'Open', b.notes || null, req.erpUser.id]
+  );
+  const rfqId = rfqRes.insertId;
+  const rfqNo = await nextRfqSerial(receivedDate);
+  await pool.query('UPDATE erp_crm_rfqs SET rfq_no = ? WHERE id = ?', [rfqNo, rfqId]);
+  await saveRfqItems(rfqId, await rfqItemsFromQuotationItems(quotationItems));
+  await saveRfqAttachmentFiles(rfqId, req.files, req.erpUser.id);
+
+  // 2) Quotation, linked to that RFQ
+  const quotationDate = String(b.quotationDate || receivedDate).trim();
+  const [qtnRes] = await pool.query(
+    `INSERT INTO erp_crm_quotations
+       (rfq_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, status, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [rfqId, 0, quotationDate, b.serviceType || null, clientRef, b.attentionName || null,
+     b.subject || null, b.currency || 'PKR',
+     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, 'Draft', req.erpUser.id]
+  );
+  const quotationId = qtnRes.insertId;
+  const quotationNo = await nextQuotationSerial(quotationDate);
+  await pool.query('UPDATE erp_crm_quotations SET quotation_no = ? WHERE id = ?', [quotationNo, quotationId]);
+  await saveQuotationItems(quotationId, quotationItems);
+
+  await audit(req.erpUser.employeeId, 'crm-rfq-quotation-created', `${rfqNo} + ${quotationNo}`);
+  const [qrows] = await pool.query(`${QTN_SELECT} WHERE q.id = ?`, [quotationId]);
+  res.status(201).json({
+    rfq: { id: rfqId, rfqNo },
+    quotation: { ...shapeQuotation(qrows[0], await fetchQuotationItems(quotationId)), termsHtml: cfg.quotationTermsHtml },
+  });
+});
+
+router.get('/quotations', async (req, res) => {
+  const [rows] = await pool.query(`${QTN_SELECT} WHERE q.deleted_at IS NULL ORDER BY q.id DESC`);
+  if (!rows.length) return res.json([]);
+  const ids = rows.map((r) => r.id);
+  const [items] = await pool.query(
+    `SELECT qi.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description
+     FROM erp_crm_quotation_items qi
+     LEFT JOIN erp_crm_equipment eq ON eq.id = qi.equipment_id
+     LEFT JOIN erp_crm_standards st ON st.id = qi.standard_id
+     LEFT JOIN erp_crm_item_descriptions it ON it.id = qi.item_description_id
+     WHERE qi.quotation_id IN (${ids.map(() => '?').join(',')}) ORDER BY qi.quotation_id, qi.sort_order`,
+    ids
+  );
+  const byQtn = new Map();
+  for (const it of items) { if (!byQtn.has(it.quotation_id)) byQtn.set(it.quotation_id, []); byQtn.get(it.quotation_id).push(it); }
+  res.json(rows.map((q) => shapeQuotation(q, byQtn.get(q.id))));
+});
+
+router.get('/quotations/:id', async (req, res) => {
+  const [rows] = await pool.query(`${QTN_SELECT} WHERE q.id = ? AND q.deleted_at IS NULL`, [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
+  const cfg = await getCrmConfig();
+  res.json({ ...shapeQuotation(rows[0], await fetchQuotationItems(req.params.id)), termsHtml: cfg.quotationTermsHtml });
+});
+
+const QUOTATION_FIELD_MAP = {
+  quotationDate: 'quotation_date', serviceType: 'service_type', clientReferenceNo: 'client_reference_no',
+  attentionName: 'attention_name', subject: 'subject', currency: 'currency', srbPercent: 'srb_percent',
+  status: 'status', revision: 'revision',
+};
+router.put('/quotations/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const fields = []; const values = [];
+  for (const [k, col] of Object.entries(QUOTATION_FIELD_MAP)) {
+    if (req.body[k] !== undefined) { fields.push(`${col} = ?`); values.push(req.body[k] === '' ? null : req.body[k]); }
+  }
+  if (fields.length) {
+    values.push(req.params.id);
+    const [result] = await pool.query(`UPDATE erp_crm_quotations SET ${fields.join(', ')} WHERE id = ?`, values);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Quotation not found.' });
+  }
+  if (req.body.items !== undefined) {
+    await saveQuotationItems(req.params.id, req.body.items);
+    // keep the linked RFQ's items mirrored
+    const [qr] = await pool.query('SELECT rfq_id FROM erp_crm_quotations WHERE id = ?', [req.params.id]);
+    if (qr.length) await saveRfqItems(qr[0].rfq_id, await rfqItemsFromQuotationItems(req.body.items));
+  }
+  await audit(req.erpUser.employeeId, 'crm-quotation-updated', String(req.params.id));
+  res.json({ ok: true });
+});
+
+// Deleting either side sends the whole RFQ+Quotation unit to the Recycle
+// Bin (soft delete) — never a hard delete from here.
+async function softDeleteRfqUnit(rfqId, employeeId) {
+  await pool.query('UPDATE erp_crm_rfqs SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [rfqId]);
+  await pool.query('UPDATE erp_crm_quotations SET deleted_at = NOW() WHERE rfq_id = ? AND deleted_at IS NULL', [rfqId]);
+  await audit(employeeId, 'crm-rfq-unit-recycled', String(rfqId));
+}
+router.delete('/quotations/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const [rows] = await pool.query('SELECT rfq_id FROM erp_crm_quotations WHERE id = ?', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
+  await softDeleteRfqUnit(rows[0].rfq_id, req.erpUser.employeeId);
+  res.json({ ok: true, recycled: true });
+});
+
+/* ---------------- CRM config (Client Ref counter + shared terms) ---------------- */
+router.get('/config', async (req, res) => {
+  res.json(await getCrmConfig());
+});
+router.put('/config', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const fields = []; const values = [];
+  if (req.body.lastClientRef !== undefined) { fields.push('last_client_ref = ?'); values.push(String(req.body.lastClientRef || '').trim() || null); }
+  if (req.body.quotationTermsHtml !== undefined) { fields.push('quotation_terms_html = ?'); values.push(req.body.quotationTermsHtml || null); }
+  if (fields.length) await pool.query(`UPDATE erp_crm_config SET ${fields.join(', ')} WHERE id = 1`, values);
+  await audit(req.erpUser.employeeId, 'crm-config-updated', fields.join(','));
+  res.json(await getCrmConfig());
+});
+
+/* ---------------- Recycle Bin (soft-deleted RFQ + Quotation units) ---------------- */
+router.get('/recycle-bin', async (req, res) => {
+  const [rfqs] = await pool.query(
+    `SELECT r.id, r.rfq_no, r.subject, r.received_date, r.deleted_at, c.name AS customer_name
+     FROM erp_crm_rfqs r JOIN erp_crm_customers c ON c.id = r.customer_id
+     WHERE r.deleted_at IS NOT NULL ORDER BY r.deleted_at DESC`
+  );
+  if (!rfqs.length) return res.json([]);
+  const ids = rfqs.map((r) => r.id);
+  const [qtns] = await pool.query(
+    `SELECT id, rfq_id, quotation_no, status FROM erp_crm_quotations WHERE rfq_id IN (${ids.map(() => '?').join(',')})`,
+    ids
+  );
+  const byRfq = new Map();
+  for (const q of qtns) { if (!byRfq.has(q.rfq_id)) byRfq.set(q.rfq_id, []); byRfq.get(q.rfq_id).push({ id: q.id, quotationNo: q.quotation_no, status: q.status }); }
+  res.json(rfqs.map((r) => ({
+    rfqId: r.id, rfqNo: r.rfq_no, subject: r.subject, receivedDate: dstr(r.received_date),
+    deletedAt: r.deleted_at, customerName: r.customer_name, quotations: byRfq.get(r.id) || [],
+  })));
+});
+router.post('/recycle-bin/restore', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const rfqId = +req.body.rfqId;
+  if (!rfqId) return res.status(400).json({ error: 'rfqId is required.' });
+  await pool.query('UPDATE erp_crm_rfqs SET deleted_at = NULL WHERE id = ?', [rfqId]);
+  await pool.query('UPDATE erp_crm_quotations SET deleted_at = NULL WHERE rfq_id = ?', [rfqId]);
+  await audit(req.erpUser.employeeId, 'crm-rfq-unit-restored', String(rfqId));
+  res.json({ ok: true });
+});
+router.delete('/recycle-bin/:rfqId', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const [r] = await pool.query('SELECT id FROM erp_crm_rfqs WHERE id = ? AND deleted_at IS NOT NULL', [req.params.rfqId]);
+  if (!r.length) return res.status(404).json({ error: 'Not in the Recycle Bin.' });
+  await pool.query('DELETE FROM erp_crm_rfqs WHERE id = ?', [req.params.rfqId]); // FK cascade removes quotations/items/attachments
+  await audit(req.erpUser.employeeId, 'crm-rfq-unit-purged', String(req.params.rfqId));
   res.json({ ok: true });
 });
 

@@ -509,7 +509,80 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services ready (no ISO tables were altered).');
+  // Quotations — always created against an RFQ (rfq_id), one RFQ can have
+  // several over time (revision). The quotation-document fields (service
+  // type on the cover page, attention name, subject, client's own PO/ref
+  // number, SRB %, and the two editable terms pages) all live here; the
+  // priced lines are in erp_crm_quotation_items. See routes/crm.js's
+  // combined "RFQ + Quotation" create.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_quotations (
+      id                   INT AUTO_INCREMENT PRIMARY KEY,
+      quotation_no         VARCHAR(30) UNIQUE NULL,
+      rfq_id               INT NOT NULL,
+      revision             INT NOT NULL DEFAULT 0,
+      quotation_date       DATE NOT NULL,
+      service_type         VARCHAR(100) NULL,
+      client_reference_no  VARCHAR(150) NULL,
+      attention_name       VARCHAR(150) NULL,
+      subject              VARCHAR(255) NULL,
+      currency             VARCHAR(10) NOT NULL DEFAULT 'PKR',
+      srb_percent          DECIMAL(6,2) NOT NULL DEFAULT 15.00,
+      terms_page4          TEXT NULL,
+      terms_page5          TEXT NULL,
+      status               VARCHAR(20) NOT NULL DEFAULT 'Draft',
+      created_by           INT NULL,
+      created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_qtn_rfq FOREIGN KEY (rfq_id) REFERENCES erp_crm_rfqs(id) ON DELETE CASCADE,
+      INDEX idx_qtn_rfq (rfq_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_quotation_items (
+      id                   BIGINT AUTO_INCREMENT PRIMARY KEY,
+      quotation_id         INT NOT NULL,
+      sort_order           INT NOT NULL DEFAULT 0,
+      equipment_id         INT NULL,
+      standard_id          INT NULL,
+      item_description_id  INT NULL,
+      size                 VARCHAR(120) NULL,
+      unit                 VARCHAR(50) NULL,
+      qty                  DECIMAL(14,2) NULL,
+      rate                 DECIMAL(14,2) NULL,
+      CONSTRAINT fk_qtnitem_qtn FOREIGN KEY (quotation_id) REFERENCES erp_crm_quotations(id) ON DELETE CASCADE,
+      INDEX idx_qtnitem_qtn (quotation_id)
+    )
+  `);
+
+  // Soft delete for RFQs/Quotations — a delete moves the record (and its
+  // linked counterpart) to the Recycle Bin (deleted_at set) instead of
+  // dropping it; the Recycle Bin screen restores or purges.
+  for (const [table, col] of [
+    ['erp_crm_rfqs', 'deleted_at TIMESTAMP NULL'],
+    ['erp_crm_quotations', 'deleted_at TIMESTAMP NULL'],
+    ['erp_crm_quotation_items', 'spec VARCHAR(500) NULL'],
+    ['erp_crm_quotation_items', "scope VARCHAR(20) NULL"],
+  ]) {
+    try { await pool.query(`ALTER TABLE ${table} ADD COLUMN ${col}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  }
+
+  // One-row CRM config: the running Client Reference No. counter (auto
+  // numbering like FOT-100926-1190 -> 1191 -> ...) and the single shared
+  // Quotation terms block (rich HTML, edited once, used on every
+  // quotation PDF).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_crm_config (
+      id                    TINYINT PRIMARY KEY,
+      last_client_ref       VARCHAR(100) NULL,
+      quotation_terms_html  MEDIUMTEXT NULL,
+      updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query('INSERT IGNORE INTO erp_crm_config (id) VALUES (1)');
+
+  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;
