@@ -344,7 +344,8 @@ body.locked #app{display:none}
 </div></div>
 
 <div class="modal" id="crmsvcmodal"><div class="box" style="max-width:560px">
-  <h3 id="crmsvc-modal-title">Add Service</h3>
+  <h3>Add Equipment / Standard / Item Description</h3>
+  <div class="hint" style="margin-bottom:10px">Search an existing entry at each level, or use "+ New" to add one that isn't on file yet — it saves immediately.</div>
   <div class="field"><label>Equipment *</label>
    <div style="display:flex;gap:8px">
     <div style="position:relative;flex:1">
@@ -369,18 +370,8 @@ body.locked #app{display:none}
      <div id="sv-itemdesc-list" class="crm-dd-list" style="display:none"></div>
     </div>
     <button type="button" class="btn ghost small" onclick="crmSvcAddItemDesc()">+ New</button></div></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
-    <div class="field"><label>Service code</label><input id="sv-code" placeholder="auto if left blank"></div>
-    <div class="field"><label>Status</label><select id="sv-status"><option>Active</option><option>On request</option><option>Discontinued</option></select></div>
-    <div class="field"><label>UoM</label><input id="sv-uom" placeholder="per joint"></div>
-    <div class="field"><label>Standard rate</label><input id="sv-rate" type="number" step="0.01"></div>
-    <div class="field"><label>Currency</label><select id="sv-currency"></select></div>
-    <div class="field"><label>Min. qty / charge</label><input id="sv-minqty" type="number" step="0.01"></div>
-  </div>
-  <div class="lerr" id="crmsvc-err" style="display:none"></div>
-  <div class="actions" style="justify-content:space-between">
-    <button class="btn ghost" id="crmsvc-delete-btn" style="color:#b42318" onclick="crmSvcDelete()">Delete</button>
-    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmsvcmodal')">Cancel</button><button class="btn" onclick="crmSvcSave()">Save</button></span>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn" onclick="crmSvcModalDone()">Done</button>
   </div>
 </div></div>
 
@@ -405,6 +396,78 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:space-between">
     <button class="btn ghost" id="rf-delete-btn" style="color:#b42318" onclick="crmDeleteRfq()">Delete</button>
     <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmrfqmodal')">Cancel</button><button class="btn" onclick="crmSaveRfq()">Save RFQ</button></span>
+  </div>
+</div></div>
+
+<div class="modal" id="crmrfqqmodal"><div class="box" style="max-width:1150px">
+  <h3>New RFQ / Quotation</h3>
+  <div class="hint" style="margin-bottom:10px">Fill this once — on save it creates an <b>RFQ</b> and a linked <b>Quotation</b> as two separate records. The RFQ's items are taken from the line items below.</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div class="field"><label>RFQ-Quotation Date *</label><input id="rq-date" type="date"></div>
+    <div class="field"><label>Source</label><select id="rq-source"><option>Call</option><option>Email</option><option>Document</option></select></div>
+    <div class="field"><label>Service Type <span class="hint">(cover page)</span></label>
+     <select id="qt-servicetype"><option value="">— choose —</option><option>Inspection</option><option>Calibration</option><option>Painting</option></select></div>
+    <div class="field"><label>Client Reference No. <span class="hint">(auto)</span></label><input id="qt-clientref" placeholder="FOT-100926-1190"></div>
+    <div class="field" style="grid-column:span 2"><label>Customer *</label><select id="rq-customer" style="width:100%"></select></div>
+    <div class="field"><label>Currency</label><select id="qt-currency"></select></div>
+    <div class="field"><label>SRB %</label><input id="qt-srb" type="number" step="0.01" value="15"></div>
+    <div class="field" style="grid-column:span 2"><label>Attention</label><input id="qt-attention" placeholder="e.g. Ms. Kanza Nasim"></div>
+    <div class="field" style="grid-column:span 2"><label>Subject <span class="hint">(RFQ + Quotation)</span></label><input id="rq-subject" style="width:100%" placeholder="e.g. Quotation of Calibration Services"></div>
+  </div>
+  <div class="field" style="margin-top:12px"><label>Line Items</label><div id="qt-items"></div></div>
+  <div id="qt-totals" style="text-align:right;font-size:12.5px;margin-top:8px"></div>
+  <div class="field" style="margin-top:12px"><label>Attachments <span class="hint">(original email / PDF / scanned document)</span></label>
+   <input type="file" id="rq-attach-file" multiple style="display:none" onchange="crmRqAttachPicked(event)">
+   <div id="rq-attachments"></div>
+   <button type="button" class="btn ghost small" style="margin-top:6px" onclick="document.getElementById('rq-attach-file').click()">+ Add attachment</button>
+  </div>
+  <div class="field" style="margin-top:9px"><label>RFQ Remarks (optional)</label><textarea id="rq-notes" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
+  <div class="lerr" id="crmrfqq-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('crmrfqqmodal')">Cancel</button>
+    <button class="btn" onclick="crmSaveRfqQuotation()">Save RFQ + Quotation</button>
+  </div>
+</div></div>
+
+<div class="modal" id="crmqtnmodal"><div class="box" style="max-width:1150px">
+  <h3 id="crmqtn-modal-title">Edit Quotation</h3>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div class="field"><label>Quotation Date</label><input id="qe-date" type="date"></div>
+    <div class="field"><label>Service Type</label><select id="qe-servicetype"><option value="">— choose —</option><option>Inspection</option><option>Calibration</option><option>Painting</option></select></div>
+    <div class="field"><label>Client Reference No.</label><input id="qe-clientref"></div>
+    <div class="field"><label>Attention</label><input id="qe-attention"></div>
+    <div class="field"><label>Currency</label><select id="qe-currency"></select></div>
+    <div class="field"><label>SRB %</label><input id="qe-srb" type="number" step="0.01"></div>
+    <div class="field"><label>Status</label><select id="qe-status"><option>Draft</option><option>Sent</option><option>Won</option><option>Lost</option><option>Revised</option></select></div>
+    <div class="field"><label>Revision</label><input id="qe-revision" type="number" step="1"></div>
+    <div class="field" style="grid-column:span 2"><label>Subject</label><input id="qe-subject" style="width:100%"></div>
+  </div>
+  <div class="field" style="margin-top:12px"><label>Line Items</label><div id="qe-items"></div></div>
+  <div id="qe-totals" style="text-align:right;font-size:12.5px;margin-top:8px"></div>
+  <div class="lerr" id="crmqtn-err" style="display:none"></div>
+  <div class="actions" style="justify-content:space-between">
+    <button class="btn ghost" style="color:#b42318" onclick="crmQtnDelete()">Delete (recycle RFQ + Quotation)</button>
+    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmqtnmodal')">Cancel</button><button class="btn" onclick="crmQtnSave()">Save</button></span>
+  </div>
+</div></div>
+
+<div class="modal" id="crmtermsmodal"><div class="box" style="max-width:820px">
+  <h3>Quotation Terms Template</h3>
+  <div class="hint" style="margin-bottom:8px">One shared block, written once — it prints on the terms page(s) of every Quotation PDF. Use the toolbar for headings / emphasis / size.</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsCmd('bold')"><b>B</b></button>
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsCmd('italic')"><i>I</i></button>
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsCmd('underline')"><u>U</u></button>
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsFont(2)">Small</button>
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsFont(3)">Normal</button>
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsFont(5)">Heading</button>
+    <button type="button" class="btn ghost small" onmousedown="event.preventDefault();crmTermsCmd('insertUnorderedList')">• List</button>
+  </div>
+  <div id="crmterms-editor" contenteditable="true" style="min-height:340px;max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.5;background:#fff"></div>
+  <div class="lerr" id="crmterms-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('crmtermsmodal')">Cancel</button>
+    <button class="btn" onclick="crmTermsSave()">Save Terms Template</button>
   </div>
 </div></div>
 
@@ -448,7 +511,6 @@ const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
-quotes:{g:'CRM',ic:'▤',name:'Quotations',lines:true,fields:[T('no','Quotation no.','QTN-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),T('subject','Subject'),T('cur','Currency','AED'),N('vat','VAT %'),S('status','Status',['Draft','Sent','Accepted','Rejected','Expired']),D('validity','Valid until'),T('terms','Payment terms','Net 30'),T('delivery','Delivery / lead time'),A('scope','Scope / notes')],list:['no','date','customer','subject','amount','cur','status'],badge:r=>r.status},
 salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[T('no','SO no.','SO-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
 activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type','Type',['Call','Meeting','Email','Site visit','Follow-up']),REF('customer','Customer','customers','name'),T('who','By'),A('notes','Summary / outcome'),D('next','Next follow-up')],list:['date','type','customer','who','next'],badge:r=>r.type},
 /* ---------------- SALES / AR ---------------- */
@@ -495,7 +557,7 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
-  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_rfqs',ic:'✉',name:'RFQs'}],
+  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_rfqs',ic:'✉',name:'RFQs'},{id:'crm_quotations',ic:'▤',name:'Quotations'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
@@ -507,7 +569,7 @@ let route=lsGet('ui_route','dashboard');
 // A group not listed here keeps the old default (all EXTRA_NAV items,
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
-  'CRM':['crm_customers','crm_services','crm_rfqs','quotes','salesorders','leads','activities'],
+  'CRM':['crm_customers','crm_services','crm_rfqs','crm_quotations','salesorders','leads','activities'],
 };
 function navExtraItemHtml(x){
   const badge=(x.id==='leave_requests'&&LEAVE_PENDING_COUNT>0)?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
@@ -3088,7 +3150,7 @@ async function renderCrmRfqs(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">RFQs<span class="hint" style="font-weight:400"> — Request for Quotation intake</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmrfq-search" placeholder="Search RFQ no., customer or subject" oninput="crmFilterRfqs()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px">'+
-   '<button class="btn" onclick="crmOpenRfqForm(null)">+ New RFQ</button></span></div>'+
+   '<button class="btn" onclick="crmOpenRfqQuotation()">+ RFQ / Quotation</button></span></div>'+
    '<div class="card-b"><div id="crmrfq-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
     await crmLoadCustomers();
@@ -3248,11 +3310,22 @@ async function crmSaveRfq(){
 }
 async function crmDeleteRfq(){
   if(!CRM_RFQ_EDIT)return;
-  if(!confirm('Delete RFQ '+(CRM_RFQ_EDIT.rfqNo||'')+'? This cannot be undone.'))return;
+  const qn=(CRM_RFQ_EDIT.quotations&&CRM_RFQ_EDIT.quotations.length)?CRM_RFQ_EDIT.quotations.map(x=>x.quotationNo).join(', '):null;
+  if(!confirm('Delete RFQ '+(CRM_RFQ_EDIT.rfqNo||'')+'?'+(qn?'\n\nIts linked Quotation(s) '+qn+' will ALSO be moved to the Recycle Bin.':'\n\nIt will be moved to the Recycle Bin.')+' You can restore from there.'))return;
   try{
     await api('/api/crm/rfqs/'+CRM_RFQ_EDIT.id,{method:'DELETE'});
-    closeModal('crmrfqmodal');toast('RFQ deleted.','ok');
+    closeModal('crmrfqmodal');toast('Moved to Recycle Bin.','ok');
     await renderCrmRfqs();
+  }catch(e){toast(e.message,'err');}
+}
+async function crmRfqRecycle(rfqId,rfqNo){
+  let qn=null;
+  try{const r=await api('/api/crm/rfqs/'+rfqId);qn=(r.quotations&&r.quotations.length)?r.quotations.map(x=>x.quotationNo).join(', '):null;}catch(e){}
+  if(!confirm('Delete RFQ '+(rfqNo||'')+'?'+(qn?'\n\nIts linked Quotation(s) '+qn+' will ALSO be moved to the Recycle Bin.':'\n\nIt will be moved to the Recycle Bin.')+' You can restore from there.'))return;
+  try{
+    await api('/api/crm/rfqs/'+rfqId,{method:'DELETE'});
+    toast('Moved to Recycle Bin.','ok');
+    go('crm_rfqs');
   }catch(e){toast(e.message,'err');}
 }
 
@@ -3282,6 +3355,7 @@ async function renderCrmRfqView(){
       '<button class="btn ghost small" onclick="go(\'crm_rfqs\')">‹ RFQs</button>'+
       '<span style="margin-left:auto;display:flex;gap:8px">'+
        '<button class="btn ghost" onclick="crmOpenRfqForm('+r.id+')">✎ Edit</button>'+
+       '<button class="btn ghost" style="color:#b42318" onclick="crmRfqRecycle('+r.id+',\''+esc(r.rfqNo||'')+'\')">🗑 Delete</button>'+
       '</span></div>'+
      '<div class="card-b">'+
       '<div style="display:flex;align-items:center;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
@@ -3298,43 +3372,579 @@ async function renderCrmRfqView(){
        (itemsBody?'<table><thead><tr><th>Item / Description</th><th>Qty</th><th>Unit</th><th>Spec / Remarks</th><th>Scope</th></tr></thead><tbody>'+itemsBody+'</tbody></table>':'<div class="empty">No items.</div>')+
       '</div>'+
       '<div style="font-weight:700;margin-bottom:8px">Attachments</div>'+
-      '<div>'+(attBody||'<div class="empty">No attachments.</div>')+'</div>'+
+      '<div style="margin-bottom:16px">'+(attBody||'<div class="empty">No attachments.</div>')+'</div>'+
+      '<div style="font-weight:700;margin-bottom:8px">Linked Quotation(s)</div>'+
+      '<div>'+((r.quotations&&r.quotations.length)?r.quotations.map(qq=>'<button class="btn ghost small" style="margin:0 6px 6px 0" onclick="crmOpenQuotationView('+qq.id+')">'+esc(qq.quotationNo||'—')+' (Rev '+qq.revision+', '+esc(qq.status)+') ›</button>').join(''):'<div class="empty">No quotation linked to this RFQ yet.</div>')+'</div>'+
      '</div></div>';
   }catch(err){
     c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
   }
 }
 
+/* ================= CRM: combined RFQ + Quotation ================= */
+let CRM_RQ_PENDING_ATTACHMENTS=[],CRM_QT_ITEMS=[],CRM_CFG=null;
+function crmMoney(n){n=+n||0;return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+async function crmLoadConfig(){try{CRM_CFG=await api('/api/crm/config');}catch(e){CRM_CFG={lastClientRef:'',quotationTermsHtml:''};}return CRM_CFG;}
+// "FOT-100926-1190" -> "FOT-100926-1191"
+function crmNextClientRef(prev){
+  const m=String(prev||'').trim().match(/^(.*?)(\d+)(\D*)$/);
+  if(!m)return '';
+  return m[1]+String(parseInt(m[2],10)+1).padStart(m[2].length,'0')+m[3];
+}
+
+async function crmOpenRfqQuotation(){
+  try{await crmLoadCustomers();}catch(e){}
+  try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
+  await crmLoadConfig();
+  document.getElementById('crmrfqq-err').style.display='none';
+  document.getElementById('rq-date').value=today();
+  document.getElementById('rq-source').value='Email';
+  document.getElementById('rq-customer').innerHTML='<option value="">— choose —</option>'+CRM_CUSTOMERS.map(c=>'<option value="'+c.id+'">'+esc(c.name)+' ('+esc(c.code)+')</option>').join('');
+  document.getElementById('rq-subject').value='';
+  document.getElementById('rq-notes').value='';
+  document.getElementById('qt-servicetype').value='';
+  document.getElementById('qt-clientref').value=crmNextClientRef(CRM_CFG.lastClientRef)||'';
+  document.getElementById('qt-attention').value='';
+  document.getElementById('qt-srb').value='15';
+  document.getElementById('qt-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]==='PKR'?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
+  CRM_RQ_PENDING_ATTACHMENTS=[];
+  CRM_QT_ITEMS=[crmQtBlankItem()];
+  crmRenderRqAttachments();crmRenderQtItems('qt');
+  openModal('crmrfqqmodal');
+}
+function crmQtBlankItem(){return{equipmentId:'',standardId:'',itemDescriptionId:'',size:'',unit:'',spec:'',scope:'Scope',qty:'',rate:''};}
+function crmRenderRqAttachments(){
+  const wrap=document.getElementById('rq-attachments');
+  wrap.innerHTML=CRM_RQ_PENDING_ATTACHMENTS.map((f,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0"><span>📎 '+esc(f.name)+' <span class="hint">('+crmFmtBytes(f.size)+')</span></span>'+
+    '<button type="button" class="btn ghost small" style="color:#b42318" onclick="crmRqRemoveAttachment('+i+')">Remove</button></div>').join('')||'<div class="hint">No attachments.</div>';
+}
+function crmRqAttachPicked(ev){
+  [...(ev.target.files||[])].forEach(f=>{
+    if(f.size>CRM_MAX_ATTACHMENT_BYTES){toast('"'+f.name+'" is too large (max 15MB).','err');return;}
+    CRM_RQ_PENDING_ATTACHMENTS.push(f);
+  });
+  ev.target.value='';crmRenderRqAttachments();
+}
+function crmRqRemoveAttachment(i){CRM_RQ_PENDING_ATTACHMENTS.splice(i,1);crmRenderRqAttachments();}
+
+/* ----- quotation line items (shared by create modal 'qt' and edit modal 'qe') ----- */
+function crmQtItemsRef(pfx){return pfx==='qe'?CRM_QE_ITEMS:CRM_QT_ITEMS;}
+function crmEqOpt(sel){return '<option value="">—</option>'+CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e=>'<option value="'+e.id+'"'+(+sel===e.id?' selected':'')+'>'+esc(e.name)+'</option>').join('');}
+function crmStdOpt(equipmentId,sel){return '<option value="">—</option>'+CRM_STANDARDS.filter(s=>s.equipmentId===+equipmentId).map(s=>'<option value="'+s.id+'"'+(+sel===s.id?' selected':'')+'>'+esc(s.name)+'</option>').join('');}
+function crmItemOpt(standardId,sel){return '<option value="">—</option>'+CRM_ITEMDESCS.filter(it=>it.standardId===+standardId).map(it=>'<option value="'+it.id+'"'+(+sel===it.id?' selected':'')+'>'+esc(it.description.slice(0,70))+(it.description.length>70?'…':'')+'</option>').join('');}
+function crmRenderQtItems(pfx){
+  const arr=crmQtItemsRef(pfx);
+  const wrap=document.getElementById(pfx+'-items');
+  wrap.innerHTML='<div class="tblwrap"><table style="width:100%;font-size:12px;min-width:1180px"><thead><tr><th style="width:26px">#</th><th style="min-width:120px">Equipment</th><th style="min-width:110px">Standard</th><th style="min-width:185px">Item Description</th><th style="min-width:140px">Size</th><th style="min-width:90px">Unit</th><th style="min-width:140px">Spec / Remarks</th><th style="min-width:135px">Scope</th><th style="min-width:85px">Qty</th><th style="min-width:120px">Rate</th><th style="min-width:110px;text-align:right">Total</th><th style="width:24px"></th></tr></thead><tbody>'+
+   arr.map((it,i)=>{
+     const tot=(+it.qty||0)*(+it.rate||0);
+     return '<tr>'+
+      '<td>'+(i+1)+'</td>'+
+      '<td><select style="width:100%" onchange="crmQtItemChange(\''+pfx+'\','+i+',\'equipmentId\',this.value)">'+crmEqOpt(it.equipmentId)+'</select></td>'+
+      '<td><select style="width:100%" onchange="crmQtItemChange(\''+pfx+'\','+i+',\'standardId\',this.value)">'+crmStdOpt(it.equipmentId,it.standardId)+'</select></td>'+
+      '<td><select style="width:100%" onchange="crmQtItemChange(\''+pfx+'\','+i+',\'itemDescriptionId\',this.value)">'+crmItemOpt(it.standardId,it.itemDescriptionId)+'</select></td>'+
+      '<td><input type="text" value="'+esc(it.size)+'" oninput="crmQtItemInput(\''+pfx+'\','+i+',\'size\',this.value)" style="width:100%"></td>'+
+      '<td><input type="text" value="'+esc(it.unit)+'" oninput="crmQtItemInput(\''+pfx+'\','+i+',\'unit\',this.value)" style="width:100%"></td>'+
+      '<td><input type="text" value="'+esc(it.spec)+'" oninput="crmQtItemInput(\''+pfx+'\','+i+',\'spec\',this.value)" style="width:100%"></td>'+
+      '<td><select style="width:100%" onchange="crmQtItemInput(\''+pfx+'\','+i+',\'scope\',this.value)"><option'+(it.scope!=='Out of Scope'?' selected':'')+'>Scope</option><option'+(it.scope==='Out of Scope'?' selected':'')+'>Out of Scope</option></select></td>'+
+      '<td><input type="number" step="any" value="'+esc(it.qty)+'" oninput="crmQtItemInput(\''+pfx+'\','+i+',\'qty\',this.value)" style="width:100%"></td>'+
+      '<td><input type="number" step="any" value="'+esc(it.rate)+'" oninput="crmQtItemInput(\''+pfx+'\','+i+',\'rate\',this.value)" style="width:100%"></td>'+
+      '<td id="'+pfx+'-tot-'+i+'" style="text-align:right">'+crmMoney(tot)+'</td>'+
+      '<td><button type="button" class="btn ghost small" onclick="crmQtRemoveItem(\''+pfx+'\','+i+')">✕</button></td></tr>';
+   }).join('')+
+   '</tbody></table></div><button type="button" class="btn ghost small" style="margin-top:6px" onclick="crmQtAddItem(\''+pfx+'\')">+ Add line</button>';
+  crmQtRecalcTotals(pfx);
+}
+// text/number field edits — update state + live totals WITHOUT re-rendering
+// the table (re-render was stealing focus after every keystroke).
+function crmQtItemInput(pfx,i,field,val){
+  const arr=crmQtItemsRef(pfx);arr[i][field]=val;
+  if(field==='qty'||field==='rate'){
+    const cell=document.getElementById(pfx+'-tot-'+i);
+    if(cell)cell.textContent=crmMoney((+arr[i].qty||0)*(+arr[i].rate||0));
+    crmQtRecalcTotals(pfx);
+  }
+}
+// dropdown edits — cascade needs a re-render
+function crmQtItemChange(pfx,i,field,val){
+  const arr=crmQtItemsRef(pfx);arr[i][field]=val;
+  if(field==='equipmentId'){arr[i].standardId='';arr[i].itemDescriptionId='';}
+  if(field==='standardId'){arr[i].itemDescriptionId='';}
+  crmRenderQtItems(pfx);
+}
+function crmQtAddItem(pfx){crmQtItemsRef(pfx).push(crmQtBlankItem());crmRenderQtItems(pfx);}
+function crmQtRemoveItem(pfx,i){const arr=crmQtItemsRef(pfx);arr.splice(i,1);if(!arr.length)arr.push(crmQtBlankItem());crmRenderQtItems(pfx);}
+function crmQtRecalcTotals(pfx){
+  const arr=crmQtItemsRef(pfx);
+  const totalCost=arr.reduce((s,it)=>s+(+it.qty||0)*(+it.rate||0),0);
+  const srb=+document.getElementById(pfx+'-srb').value||0;
+  const srbAmt=totalCost*srb/100;
+  const el=document.getElementById(pfx+'-totals');
+  if(el)el.innerHTML='<b>Total Cost:</b> '+crmMoney(totalCost)+' &nbsp;·&nbsp; <b>SRB '+srb+'%:</b> '+crmMoney(srbAmt)+' &nbsp;·&nbsp; <b>Grand Total:</b> '+crmMoney(totalCost+srbAmt);
+}
+function crmQtItemsPayload(arr){
+  return arr.filter(it=>it.equipmentId||it.itemDescriptionId||it.size||it.qty||it.rate||it.spec).map(it=>({
+    equipmentId:+it.equipmentId||null,standardId:+it.standardId||null,itemDescriptionId:+it.itemDescriptionId||null,
+    size:it.size||null,unit:it.unit||null,spec:it.spec||null,scope:it.scope||'Scope',
+    qty:it.qty===''?null:it.qty,rate:it.rate===''?null:it.rate}));
+}
+
+async function crmSaveRfqQuotation(){
+  const err=document.getElementById('crmrfqq-err');err.style.display='none';
+  const customerId=+document.getElementById('rq-customer').value||null;
+  const receivedDate=document.getElementById('rq-date').value;
+  if(!customerId)return showErrEl(err,'Please select a customer.');
+  if(!receivedDate)return showErrEl(err,'RFQ-Quotation Date is required.');
+  const fd=new FormData();
+  fd.append('customerId',customerId);
+  fd.append('receivedDate',receivedDate);
+  fd.append('quotationDate',receivedDate);
+  fd.append('source',document.getElementById('rq-source').value);
+  fd.append('subject',document.getElementById('rq-subject').value.trim());
+  fd.append('notes',document.getElementById('rq-notes').value.trim());
+  fd.append('serviceType',document.getElementById('qt-servicetype').value);
+  fd.append('clientReferenceNo',document.getElementById('qt-clientref').value.trim());
+  fd.append('attentionName',document.getElementById('qt-attention').value.trim());
+  fd.append('currency',(document.getElementById('qt-currency').value||'').split(' — ')[0]);
+  fd.append('srbPercent',document.getElementById('qt-srb').value||'15');
+  fd.append('quotationItems',JSON.stringify(crmQtItemsPayload(CRM_QT_ITEMS)));
+  CRM_RQ_PENDING_ATTACHMENTS.forEach(f=>fd.append('attachments',f,f.name));
+  try{
+    const res=await api('/api/crm/rfq-quotation',{method:'POST',body:fd});
+    closeModal('crmrfqqmodal');
+    toast('Created RFQ '+res.rfq.rfqNo+' + Quotation '+res.quotation.quotationNo+'.','ok');
+    await renderCrmRfqs();
+  }catch(e){showErrEl(err,e.message);}
+}
+
+/* ----- Quotation terms template (shared, rich HTML) ----- */
+async function crmOpenTermsEditor(){
+  await crmLoadConfig();
+  document.getElementById('crmterms-editor').innerHTML=CRM_CFG.quotationTermsHtml||'';
+  document.getElementById('crmterms-err').style.display='none';
+  openModal('crmtermsmodal');
+}
+function crmTermsCmd(cmd){document.getElementById('crmterms-editor').focus();document.execCommand(cmd,false,null);}
+function crmTermsFont(sz){document.getElementById('crmterms-editor').focus();document.execCommand('fontSize',false,sz);}
+async function crmTermsSave(){
+  const err=document.getElementById('crmterms-err');err.style.display='none';
+  try{
+    CRM_CFG=await api('/api/crm/config',{method:'PUT',body:JSON.stringify({quotationTermsHtml:document.getElementById('crmterms-editor').innerHTML})});
+    closeModal('crmtermsmodal');toast('Terms template saved.','ok');
+  }catch(e){showErrEl(err,e.message);}
+}
+
+/* ================= CRM: Quotations screen ================= */
+let CRM_QUOTATIONS=[],CRM_QT_VIEW_ID=null,CRM_QE_ITEMS=[],CRM_QE_EDIT=null;
+const CRM_QT_STATUS_PILL=s=>s==='Won'?'g':s==='Lost'||s==='Rejected'?'r':s==='Sent'?'b':'';
+async function renderCrmQuotations(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Quotations<span class="hint" style="font-weight:400"> — always linked to an RFQ</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmqt-search" placeholder="Search quotation no., customer, RFQ…" oninput="crmFilterQuotations()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:200px">'+
+   '<button class="btn ghost" onclick="crmOpenTermsEditor()">Terms Template</button>'+
+   '<button class="btn ghost" onclick="go(\'crm_recyclebin\')">🗑 Recycle Bin</button>'+
+   '<button class="btn" onclick="crmOpenRfqQuotation()">+ RFQ / Quotation</button></span></div>'+
+   '<div class="card-b"><div id="crmqt-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  try{
+    if(!CRM_EQUIPMENT.length){try{await crmLoadCatalogRef();}catch(e){}}
+    CRM_QUOTATIONS=await api('/api/crm/quotations');
+    crmFilterQuotations();
+  }catch(e){const el=document.getElementById('crmqt-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function crmFilterQuotations(){
+  const qEl=document.getElementById('crmqt-search');const q=qEl?qEl.value.trim().toLowerCase():'';
+  const rows=CRM_QUOTATIONS.filter(r=>!q||[r.quotationNo,r.customerName,r.rfqNo,r.serviceType,r.subject].some(v=>(v||'').toLowerCase().includes(q)));
+  const body='<table><thead><tr><th>Quotation No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>RFQ No.</th><th>Service</th><th class="num">Grand Total</th><th>Status</th></tr></thead><tbody>'+
+   rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenQuotationView('+r.id+')"><td><b>'+esc(r.quotationNo||'—')+'</b></td><td>'+r.revision+'</td><td>'+esc(r.quotationDate||'')+'</td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.rfqNo||'')+'</td><td>'+esc(r.serviceType||'')+'</td><td class="num">'+crmMoney(r.grandTotal)+' '+esc(r.currency||'')+'</td>'+
+    '<td><span class="pill '+CRM_QT_STATUS_PILL(r.status)+'">'+esc(r.status||'')+'</span></td></tr>').join('')+
+   '</tbody></table>';
+  const el=document.getElementById('crmqt-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No quotations yet — use "+ RFQ / Quotation".</div>';
+}
+function crmOpenQuotationView(id){
+  CRM_QT_VIEW_ID=id;route='crm_quotation_view';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);
+}
+async function renderCrmQuotationView(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  try{
+    if(!CRM_EQUIPMENT.length){try{await crmLoadCatalogRef();}catch(e){}}
+    const q=await api('/api/crm/quotations/'+CRM_QT_VIEW_ID);
+    const itemsBody=q.items.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(it.equipmentName||'')+'</td><td>'+esc(it.standardName||'')+'</td><td>'+esc(it.itemDescription||'')+'</td><td>'+esc(it.size||'')+'</td><td>'+esc(it.unit||'')+'</td><td class="num">'+esc(it.qty!=null?it.qty:'')+'</td><td class="num">'+crmMoney(it.rate)+'</td><td class="num">'+crmMoney(it.total)+'</td></tr>').join('');
+    c.innerHTML='<div class="card"><div class="card-h">'+
+      '<button class="btn ghost small" onclick="go(\'crm_quotations\')">‹ Quotations</button>'+
+      '<span style="margin-left:auto;display:flex;gap:8px">'+
+       '<button class="btn ghost" onclick="crmOpenQtnEdit('+q.id+')">✎ Edit</button>'+
+       '<button class="btn ghost" onclick="crmDownloadQuotationXlsx('+q.id+')">⬇ Excel</button>'+
+       '<button class="btn" onclick="crmDownloadQuotationPdf('+q.id+')">⬇ Quotation PDF</button>'+
+      '</span></div>'+
+     '<div class="card-b">'+
+      '<div style="display:flex;align-items:center;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px">'+
+       '<div style="font-size:18px;font-weight:700">'+esc(q.quotationNo||'—')+'</div>'+
+       '<span class="pill '+CRM_QT_STATUS_PILL(q.status)+'">'+esc(q.status||'')+'</span>'+
+       '<span class="hint">Rev '+q.revision+'</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px">'+
+       evField('Quotation Date',q.quotationDate)+evField('Customer',q.customerName)+
+       evField('Service Type',q.serviceType)+evField('Currency',q.currency)+
+       evField('Attention',q.attentionName)+evField('Client Reference No.',q.clientReferenceNo)+
+       '<div style="grid-column:1/-1">'+evField('Subject',q.subject)+'</div>'+
+      '</div>'+
+      '<div style="margin:-8px 0 14px"><button class="btn ghost small" onclick="crmOpenRfqViewById('+q.rfqId+')">Open linked RFQ: '+esc(q.rfqNo||'')+' ›</button></div>'+
+      '<div class="tblwrap"><table><thead><tr><th>#</th><th>Equipment</th><th>Standard</th><th>Item Description</th><th>Size</th><th>Unit</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead><tbody>'+
+       (itemsBody||'<tr><td colspan="9"><span class="hint">No line items.</span></td></tr>')+'</tbody></table></div>'+
+      '<div style="text-align:right;margin-top:12px;font-size:13px">'+
+       '<div><b>Total Cost:</b> '+crmMoney(q.totalCost)+' '+esc(q.currency)+'</div>'+
+       '<div><b>SRB '+q.srbPercent+'%:</b> '+crmMoney(q.srbAmount)+'</div>'+
+       '<div style="font-size:15px;margin-top:4px"><b>GRAND TOTAL:</b> '+crmMoney(q.grandTotal)+' '+esc(q.currency)+'</div>'+
+      '</div>'+
+     '</div></div>';
+  }catch(err){
+    c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
+  }
+}
+async function crmOpenRfqViewById(rfqId){
+  CRM_RFQ_VIEW_ID=rfqId;route='crm_rfq_view';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);
+}
+
+/* ================= CRM: Recycle Bin ================= */
+async function renderCrmRecycleBin(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">'+
+   '<button class="btn ghost small" onclick="go(\'crm_quotations\')">‹ Quotations</button>'+
+   '<span style="margin-left:8px;font-weight:700">Recycle Bin</span>'+
+   '<span class="hint" style="font-weight:400;margin-left:8px">— deleted RFQ + Quotation units. Restore, or delete permanently.</span></div>'+
+   '<div class="card-b"><div id="crm-rb-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  try{
+    const rows=await api('/api/crm/recycle-bin');
+    const el=document.getElementById('crm-rb-list');
+    el.innerHTML=rows.length
+     ?'<table><thead><tr><th>RFQ No.</th><th>Quotation(s)</th><th>Customer</th><th>Subject</th><th>Deleted</th><th class="no-print"></th></tr></thead><tbody>'+
+       rows.map(r=>'<tr><td><b>'+esc(r.rfqNo||'—')+'</b></td><td>'+r.quotations.map(q=>esc(q.quotationNo||'—')).join(', ')+'</td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.subject||'')+'</td><td>'+esc(String(r.deletedAt||'').slice(0,16).replace('T',' '))+'</td>'+
+        '<td class="no-print"><button class="btn ghost small" onclick="crmRbRestore('+r.rfqId+')">Restore</button> <button class="btn ghost small" style="color:#b42318" onclick="crmRbPurge('+r.rfqId+',\''+esc(r.rfqNo||'').replace(/\x27/g,"")+'\')">Delete permanently</button></td></tr>').join('')+
+      '</tbody></table>'
+     :'<div class="empty">Recycle Bin is empty.</div>';
+  }catch(e){const el=document.getElementById('crm-rb-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+async function crmRbRestore(rfqId){
+  try{await api('/api/crm/recycle-bin/restore',{method:'POST',body:JSON.stringify({rfqId})});toast('Restored.','ok');renderCrmRecycleBin();}
+  catch(e){toast(e.message,'err');}
+}
+async function crmRbPurge(rfqId,label){
+  const typed=prompt('Permanently delete '+label+' and its Quotation(s)? This CANNOT be undone.\n\nType DELETE to confirm:');
+  if(typed!=='DELETE'){if(typed!==null)toast('Confirmation did not match.','info');return;}
+  try{await api('/api/crm/recycle-bin/'+rfqId,{method:'DELETE'});toast('Permanently deleted.','ok');renderCrmRecycleBin();}
+  catch(e){toast(e.message,'err');}
+}
+
+async function crmOpenQtnEdit(id){
+  try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
+  const q=await api('/api/crm/quotations/'+id);
+  CRM_QE_EDIT=q;
+  document.getElementById('crmqtn-modal-title').textContent='Edit Quotation '+(q.quotationNo||'');
+  document.getElementById('qe-date').value=q.quotationDate||today();
+  document.getElementById('qe-servicetype').value=q.serviceType||'';
+  document.getElementById('qe-clientref').value=q.clientReferenceNo||'';
+  document.getElementById('qe-attention').value=q.attentionName||'';
+  document.getElementById('qe-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]===(q.currency||'PKR')?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
+  document.getElementById('qe-srb').value=q.srbPercent;
+  document.getElementById('qe-status').value=q.status||'Draft';
+  document.getElementById('qe-revision').value=q.revision;
+  document.getElementById('qe-subject').value=q.subject||'';
+  CRM_QE_ITEMS=q.items.length?q.items.map(it=>({equipmentId:it.equipmentId||'',standardId:it.standardId||'',itemDescriptionId:it.itemDescriptionId||'',size:it.size||'',unit:it.unit||'',spec:it.spec||'',scope:it.scope||'Scope',qty:it.qty==null?'':it.qty,rate:it.rate==null?'':it.rate})):[crmQtBlankItem()];
+  crmRenderQtItems('qe');
+  document.getElementById('crmqtn-err').style.display='none';
+  openModal('crmqtnmodal');
+}
+async function crmQtnSave(){
+  const err=document.getElementById('crmqtn-err');err.style.display='none';
+  const body={
+    quotationDate:document.getElementById('qe-date').value,serviceType:document.getElementById('qe-servicetype').value,
+    clientReferenceNo:document.getElementById('qe-clientref').value.trim(),attentionName:document.getElementById('qe-attention').value.trim(),
+    currency:(document.getElementById('qe-currency').value||'').split(' — ')[0],srbPercent:document.getElementById('qe-srb').value||'15',
+    status:document.getElementById('qe-status').value,revision:document.getElementById('qe-revision').value||'0',
+    subject:document.getElementById('qe-subject').value.trim(),
+    items:crmQtItemsPayload(CRM_QE_ITEMS),
+  };
+  try{
+    await api('/api/crm/quotations/'+CRM_QE_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
+    closeModal('crmqtnmodal');toast('Quotation saved.','ok');
+    if(route==='crm_quotation_view')render();else renderCrmQuotations();
+  }catch(e){showErrEl(err,e.message);}
+}
+async function crmQtnDelete(){
+  if(!CRM_QE_EDIT)return;
+  if(!confirm('Delete Quotation '+(CRM_QE_EDIT.quotationNo||'')+'?\n\nIts linked RFQ '+(CRM_QE_EDIT.rfqNo||'')+' will ALSO be moved to the Recycle Bin. You can restore both from there.'))return;
+  try{
+    await api('/api/crm/quotations/'+CRM_QE_EDIT.id,{method:'DELETE'});
+    closeModal('crmqtnmodal');toast('Moved to Recycle Bin.','ok');
+    go('crm_quotations');
+  }catch(e){toast(e.message,'err');}
+}
+
+/* ================= Quotation PDF ================= */
+// PdfDoc only embeds JPEG (DCTDecode), so the logo PNG is flattened onto
+// white via a canvas once and cached as a JPEG data URL.
+let CRM_LOGO_JPEG=null;
+function crmLoadLogoJpeg(){
+  return new Promise(resolve=>{
+    if(CRM_LOGO_JPEG!==null)return resolve(CRM_LOGO_JPEG);
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        const cv=document.createElement('canvas');cv.width=img.naturalWidth;cv.height=img.naturalHeight;
+        const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);g.drawImage(img,0,0);
+        CRM_LOGO_JPEG=cv.toDataURL('image/jpeg',0.92);
+      }catch(e){CRM_LOGO_JPEG='';}
+      resolve(CRM_LOGO_JPEG);
+    };
+    img.onerror=()=>{CRM_LOGO_JPEG='';resolve('');};
+    img.src='/ptis-logo.png';
+  });
+}
+// word-wrap a paragraph into lines that fit maxW, emitting them downward from doc.y
+function crmPdfPara(doc,x,str,maxW,size,lh,bold){
+  size=size||9;lh=lh||(size+3);
+  String(str==null?'':str).split('\n').forEach(rawline=>{
+    if(rawline.trim()===''){doc.y-=lh*0.6;return;}
+    const words=rawline.split(/\s+/);let line='';
+    words.forEach(w=>{
+      const test=line?line+' '+w:w;
+      if(doc.tw(test,size)>maxW&&line){
+        if(doc.need(lh))crmPdfPageTop(doc);
+        doc.text(x,doc.y,line,size,bold);doc.y-=lh;line=w;
+      }else line=test;
+    });
+    if(line){if(doc.need(lh))crmPdfPageTop(doc);doc.text(x,doc.y,line,size,bold);doc.y-=lh;}
+  });
+}
+function crmPdfLogo(doc,small){
+  if(!CRM_LOGO_JPEG)return;
+  // logo native 300x200 (3:2). small = top-right header; big = cover.
+  if(small){const w=110,h=w*2/3;doc.imageAt(CRM_LOGO_JPEG,doc.w-doc.mR-w,doc.h-30-h,w,h);}
+  else{const w=250,h=w*2/3;doc.imageAt(CRM_LOGO_JPEG,(doc.w-w)/2,doc.h-140-h,w,h);}
+}
+function crmPdfHeaderBand(doc){crmPdfLogo(doc,true);doc.y=doc.h-doc.mT-58;}
+function crmPdfPageTop(doc){doc.y=doc.h-doc.mT;crmPdfHeaderBand(doc);}
+// wrap a string to lines fitting maxW at a given size; returns array of lines
+function crmPdfWrap(doc,str,maxW,size){
+  const out=[];
+  String(str==null?'':str).split('\n').forEach(raw=>{
+    if(raw===''){out.push('');return;}
+    const words=raw.split(/\s+/);let line='';
+    words.forEach(w=>{
+      const test=line?line+' '+w:w;
+      if(doc.tw(test,size)>maxW&&line){out.push(line);line=w;}
+      else line=test;
+    });
+    if(line!=='')out.push(line);
+  });
+  return out;
+}
+function crmPdfPara(doc,x,str,maxW,size,lh,bold){
+  size=size||9;lh=lh||(size+4);
+  crmPdfWrap(doc,str,maxW,size).forEach(l=>{
+    if(l===''){doc.y-=lh*0.6;return;}
+    if(doc.need(lh))crmPdfPageTop(doc);
+    doc.text(x,doc.y,l,size,bold);doc.y-=lh;
+  });
+}
+// Renders contenteditable HTML terms — <p>/<div>/<li>/<h*>/<br> = line
+// breaks, <b>/<strong> + <font size> honoured. Flows across pages.
+// Renders the contenteditable terms HTML as tidy paragraphs. Each leaf
+// block (<p>/<div>/<li>/<h*>) becomes one wrapped paragraph; a block that
+// is entirely bold (or a heading) prints as a bold heading with a little
+// air around it. Uses crmPdfPara for the actual wrapping so line spacing
+// stays consistent and page breaks are handled.
+function crmPdfTerms(doc,html,x,maxW){
+  const root=document.createElement('div');
+  root.innerHTML=(html||'').replace(/<br\s*\/?>/gi,'</p><p>');
+  const leaves=[...root.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6')]
+    .filter(el=>!el.querySelector('p,div,li,h1,h2,h3,h4,h5,h6'));
+  let blocks;
+  if(leaves.length){
+    blocks=leaves.map(el=>{
+      const txt=(el.textContent||'').replace(/\s+/g,' ').trim();
+      const isHeading=/^h[1-6]$/i.test(el.tagName);
+      const onlyBold=el.children.length===1 && /^(b|strong)$/i.test(el.children[0].tagName)
+        && (el.children[0].textContent||'').replace(/\s+/g,' ').trim()===txt;
+      return {txt,bold:isHeading||onlyBold,heading:isHeading||onlyBold};
+    });
+  }else{
+    blocks=(root.textContent||'').split(/\n+/).map(t=>({txt:t.replace(/\s+/g,' ').trim(),bold:false,heading:false}));
+  }
+  blocks.forEach(b=>{
+    if(!b.txt){doc.y-=5;return;}
+    if(doc.need(15))crmPdfPageTop(doc);
+    if(b.heading)doc.y-=5;
+    crmPdfPara(doc,x,b.txt,maxW,b.heading?10.5:9,b.heading?15:13,b.bold);
+    doc.y-=b.heading?4:5;
+  });
+}
+// wrapping table: cols=[{label,w,align}], rows=[[cell,...]]
+function crmPdfTable(doc,cols,rows,size){
+  size=size||8;const lh=size+4;const avail=cols.reduce((a,c)=>a+c.w,0);
+  const drawHead=()=>{
+    if(doc.need(lh+14))crmPdfPageTop(doc);
+    const ry=doc.y;
+    doc.rect(doc.mL,ry-4,avail,lh+3,'0.90 0.92 0.95');
+    let cx=doc.mL+3;
+    cols.forEach(c=>{doc.text(cx,ry,c.label,size,true);cx+=c.w;});
+    doc.line(doc.mL,ry-6,doc.mL+avail,ry-6);
+    doc.y=ry-lh-8;                 // clear gap before first row's text
+  };
+  drawHead();
+  rows.forEach(r=>{
+    const wrapped=cols.map((c,i)=>crmPdfWrap(doc,r[i],c.w-6,size));
+    const nLines=Math.max(1,...wrapped.map(w=>w.length));
+    if(doc.need(nLines*lh+14))drawHead();
+    const ry=doc.y;
+    let cx=doc.mL+3;
+    cols.forEach((c,i)=>{
+      wrapped[i].forEach((ln,li)=>{
+        const tx=c.align==='right'?cx+(c.w-6)-doc.tw(ln,size):cx;
+        doc.text(tx,ry-li*lh,ln,size);
+      });
+      cx+=c.w;
+    });
+    const bottom=ry-(nLines-1)*lh-4;   // 4pt below the last text baseline (clears descenders)
+    doc.line(doc.mL,bottom,doc.mL+avail,bottom);
+    doc.y=bottom-9;                     // gap before the next row's text
+  });
+  doc.y-=6;
+}
+
+function crmBuildQuotationPdf(q,termsHtml){
+  const doc=new PdfDoc();doc.noFooter=true;
+  const cust=q.customerName||'';
+  const addrLines=[q.customerAddress,[q.customerCity,q.customerCountry].filter(Boolean).join(', ')].filter(Boolean);
+  const money=n=>crmMoney(n);
+  const CL=doc.mL,CR=doc.w-doc.mR,CW=CR-CL;
+
+  /* ---- Page 1: cover ---- */
+  crmPdfLogo(doc,false);
+  doc.y=doc.h-420;
+  const svc=(q.serviceType||'').trim();
+  const t1='Quotation For '+(svc||'')+(svc?' Service':'');
+  doc.text((doc.w-doc.tw(t1,17))/2,doc.y,t1,17,true,'0.10 0.28 0.55');
+  doc.y-=48;
+  doc.line(CL+90,doc.y+16,CR-90,doc.y+16);
+  doc.text((doc.w-doc.tw(cust,13))/2,doc.y,cust,13,true);
+  doc.line(CL+90,doc.y-8,CR-90,doc.y-8);
+
+  /* ---- Page 2: cover letter ---- */
+  doc.newPage();crmPdfHeaderBand(doc);
+  doc.y-=6;
+  doc.text(CL,doc.y,cust,10,true);
+  if(q.clientReferenceNo)doc.text(CR-doc.tw(q.clientReferenceNo,9),doc.y,q.clientReferenceNo,9);
+  doc.y-=14;
+  addrLines.forEach(l=>{doc.text(CL,doc.y,l,9);doc.y-=12;});
+  doc.y-=16;
+  doc.text(CL,doc.y,'Attention:',9,true);doc.text(CL+62,doc.y,q.attentionName||'',9,true);doc.y-=15;
+  doc.text(CL,doc.y,'Subject:',9,true);
+  crmPdfPara(doc,CL+62,(q.subject||'')+(q.rfqNo?'  ('+q.rfqNo+')':''),CW-62,9,13,true);
+  doc.y-=10;
+  [
+   'We wish to thank you for the kind courtesy extended to us by inviting us to quote for your esteemed organization.',
+   'We are pleased to submit our prices for the subject stated as above.',
+   'We hope you will find our prices very competitive. If you require any further information or clarification, please do not hesitate to contact us.',
+   'In the meantime, we look to be of service to you and remain.',
+   'With best Regards,'
+  ].forEach(p=>{crmPdfPara(doc,CL,p,CW,9,13);doc.y-=6;});
+  doc.y-=26;
+  doc.text(CL,doc.y,'Zamir Ahmed Khan',9,true);doc.y-=12;
+  doc.text(CL,doc.y,'Chief Operating Officer',8);doc.y-=11;
+  doc.text(CL,doc.y,'Premier Tubular Inspection Service (Pvt.) Ltd.',8);
+
+  /* ---- Page 3: priced table ---- */
+  doc.newPage();crmPdfHeaderBand(doc);
+  doc.y-=10;
+  doc.text(CL,doc.y,'QUOTATION  '+(q.quotationNo||''),12,true,'0.10 0.28 0.55');
+  doc.y-=22;
+  const cols=[
+   {label:'Sr#',w:20},{label:'Equipment Type',w:56},{label:'Category',w:54},{label:'Inspection Description',w:92},
+   {label:'Size',w:52},{label:'Unit',w:28},{label:'Scope',w:47},{label:'Qty',w:24,align:'right'},{label:'Rate',w:68,align:'right'},
+   {label:'Total',w:CW-(20+56+54+92+52+28+47+24+68),align:'right'}
+  ];
+  const rows=q.items.map((it,i)=>[String(i+1),it.equipmentName||'',it.standardName||'',it.itemDescription||'',it.size||'',it.unit||'',it.scope||'Scope',it.qty!=null?String(it.qty):'',money(it.rate),money(it.total)]);
+  crmPdfTable(doc,cols,rows,7.5);
+  doc.y-=6;
+  const rx=CR-190;
+  doc.text(rx,doc.y,'Total Cost',9,true);doc.text(CR-doc.tw(money(q.totalCost),9),doc.y,money(q.totalCost),9);doc.y-=13;
+  doc.text(rx,doc.y,'SRB '+q.srbPercent+'%',9,true);doc.text(CR-doc.tw(money(q.srbAmount),9),doc.y,money(q.srbAmount),9);doc.y-=14;
+  doc.text(rx,doc.y,'GRAND TOTAL ('+(q.currency||'')+')',10,true);doc.text(CR-doc.tw(money(q.grandTotal),10),doc.y,money(q.grandTotal),10,true);
+
+  /* ---- Terms (single flowing section, 1+ pages) ---- */
+  doc.newPage();crmPdfHeaderBand(doc);doc.y-=6;
+  crmPdfTerms(doc,termsHtml,CL,CW);
+
+  return doc;
+}
+async function crmDownloadQuotationPdf(id){
+  try{
+    await crmLoadLogoJpeg();
+    const q=await api('/api/crm/quotations/'+id);
+    const doc=crmBuildQuotationPdf(q,(q.termsHtml||(CRM_CFG&&CRM_CFG.quotationTermsHtml)||''));
+    doc.out('Quotation_'+(q.quotationNo||id).replace(/[^\w-]/g,'_'));
+  }catch(e){toast(e.message,'err');}
+}
+/* ---- Quotation -> Excel (.xlsx) ---- */
+function crmQuotationXlsx(q){
+  const grid=[
+   ['Quotation No.',q.quotationNo||''],['Revision',q.revision],['Date',q.quotationDate||''],
+   ['Customer',q.customerName||''],['RFQ No.',q.rfqNo||''],['Service Type',q.serviceType||''],
+   ['Client Reference No.',q.clientReferenceNo||''],['Attention',q.attentionName||''],['Subject',q.subject||''],
+   ['Currency',q.currency||''],['Status',q.status||''],[],
+   ['Sr#','Equipment Type','Category','Inspection Description','Size','Unit','Spec / Remarks','Scope','Qty','Rate','Total'],
+  ];
+  q.items.forEach((it,i)=>grid.push([i+1,it.equipmentName||'',it.standardName||'',it.itemDescription||'',it.size||'',it.unit||'',it.spec||'',it.scope||'',it.qty!=null?it.qty:'',it.rate!=null?it.rate:'',it.total!=null?it.total:'']));
+  grid.push([]);
+  grid.push(['','','','','','','','','','Total Cost',q.totalCost]);
+  grid.push(['','','','','','','','','','SRB '+q.srbPercent+'%',q.srbAmount]);
+  grid.push(['','','','','','','','','','GRAND TOTAL',q.grandTotal]);
+  return grid.map(r=>r.map(c=>c==null?'':String(c)));
+}
+async function crmDownloadQuotationXlsx(id){
+  try{
+    const q=await api('/api/crm/quotations/'+id);
+    dlXlsx(buildXlsxBlob(crmQuotationXlsx(q)),'Quotation_'+(q.quotationNo||id).replace(/[^\w-]/g,'_')+'.xlsx');
+  }catch(e){toast(e.message,'err');}
+}
+
 /* ---------- Service Catalogue: Equipment -> Standard -> Item Description ---------- */
 const CRM_CURRENCIES=[['AED','UAE Dirham'],['USD','US Dollar'],['PKR','Pakistani Rupee'],['SAR','Saudi Riyal'],['QAR','Qatari Riyal'],['KWD','Kuwaiti Dinar'],['BHD','Bahraini Dinar'],['OMR','Omani Rial'],['EUR','Euro'],['GBP','British Pound'],['INR','Indian Rupee'],['CNY','Chinese Yuan'],['JPY','Japanese Yen'],['CAD','Canadian Dollar'],['AUD','Australian Dollar'],['CHF','Swiss Franc'],['SGD','Singapore Dollar'],['MYR','Malaysian Ringgit'],['IDR','Indonesian Rupiah'],['THB','Thai Baht'],['PHP','Philippine Peso'],['VND','Vietnamese Dong'],['BDT','Bangladeshi Taka'],['LKR','Sri Lankan Rupee'],['NPR','Nepalese Rupee'],['AFN','Afghan Afghani'],['IRR','Iranian Rial'],['IQD','Iraqi Dinar'],['TRY','Turkish Lira'],['EGP','Egyptian Pound'],['JOD','Jordanian Dinar'],['LBP','Lebanese Pound'],['ILS','Israeli Shekel'],['ZAR','South African Rand'],['NGN','Nigerian Naira'],['KES','Kenyan Shilling'],['GHS','Ghanaian Cedi'],['MAD','Moroccan Dirham'],['DZD','Algerian Dinar'],['TND','Tunisian Dinar'],['LYD','Libyan Dinar'],['SDG','Sudanese Pound'],['RUB','Russian Ruble'],['KZT','Kazakhstani Tenge'],['UZS','Uzbekistani Som'],['AZN','Azerbaijani Manat'],['GEL','Georgian Lari'],['UAH','Ukrainian Hryvnia'],['PLN','Polish Zloty'],['CZK','Czech Koruna'],['HUF','Hungarian Forint'],['RON','Romanian Leu'],['SEK','Swedish Krona'],['NOK','Norwegian Krone'],['DKK','Danish Krone'],['NZD','New Zealand Dollar'],['HKD','Hong Kong Dollar'],['KRW','South Korean Won'],['TWD','New Taiwan Dollar'],['BRL','Brazilian Real'],['MXN','Mexican Peso'],['ARS','Argentine Peso'],['CLP','Chilean Peso'],['COP','Colombian Peso'],['PEN','Peruvian Sol']];
-let CRM_EQUIPMENT=[],CRM_STANDARDS=[],CRM_ITEMDESCS=[],CRM_SERVICES=[];
+let CRM_EQUIPMENT=[],CRM_STANDARDS=[],CRM_ITEMDESCS=[];
 async function crmLoadCatalogRef(){
   const ref=await api('/api/crm/equipment-catalog');
   CRM_EQUIPMENT=ref.equipment;CRM_STANDARDS=ref.standards;CRM_ITEMDESCS=ref.itemDescriptions;
 }
+// This screen is purely reference data — there's no priced "Service"
+// record to save. The modal's job is just letting someone add a missing
+// Equipment/Standard/Item Description (each "+ New" saves immediately);
+// this list below is a read-only browse of what's on file.
 async function renderCrmServices(){
   const c=document.getElementById('content');
-  c.innerHTML='<div class="card"><div class="card-h">Service Catalogue<span class="hint" style="font-weight:400"> — Equipment → Standard → Item Description</span>'+
-   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmsvc-search" placeholder="Search code, equipment, standard…" oninput="crmFilterServices()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px">'+
+  c.innerHTML='<div class="card"><div class="card-h">Service Catalogue<span class="hint" style="font-weight:400"> — Equipment → Standard → Item Description reference data</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px">'+
    '<button class="btn ghost" onclick="crmOpenServiceImport()">⇪ Import Equipment Catalog</button>'+
-   '<button class="btn" onclick="crmOpenServiceForm(null)">+ Add Service</button></span></div>'+
+   '<button class="btn" onclick="crmOpenServiceForm()">+ Add Equipment / Standard / Item</button></span></div>'+
    '<div class="card-b"><div id="crmsvc-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
     await crmLoadCatalogRef();
-    CRM_SERVICES=await api('/api/crm/services');
-    crmFilterServices();
+    crmRenderCatalogBrowse();
   }catch(e){const el=document.getElementById('crmsvc-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
-function crmFilterServices(){
-  const qEl=document.getElementById('crmsvc-search');const q=qEl?qEl.value.trim().toLowerCase():'';
-  const rows=CRM_SERVICES.filter(s=>!q||[s.code,s.equipmentName,s.standardName,s.itemDescription].some(v=>(v||'').toLowerCase().includes(q)));
-  const body='<table><thead><tr><th>Code</th><th>Equipment</th><th>Standard</th><th>Item Description</th><th>UoM</th><th class="num">Rate</th><th>Currency</th><th class="num">Min Qty</th><th>Status</th></tr></thead><tbody>'+
-   rows.map(s=>'<tr style="cursor:pointer" onclick="crmOpenServiceForm('+s.id+')"><td><b>'+esc(s.code)+'</b></td><td>'+esc(s.equipmentName||'')+'</td><td>'+esc(s.standardName||'')+'</td><td>'+esc((s.itemDescription||'').slice(0,60))+((s.itemDescription||'').length>60?'…':'')+'</td><td>'+esc(s.uom||'')+'</td><td class="num">'+esc(s.standardRate||'')+'</td><td>'+esc(s.currency||'')+'</td><td class="num">'+esc(s.minQty||'')+'</td>'+
-    '<td><span class="pill '+(s.status==='Active'?'g':s.status==='Discontinued'?'r':'')+'">'+esc(s.status||'')+'</span></td></tr>').join('')+
+function crmRenderCatalogBrowse(){
+  const el=document.getElementById('crmsvc-list');if(!el)return;
+  if(!CRM_EQUIPMENT.length){el.innerHTML='<div class="empty">No equipment catalog yet — import the CSV or add entries manually.</div>';return;}
+  const body='<table><thead><tr><th>Equipment</th><th class="num">Standards</th><th class="num">Item Descriptions</th></tr></thead><tbody>'+
+   CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e=>{
+    const stds=CRM_STANDARDS.filter(s=>s.equipmentId===e.id);
+    const itemCount=stds.reduce((n,s)=>n+CRM_ITEMDESCS.filter(it=>it.standardId===s.id).length,0);
+    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+stds.length+'</td><td class="num">'+itemCount+'</td></tr>';
+   }).join('')+
    '</tbody></table>';
-  const el=document.getElementById('crmsvc-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No services yet — import the Equipment Catalog CSV or add one manually.</div>';
+  el.innerHTML=body;
 }
-let CRM_SVC_EDIT=null;
 // Searchable Equipment/Standard/Item Description combos — a plain <select>
 // gets unusable once a list runs into the hundreds (Calibration alone has
 // 500+ items), so these are a text-input + filtered-list widget instead:
@@ -3406,57 +4016,16 @@ async function crmSvcAddItemDesc(){
     crmSvcPick('itemdesc',it.id,it.description);
   }catch(err){toast(err.message,'err');}
 }
-function crmOpenServiceForm(id){
-  CRM_SVC_EDIT=id?CRM_SERVICES.find(s=>s.id===id):null;
-  const s=CRM_SVC_EDIT||{};
-  document.getElementById('crmsvc-modal-title').textContent=CRM_SVC_EDIT?'Edit Service':'Add Service';
-  document.getElementById('sv-equipment').value=s.equipmentId||'';
-  document.getElementById('sv-equipment-q').value=s.equipmentName||'';
-  document.getElementById('sv-standard').value=s.standardId||'';
-  document.getElementById('sv-standard-q').value=s.standardName||'';
-  document.getElementById('sv-itemdesc').value=s.itemDescriptionId||'';
-  document.getElementById('sv-itemdesc-q').value=s.itemDescription||'';
+function crmOpenServiceForm(){
+  document.getElementById('sv-equipment').value='';document.getElementById('sv-equipment-q').value='';
+  document.getElementById('sv-standard').value='';document.getElementById('sv-standard-q').value='';
+  document.getElementById('sv-itemdesc').value='';document.getElementById('sv-itemdesc-q').value='';
   ['equipment','standard','itemdesc'].forEach(k=>document.getElementById('sv-'+k+'-list').style.display='none');
-  document.getElementById('sv-code').value=s.code||'';
-  document.getElementById('sv-status').value=s.status||'Active';
-  document.getElementById('sv-uom').value=s.uom||'';
-  document.getElementById('sv-rate').value=s.standardRate||'';
-  document.getElementById('sv-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]===(s.currency||'AED')?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
-  document.getElementById('sv-minqty').value=s.minQty||'';
-  document.getElementById('crmsvc-delete-btn').style.display=CRM_SVC_EDIT?'':'none';
-  document.getElementById('crmsvc-err').style.display='none';
   openModal('crmsvcmodal');
 }
-async function crmSvcSave(){
-  const err=document.getElementById('crmsvc-err');err.style.display='none';
-  const equipmentId=+document.getElementById('sv-equipment').value||null;
-  const standardId=+document.getElementById('sv-standard').value||null;
-  const itemDescriptionId=+document.getElementById('sv-itemdesc').value||null;
-  if(!equipmentId)return showErrEl(err,'Please select an Equipment.');
-  if(!standardId)return showErrEl(err,'Please select a Standard.');
-  if(!itemDescriptionId)return showErrEl(err,'Please select an Item Description.');
-  const body={
-    equipmentId,standardId,itemDescriptionId,code:document.getElementById('sv-code').value.trim()||undefined,
-    status:document.getElementById('sv-status').value,uom:document.getElementById('sv-uom').value.trim(),
-    standardRate:document.getElementById('sv-rate').value||null,
-    currency:(document.getElementById('sv-currency').value||'').split(' — ')[0],
-    minQty:document.getElementById('sv-minqty').value||null,
-  };
-  try{
-    if(CRM_SVC_EDIT)await api('/api/crm/services/'+CRM_SVC_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
-    else await api('/api/crm/services',{method:'POST',body:JSON.stringify(body)});
-    closeModal('crmsvcmodal');toast('Service saved.','ok');
-    await renderCrmServices();
-  }catch(e){showErrEl(err,e.message);}
-}
-async function crmSvcDelete(){
-  if(!CRM_SVC_EDIT)return;
-  if(!confirm('Delete service "'+CRM_SVC_EDIT.code+'"?'))return;
-  try{
-    await api('/api/crm/services/'+CRM_SVC_EDIT.id,{method:'DELETE'});
-    closeModal('crmsvcmodal');toast('Service deleted.','ok');
-    await renderCrmServices();
-  }catch(e){toast(e.message,'err');}
+function crmSvcModalDone(){
+  closeModal('crmsvcmodal');
+  crmRenderCatalogBrowse(); // reflect anything added while the modal was open
 }
 function crmOpenServiceImport(){
   document.getElementById('crmsvcimport-file').value='';
@@ -4047,8 +4616,8 @@ PdfDoc.prototype={
    const imgIds=this.imgs.map(im=>add({stream:im.bin,dict:'<< /Type /XObject /Subtype /Image /Width '+im.iw+' /Height '+im.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.bin.length+' >>'}));
    const pageIds=[];const contentIds=[];
    this.pages.forEach((p,pi)=>{
-     const foot='BT /F1 7 Tf 0.5 0.5 0.55 rg '+(this.w/2-30).toFixed(1)+' '+(this.mB-18)+' Td (Page '+(pi+1)+' of '+this.pages.length+' - Premier ERP) Tj ET';
-     const cs=p.ops.join('\n')+'\n'+foot;
+     const foot=this.noFooter?'':('BT /F1 7 Tf 0.5 0.5 0.55 rg '+(this.w/2-30).toFixed(1)+' '+(this.mB-18)+' Td (Page '+(pi+1)+' of '+this.pages.length+' - Premier ERP) Tj ET');
+     const cs=p.ops.join('\n')+(foot?'\n'+foot:'');
      contentIds.push(add({stream:enc(cs),dict:'<< /Length '+enc(cs).length+' >>'}));
    });
    const pagesId=objs.length+this.pages.length+1;
@@ -5006,7 +5575,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -5015,7 +5584,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
