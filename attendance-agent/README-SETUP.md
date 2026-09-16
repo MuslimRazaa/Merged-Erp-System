@@ -78,15 +78,50 @@ nssm stop ERP-Attendance-Agent
 nssm remove ERP-Attendance-Agent confirm
 ```
 
+## Adding a second (or third) office's machine
+This one process can poll multiple K70s — including ones reachable over
+the internet on a public IP (an office LAN address like `192.168.x.x`
+isn't required, just something the agent can reach). To add one:
+
+1. Open the same `.env` this agent already uses — **don't touch** the
+   existing `DEVICE_IP` / `DEVICE_PORT` lines, those stay exactly as-is.
+2. Append a new numbered block, e.g. for an Islamabad machine:
+   ```
+   DEVICE_2_NAME=Islamabad
+   DEVICE_2_IP=182.180.59.128
+   DEVICE_2_PORT=4370
+   ```
+   A third machine would be `DEVICE_3_NAME` / `DEVICE_3_IP` / `DEVICE_3_PORT`, and so on.
+3. Restart the service:
+   ```powershell
+   nssm restart ERP-Attendance-Agent
+   ```
+4. Check the log — the startup line lists every device it's now polling,
+   and each poll's log lines are tagged with the device name, e.g.
+   `[Islamabad] Pushed 3 punch(es)`.
+
+Each device gets its own independent "already synced up to" tracker
+(`state.json` for the original device, `state-islamabad.json` for the one
+above, etc.), so adding a new device can never disturb an already-running
+one, and each device does its own first-run baseline (see below)
+independently.
+
 ## Notes
 - `state.json` (created automatically next to `agent.js`) remembers the
   last punch time already sent, so restarting the agent never re-sends
   everything — it only ever asks the backend to save what's new (and the
-  backend itself also de-duplicates, as a second safety net).
+  backend itself also de-duplicates, as a second safety net). A second
+  device gets its own `state-<name>.json` file instead — see above.
 - On the very first run, existing history already stored on the K70 is
   **not** imported by default (to avoid flooding the backend on day one).
-  To import full history once, set `BACKFILL_ALL=true` in `.env`, delete
-  `state.json` if it exists, and run the agent once.
+  To pull in history that's already on the device once:
+  - **Everything** the device has: set `BACKFILL_ALL=true` in `.env`.
+  - **From a specific date onward** (e.g. "give me 21 August onward"):
+    set `BACKFILL_SINCE=2026-08-21` instead.
+  Either way: delete that device's state file (`state.json` for device 1,
+  `state-<name>.json` for the others) so it looks like a first run again,
+  then start/restart the agent once. It only takes effect on that one
+  first run — after that, normal since-last-sync behaviour resumes.
 - Employees must be enrolled on the K70 using the **same ID** as their
   `employee_id` in the ERP/ISO system (e.g. `1878`) — that's how a punch
   gets matched to the right person. A punch from an unrecognised ID still

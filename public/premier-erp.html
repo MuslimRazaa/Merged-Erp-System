@@ -557,7 +557,7 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
-  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_rfqs',ic:'✉',name:'RFQs'},{id:'crm_quotations',ic:'▤',name:'Quotations'}],
+  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
@@ -569,11 +569,28 @@ let route=lsGet('ui_route','dashboard');
 // A group not listed here keeps the old default (all EXTRA_NAV items,
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
-  'CRM':['crm_customers','crm_services','crm_rfqs','crm_quotations','salesorders','leads','activities'],
+  'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
 };
+let NAV_EXPANDED=new Set();
 function navExtraItemHtml(x){
   const badge=(x.id==='leave_requests'&&LEAVE_PENDING_COUNT>0)?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
-  return '<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')" style="display:flex;align-items:center;gap:6px"><span class="ic">'+x.ic+'</span>'+x.name+badge+'</button>';
+  if(!x.children||!x.children.length){
+    return '<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')" style="display:flex;align-items:center;gap:6px"><span class="ic">'+x.ic+'</span>'+x.name+badge+'</button>';
+  }
+  // has a dropdown — auto-open it while a child route is active, otherwise
+  // remember whatever the user last toggled.
+  const childActive=x.children.some(c=>route===c.id);
+  const open=childActive||NAV_EXPANDED.has(x.id);
+  const chev='<span onclick="event.stopPropagation();navToggleExpand(\''+x.id+'\')" style="margin-left:auto;padding:0 4px;cursor:pointer;transition:transform .15s'+(open?';transform:rotate(90deg)':'')+'">▸</span>';
+  let html='<button class="nitem'+(route===x.id?' on':'')+'" onclick="go(\''+x.id+'\')" style="display:flex;align-items:center;gap:6px"><span class="ic">'+x.ic+'</span>'+x.name+badge+chev+'</button>';
+  if(open){
+    html+=x.children.map(c=>'<button class="nitem'+(route===c.id?' on':'')+'" onclick="go(\''+c.id+'\')" style="display:flex;align-items:center;gap:6px;padding-left:30px;font-size:12.5px"><span class="ic">'+c.ic+'</span>'+c.name+'</button>').join('');
+  }
+  return html;
+}
+function navToggleExpand(id){
+  if(NAV_EXPANDED.has(id))NAV_EXPANDED.delete(id);else NAV_EXPANDED.add(id);
+  nav();
 }
 function navModuleItemHtml(k,m){
   return '<button class="nitem'+(route==='m_'+k?' on':'')+'" onclick="go(\'m_'+k+'\')"><span class="ic">'+m.ic+'</span>'+m.name+'</button>';
@@ -811,6 +828,18 @@ async function renderUsers(){
 }
 /* ---------- Live Attendance (ZKTeco K70, via backend/routes/attendance.js) ---------- */
 let ATT_ROWS=[];
+// Location comes from the employee's own record (Human Resources -> Employees),
+// not the punch itself — a punch is just linked to an employee id, and that
+// employee's location tells us which office/machine it belongs to.
+function attEmpLocation(employeeId,employeeCode){
+  const emps=coll('employees');
+  const e=(employeeId!=null&&emps.find(e=>e.id===employeeId))||emps.find(e=>e.empno===employeeCode);
+  return e&&e.location?e.location:'';
+}
+function attLocations(){
+  const set=new Set(coll('employees').map(e=>e.location).filter(Boolean));
+  return [...set].sort();
+}
 function attInitials(name){return String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();}
 function attAvatar(r,nameField){
   const unmapped=r.unmapped;
@@ -825,13 +854,16 @@ function attEmpCell(r,nameField,codeField){
 }
 async function renderLiveAttendance(){
   const from=window.__attFrom||today(),to=window.__attTo||today(),q=window.__attQ||'',view=window.__attView||'raw';
+  const loc=window.__attLoc||'';
   const sameDay=from===to;
   const c=document.getElementById('content');
+  const locs=attLocations();
   c.innerHTML='<div class="card"><div class="card-h">Live Attendance <span class="hint" style="font-weight:400">— real-time from the ZKTeco attendance machine</span></div><div class="card-b">'+
    '<div class="fgrid" style="margin-bottom:16px">'+
    '<div class="field"><label>From</label><input type="date" id="att-from" value="'+from+'"></div>'+
    '<div class="field"><label>To</label><input type="date" id="att-to" value="'+to+'"></div>'+
    '<div class="field" style="flex:1;min-width:180px"><label>Search employee (ID or name)</label><input id="att-q" value="'+esc(q)+'" placeholder="e.g. 1878 or Ahmed" onkeydown="if(event.key===\'Enter\')attApply()"></div>'+
+   (locs.length?'<div class="field"><label>Location</label><select id="att-loc" onchange="attApply()"><option value="">All locations</option>'+locs.map(l=>'<option value="'+esc(l)+'"'+(l===loc?' selected':'')+'>'+esc(l)+'</option>').join('')+'</select></div>':'')+
    '<div class="field" style="align-self:end"><button class="btn" onclick="attApply()">⌕ Search</button></div>'+
    '<div class="field" style="align-self:end"><button class="btn ghost" onclick="attExportCsv()">⬇ Export to Excel</button></div>'+
    '</div>'+
@@ -848,7 +880,12 @@ async function renderLiveAttendance(){
   try{
     let url='/api/attendance/'+(view==='raw'?'logs':'summary')+'?from='+from+'&to='+to;
     if(q)url+='&q='+encodeURIComponent(q);
-    const rows=await api(url);
+    let rows=await api(url);
+    if(loc){
+      rows=rows.filter(r=>view==='raw'
+        ?attEmpLocation(r.employeeId,r.employeeCode)===loc
+        :(r.location||'')===loc);
+    }
     ATT_ROWS=rows;
 
     if(view==='raw'){
@@ -952,6 +989,8 @@ function attApply(){
   window.__attFrom=document.getElementById('att-from').value||today();
   window.__attTo=document.getElementById('att-to').value||today();
   window.__attQ=document.getElementById('att-q').value.trim();
+  const locEl=document.getElementById('att-loc');
+  window.__attLoc=locEl?locEl.value:'';
   renderLiveAttendance();
 }
 function attExportCsv(){
@@ -3148,9 +3187,8 @@ async function crmDeleteCustomer(){
 let CRM_RFQS=[],CRM_RFQ_EDIT=null,CRM_RFQ_ITEMS=[];
 async function renderCrmRfqs(){
   const c=document.getElementById('content');
-  c.innerHTML='<div class="card"><div class="card-h">RFQs<span class="hint" style="font-weight:400"> — Request for Quotation intake</span>'+
-   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmrfq-search" placeholder="Search RFQ no., customer or subject" oninput="crmFilterRfqs()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px">'+
-   '<button class="btn" onclick="crmOpenRfqQuotation()">+ RFQ / Quotation</button></span></div>'+
+  c.innerHTML='<div class="card"><div class="card-h">RFQs<span class="hint" style="font-weight:400"> — generated automatically from Quotations</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmrfq-search" placeholder="Search RFQ no., customer or subject" oninput="crmFilterRfqs()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px"></span></div>'+
    '<div class="card-b"><div id="crmrfq-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
     await crmLoadCustomers();

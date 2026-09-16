@@ -35,18 +35,27 @@ const path = require('path');
 const ZKLib = require('node-zklib');
 const { REQUEST_DATA, COMMANDS } = require('node-zklib/constants');
 
-const DEVICE_IP = process.env.DEVICE_IP || '192.168.30.64';
-const DEVICE_PORT = +(process.env.DEVICE_PORT || 4370);
 const POLL_INTERVAL_MS = Math.max(5, +(process.env.POLL_INTERVAL_SECONDS || 20)) * 1000;
 const BACKEND_URL = (process.env.BACKEND_URL || '').replace(/\/+$/, '');
 const AGENT_KEY = process.env.AGENT_KEY || '';
 const BACKFILL_ALL = String(process.env.BACKFILL_ALL || '').toLowerCase() === 'true';
+// Only matters on a device's very first run (no state file yet). Import
+// everything from this date onward instead of either "nothing existing"
+// (the default) or "absolutely everything ever" (BACKFILL_ALL=true).
+// e.g. BACKFILL_SINCE=2026-08-21 — only takes effect if BACKFILL_ALL isn't
+// also set (BACKFILL_ALL wins, since it means "literally all of it").
+let BACKFILL_SINCE = null;
+if (!BACKFILL_ALL && process.env.BACKFILL_SINCE) {
+  const d = new Date(process.env.BACKFILL_SINCE);
+  if (isNaN(d.getTime())) console.error(`[WARN] BACKFILL_SINCE="${process.env.BACKFILL_SINCE}" isn't a valid date (use YYYY-MM-DD) — ignoring it.`);
+  else BACKFILL_SINCE = d;
+}
 // Leave unset (default) to auto-detect the device's clock error every poll
 // by asking the device its own idea of the current time (CMD_GET_TIME)
 // and comparing to this VM's clock — see detectTimeOffsetHours() below.
 // Only set this if auto-detect isn't reliable for some reason (e.g. the
 // VM's own clock is also wrong) — then it's used as a fixed override
-// instead, in hours, and can be negative.
+// instead, in hours, and can be negative. Applies to every device.
 const MANUAL_TIME_OFFSET_HOURS = process.env.TIME_OFFSET_HOURS === undefined || process.env.TIME_OFFSET_HOURS === ''
   ? null : +process.env.TIME_OFFSET_HOURS;
 
@@ -55,18 +64,58 @@ if (!BACKEND_URL || !AGENT_KEY) {
   process.exit(1);
 }
 
-const STATE_FILE = path.join(__dirname, 'state.json');
+// One agent process can poll several K70s (one per office) — each gets its
+// own IP/port and its own state.json-equivalent so their "last synced"
+// marks never collide. Device 1 keeps using the original, unnumbered
+// DEVICE_IP/DEVICE_PORT/state.json (so an existing .env — e.g. the
+// Karachi machine already deployed — needs zero changes); every device
+// after that is added purely by appending DEVICE_2_IP, DEVICE_3_IP, ...
+// to the same .env, nothing existing is touched.
+function slugify(name, fallback) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || fallback;
+}
+function parseDevices() {
+  const devices = [];
+  if (process.env.DEVICE_IP || !process.env.DEVICE_1_IP) {
+    devices.push({
+      name: process.env.DEVICE_NAME || 'Device 1',
+      ip: process.env.DEVICE_IP || '192.168.30.64',
+      port: +(process.env.DEVICE_PORT || 4370),
+      stateFile: path.join(__dirname, 'state.json'),
+    });
+  }
+  if (process.env.DEVICE_1_IP && !process.env.DEVICE_IP) {
+    devices.push({
+      name: process.env.DEVICE_1_NAME || 'Device 1',
+      ip: process.env.DEVICE_1_IP,
+      port: +(process.env.DEVICE_1_PORT || 4370),
+      stateFile: path.join(__dirname, `state-${slugify(process.env.DEVICE_1_NAME || 'device-1', 'device-1')}.json`),
+    });
+  }
+  let i = 2; // device 1 (whichever form it took) is always already pushed above
+  while (process.env[`DEVICE_${i}_IP`]) {
+    const name = process.env[`DEVICE_${i}_NAME`] || `Device ${i}`;
+    devices.push({
+      name,
+      ip: process.env[`DEVICE_${i}_IP`],
+      port: +(process.env[`DEVICE_${i}_PORT`] || 4370),
+      stateFile: path.join(__dirname, `state-${slugify(name, `device-${i}`)}.json`),
+    });
+    i++;
+  }
+  return devices;
+}
 
-function loadState() {
-  try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); }
+function loadState(stateFile) {
+  try { return JSON.parse(fs.readFileSync(stateFile, 'utf8')); }
   catch (e) { return { lastSyncTime: null }; }
 }
-function saveState(state) {
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+function saveState(stateFile, state) {
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
 }
 
-function log(msg) {
-  console.log(`[${new Date().toISOString()}] ${msg}`);
+function log(tag, msg) {
+  console.log(`[${new Date().toISOString()}] [${tag}] ${msg}`);
 }
 
 /* ---------------- ZKTeco packed-time decode (documented 24-hour encoding, no AM/PM concept) ---------------- */
@@ -117,12 +166,13 @@ async function getAttendancesRaw(zk) {
   return { data: records, err: data.err };
 }
 
-async function pollOnce(state) {
-  const zk = new ZKLib(DEVICE_IP, DEVICE_PORT, 10000, 4000);
+async function pollOnce(device, state) {
+  const tag = device.name;
+  const zk = new ZKLib(device.ip, device.port, 10000, 4000);
   try {
     await zk.createSocket();
   } catch (e) {
-    log(`Could not reach the K70 at ${DEVICE_IP}:${DEVICE_PORT} — ${e.message}. Will retry next poll.`);
+    log(tag, `Could not reach the K70 at ${device.ip}:${device.port} — ${e.message}. Will retry next poll.`);
     return;
   }
 
@@ -138,29 +188,38 @@ async function pollOnce(state) {
       try {
         const deviceNow = await getDeviceTime(zk);
         offsetHours = Math.round((Date.now() - deviceNow.getTime()) / 3600000);
-        if (offsetHours) log(`Device clock is off by ${offsetHours}h vs this VM (device says ${deviceNow.toString()}) — auto-correcting.`);
+        if (offsetHours) log(tag, `Device clock is off by ${offsetHours}h vs this VM (device says ${deviceNow.toString()}) — auto-correcting.`);
       } catch (e) {
-        log(`Could not read the device's clock (CMD_GET_TIME failed: ${e.message}) — leaving timestamps uncorrected this poll.`);
+        log(tag, `Could not read the device's clock (CMD_GET_TIME failed: ${e.message}) — leaving timestamps uncorrected this poll.`);
       }
     }
 
     const { data: records, err } = await getAttendancesRaw(zk);
-    if (err) log(`Device reported a partial-read warning: ${err.message || err}`);
+    if (err) log(tag, `Device reported a partial-read warning: ${err.message || err}`);
     if (offsetHours) records.forEach((r) => { r.recordTime = new Date(r.recordTime.getTime() + offsetHours * 3600000); });
 
-    // First-ever run: establish a baseline instead of flooding the backend
-    // with the device's entire history (unless BACKFILL_ALL=true).
-    if (!state.lastSyncTime && !BACKFILL_ALL) {
-      const latest = records.reduce((max, r) => (r.recordTime > max ? r.recordTime : max), new Date(0));
-      state.lastSyncTime = (records.length ? latest : new Date()).toISOString();
-      saveState(state);
-      log(`First run — baseline set to ${state.lastSyncTime} (existing ${records.length} punches on the device were NOT imported). Set BACKFILL_ALL=true and delete state.json to import full history instead.`);
-      return;
+    // First-ever run (no state file yet): default is a baseline only —
+    // nothing existing on the device gets imported, to avoid flooding the
+    // backend with old history on day one. BACKFILL_ALL=true imports
+    // literally everything; BACKFILL_SINCE=YYYY-MM-DD imports only from
+    // that date onward (e.g. "give me data from 21 August onward").
+    let since;
+    if (!state.lastSyncTime) {
+      if (BACKFILL_ALL) since = new Date(0);
+      else if (BACKFILL_SINCE) since = BACKFILL_SINCE;
+      else {
+        const latest = records.reduce((max, r) => (r.recordTime > max ? r.recordTime : max), new Date(0));
+        state.lastSyncTime = (records.length ? latest : new Date()).toISOString();
+        saveState(device.stateFile, state);
+        log(tag, `First run — baseline set to ${state.lastSyncTime} (existing ${records.length} punches on the device were NOT imported). Set BACKFILL_ALL=true (everything) or BACKFILL_SINCE=YYYY-MM-DD (from a specific date), delete ${path.basename(device.stateFile)}, and restart to import history instead.`);
+        return;
+      }
+    } else {
+      since = new Date(state.lastSyncTime);
     }
 
-    const since = state.lastSyncTime ? new Date(state.lastSyncTime) : new Date(0);
     const fresh = records.filter((r) => r.recordTime > since);
-    if (!fresh.length) { log(`No new punches (device has ${records.length} total).`); return; }
+    if (!fresh.length) { log(tag, `No new punches (device has ${records.length} total).`); return; }
 
     // Names registered directly on the device — so a punch from someone
     // not yet added in the ERP still shows a real name (flagged
@@ -171,7 +230,7 @@ async function pollOnce(state) {
       const { data: users } = await zk.getUsers();
       nameByDeviceId = Object.fromEntries(users.map((u) => [u.userId, u.name]));
     } catch (e) {
-      log(`Could not read the device's user list (names will be blank for unmapped punches): ${e.message}`);
+      log(tag, `Could not read the device's user list (names will be blank for unmapped punches): ${e.message}`);
     }
 
     const punches = fresh.map((r) => ({
@@ -188,24 +247,35 @@ async function pollOnce(state) {
       body: JSON.stringify({ punches }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) { log(`Backend rejected the push (HTTP ${res.status}): ${body.error || res.statusText}. Will retry next poll.`); return; }
+    if (!res.ok) { log(tag, `Backend rejected the push (HTTP ${res.status}): ${body.error || res.statusText}. Will retry next poll.`); return; }
 
     const latest = fresh.reduce((max, r) => (r.recordTime > max ? r.recordTime : max), since);
     state.lastSyncTime = latest.toISOString();
-    saveState(state);
-    log(`Pushed ${fresh.length} punch(es) — saved=${body.saved} skipped(duplicates)=${body.skipped}. Latest: ${latest.toString()}`);
+    saveState(device.stateFile, state);
+    log(tag, `Pushed ${fresh.length} punch(es) — saved=${body.saved} skipped(duplicates)=${body.skipped}. Latest: ${latest.toString()}`);
   } catch (e) {
-    log(`Poll failed: ${e.message}. Will retry next poll.`);
+    log(tag, `Poll failed: ${e.message}. Will retry next poll.`);
   } finally {
     try { await zk.disconnect(); } catch (e) { /* already gone */ }
   }
 }
 
-async function loop() {
-  const state = loadState();
-  await pollOnce(state);
-  setTimeout(loop, POLL_INTERVAL_MS);
+async function loop(devices) {
+  // sequential, not parallel — keeps log output readable and avoids piling
+  // up concurrent TCP sessions if one device is slow/unreachable.
+  for (const device of devices) {
+    const state = loadState(device.stateFile);
+    await pollOnce(device, state);
+  }
+  setTimeout(() => loop(devices), POLL_INTERVAL_MS);
 }
 
-log(`ERP Attendance Agent starting — device ${DEVICE_IP}:${DEVICE_PORT}, backend ${BACKEND_URL}, polling every ${POLL_INTERVAL_MS / 1000}s.`);
-loop();
+const DEVICES = parseDevices();
+if (!DEVICES.length) {
+  console.error('[FATAL] No device configured — set DEVICE_IP (or DEVICE_1_IP) in .env.');
+  process.exit(1);
+}
+console.log(`[${new Date().toISOString()}] ERP Attendance Agent starting — ${DEVICES.length} device(s): ` +
+  DEVICES.map((d) => `${d.name} (${d.ip}:${d.port})`).join(', ') +
+  ` — backend ${BACKEND_URL}, polling every ${POLL_INTERVAL_MS / 1000}s.`);
+loop(DEVICES);
