@@ -243,32 +243,35 @@ async function computeAttendanceRows(from, to, filter = {}) {
 
   // Field jobs (job_log_entries — the shared JLR/Job Log Register table,
   // read-only here) stand in for machine attendance on days someone was out
-  // on a job instead of at an office with a K70. There's no employee_id on
-  // that table (it predates this integration and is free-text), so a job's
-  // Inspector / Inspector Team names are matched against employees.full_name
-  // — exact match, or a whole-word match either direction (so "Wahaj" in a
-  // team field matches full_name "Wahaj Ahmed", and vice versa). Best-effort
-  // by design: HR can see which job justified a "Field" day from fieldJobRef.
+  // on a job instead of at an office with a K70. As of the JLR "Add Entry"
+  // form now offering the full ERP employee roster directly in its
+  // Inspector Name / Team Member dropdowns (see JobLogLookup.getEmployeeRoster
+  // on the ISO side), a job's free-text name is matched EXACTLY (case/space-
+  // normalized) against employees.full_name — no manual linking step needed:
+  // if it was picked from that dropdown, the text is already the employee's
+  // real name. A labour/helper added via JLR's own "+ Add" (not from the
+  // employee roster) simply won't match anything here, so never affects
+  // attendance — exactly as intended. Job entries made before this roster
+  // integration existed are untouched and matched the same way; they just
+  // won't produce a Field day unless their free-text name happens to equal
+  // an employee's exact full_name.
   const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
   const splitTeamNames = (s) => String(s || '').split(/[+,;\/\n]|\band\b|&/i).map(normName).filter(Boolean);
-  const namesMatch = (a, b) => {
-    if (!a || !b || a.length < 3 || b.length < 3) return false;
-    if (a === b) return true;
-    const pad = (x) => ' ' + x + ' ';
-    return pad(b).includes(pad(a)) || pad(a).includes(pad(b));
-  };
   const fieldJobByEmpDate = new Map(); // "empId|YYYY-MM-DD" -> {client, workOrder, location}
-  const [jobRows] = await pool.query(
-    `SELECT inspector_name, inspector_team, start_date, end_date, client, work_order, location
-     FROM job_log_entries WHERE start_date IS NOT NULL AND start_date <= ? AND COALESCE(end_date, start_date) >= ?`,
-    [to, from]
-  );
-  if (jobRows.length) {
-    const empNorm = employees.map((e) => ({ id: e.id, norm: normName(e.full_name) })).filter((e) => e.norm);
+  const empIdByExactName = new Map();
+  for (const emp of employees) {
+    const n = normName(emp.full_name);
+    if (n) empIdByExactName.set(n, emp.id);
+  }
+  if (empIdByExactName.size) {
+    const [jobRows] = await pool.query(
+      `SELECT inspector_name, inspector_team, start_date, end_date, client, work_order, location
+       FROM job_log_entries WHERE start_date IS NOT NULL AND start_date <= ? AND COALESCE(end_date, start_date) >= ?`,
+      [to, from]
+    );
     for (const j of jobRows) {
       const tokens = [normName(j.inspector_name), ...splitTeamNames(j.inspector_team)].filter(Boolean);
-      if (!tokens.length) continue;
-      const matchedIds = empNorm.filter((e) => tokens.some((t) => namesMatch(t, e.norm))).map((e) => e.id);
+      const matchedIds = [...new Set(tokens.map((t) => empIdByExactName.get(t)).filter(Boolean))];
       if (!matchedIds.length) continue;
       const jStart = parseYMD(j.start_date);
       const jEnd = j.end_date ? parseYMD(j.end_date) : jStart;
