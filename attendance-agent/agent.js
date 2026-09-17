@@ -239,6 +239,7 @@ async function pollOnce(device, state) {
       timestamp: r.recordTime.toISOString(),
       verifyMode: r.verifyType,
       inOutMode: r.verifyState,
+      location: device.name,
     }));
 
     const res = await fetch(`${BACKEND_URL}/api/attendance/ingest`, {

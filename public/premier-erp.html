@@ -828,17 +828,14 @@ async function renderUsers(){
 }
 /* ---------- Live Attendance (ZKTeco K70, via backend/routes/attendance.js) ---------- */
 let ATT_ROWS=[];
-// Location comes from the employee's own record (Human Resources -> Employees),
-// not the punch itself — a punch is just linked to an employee id, and that
-// employee's location tells us which office/machine it belongs to.
-function attEmpLocation(employeeId,employeeCode){
-  const emps=coll('employees');
-  const e=(employeeId!=null&&emps.find(e=>e.id===employeeId))||emps.find(e=>e.empno===employeeCode);
-  return e&&e.location?e.location:'';
-}
-function attLocations(){
-  const set=new Set(coll('employees').map(e=>e.location).filter(Boolean));
-  return [...set].sort();
+// Location is auto-detected from which physical machine each punch came
+// from (agent.js's DEVICE_NAME/DEVICE_2_NAME/..., e.g. "Karachi"/"Islamabad")
+// — no per-employee setup needed. /api/attendance/locations lists every
+// location seen so far; cached here and refreshed each time it's fetched.
+let ATT_LOCATIONS=[];
+async function attLoadLocations(){
+  try{ATT_LOCATIONS=await api('/api/attendance/locations');}catch(e){/* keep last-known list on failure */}
+  return ATT_LOCATIONS;
 }
 function attInitials(name){return String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();}
 function attAvatar(r,nameField){
@@ -857,13 +854,13 @@ async function renderLiveAttendance(){
   const loc=window.__attLoc||'';
   const sameDay=from===to;
   const c=document.getElementById('content');
-  const locs=attLocations();
+  const locs=ATT_LOCATIONS; // last-known list; refreshed below once the fetch below completes
   c.innerHTML='<div class="card"><div class="card-h">Live Attendance <span class="hint" style="font-weight:400">— real-time from the ZKTeco attendance machine</span></div><div class="card-b">'+
    '<div class="fgrid" style="margin-bottom:16px">'+
    '<div class="field"><label>From</label><input type="date" id="att-from" value="'+from+'"></div>'+
    '<div class="field"><label>To</label><input type="date" id="att-to" value="'+to+'"></div>'+
    '<div class="field" style="flex:1;min-width:180px"><label>Search employee (ID or name)</label><input id="att-q" value="'+esc(q)+'" placeholder="e.g. 1878 or Ahmed" onkeydown="if(event.key===\'Enter\')attApply()"></div>'+
-   (locs.length?'<div class="field"><label>Location</label><select id="att-loc" onchange="attApply()"><option value="">All locations</option>'+locs.map(l=>'<option value="'+esc(l)+'"'+(l===loc?' selected':'')+'>'+esc(l)+'</option>').join('')+'</select></div>':'')+
+   '<div class="field"><label>Location</label><select id="att-loc" onchange="attApply()"><option value="">All locations</option>'+locs.map(l=>'<option value="'+esc(l)+'"'+(l===loc?' selected':'')+'>'+esc(l)+'</option>').join('')+'</select>'+(locs.length?'':'<span class="hint">Detected automatically once a machine pushes its first punch.</span>')+'</div>'+
    '<div class="field" style="align-self:end"><button class="btn" onclick="attApply()">⌕ Search</button></div>'+
    '<div class="field" style="align-self:end"><button class="btn ghost" onclick="attExportCsv()">⬇ Export to Excel</button></div>'+
    '</div>'+
@@ -880,13 +877,13 @@ async function renderLiveAttendance(){
   try{
     let url='/api/attendance/'+(view==='raw'?'logs':'summary')+'?from='+from+'&to='+to;
     if(q)url+='&q='+encodeURIComponent(q);
-    let rows=await api(url);
-    if(loc){
-      rows=rows.filter(r=>view==='raw'
-        ?attEmpLocation(r.employeeId,r.employeeCode)===loc
-        :(r.location||'')===loc);
-    }
+    if(loc&&view==='raw')url+='&location='+encodeURIComponent(loc);
+    const [rows0,freshLocs]=await Promise.all([api(url),attLoadLocations()]);
+    let rows=rows0;
+    if(loc&&view==='summary')rows=rows.filter(r=>(r.location||'')===loc);
     ATT_ROWS=rows;
+    const locSel=document.getElementById('att-loc');
+    if(locSel)locSel.innerHTML='<option value="">All locations</option>'+freshLocs.map(l=>'<option value="'+esc(l)+'"'+(l===loc?' selected':'')+'>'+esc(l)+'</option>').join('');
 
     if(view==='raw'){
       const checkins=rows.filter(r=>r.type==='Check-in').length;
@@ -935,7 +932,7 @@ async function renderLiveAttendance(){
            const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
            const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1)+'h':'';
            const dtLabel=rptDayTypeLabel(r);
-           const pillClass=r.dayType==='Absent'?'a':(r.dayType==='LeaveWithoutPay'?'a':'v');
+           const pillClass=r.dayType==='Absent'?'a':(r.dayType==='LeaveWithoutPay'?'a':(r.dayType==='Field'?'g':'v'));
            return '<tr style="cursor:pointer" title="Click to see every punch this day" data-emp="'+esc(r.employeeCode)+'" data-name="'+esc(r.name||'Unmapped')+'" data-date="'+esc(r.date)+'" onclick="attShowDay(this.dataset.emp,this.dataset.name,this.dataset.date)">'+
             '<td>'+attEmpCell(r,'name','employeeCode')+'</td><td>'+esc(r.department||'')+(r.department&&r.location?' · ':'')+esc(r.location||'')+'</td>'+
             (dtLabel
@@ -1171,6 +1168,7 @@ function rptDayTypeLabel(r){
     case 'WeeklyOff': return r.dayOfWeek===0?'Gazetted Holiday (Sunday)':'Weekly Off';
     case 'Leave': return 'On Leave — '+(r.leaveType||'');
     case 'LeaveWithoutPay': return 'Leave Without Pay — '+(r.leaveType||'');
+    case 'Field': return 'Present (Field)'+(r.fieldJobRef?' — '+r.fieldJobRef:'');
     case 'Absent': return 'Absent';
     default: return null; // 'Present' — show the real times
   }
@@ -2685,7 +2683,7 @@ async function evAttInit(e){
     const rows=await api('/api/attendance/summary?from='+monthFrom+'&to='+monthTo+'&q='+encodeURIComponent(e.employeeId));
     const lates=rows.filter(r=>r.late).length;
     const absents=rows.filter(r=>r.dayType==='Absent').length;
-    const presents=rows.filter(r=>r.dayType==='Present').length;
+    const presents=rows.filter(r=>r.dayType==='Present'||r.dayType==='Field').length;
     const leaves=rows.filter(r=>r.dayType==='Leave'||r.dayType==='LeaveWithoutPay').length;
     if(kEl)kEl.innerHTML=
      '<div class="hint" style="grid-column:1/-1;margin-bottom:2px">Company month-to-date: '+monthFrom+' → '+monthTo+'</div>'+
