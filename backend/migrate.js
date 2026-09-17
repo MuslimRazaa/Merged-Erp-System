@@ -85,6 +85,12 @@ async function migrate() {
   // scripts use.
   try { await pool.query('ALTER TABLE erp_attendance_logs ADD COLUMN device_user_name VARCHAR(255) NULL AFTER device_user_id'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Which physical machine/office this punch came from (agent.js's
+  // DEVICE_NAME / DEVICE_2_NAME / ...), e.g. "Karachi" or "Islamabad" — lets
+  // the UI filter attendance by office automatically, with no per-employee
+  // Location field required.
+  try { await pool.query('ALTER TABLE erp_attendance_logs ADD COLUMN device_location VARCHAR(100) NULL AFTER source'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
   // Per-employee shift start time, for "Late" calculation on the
   // Attendance screen. Same additive-table pattern as erp_employee_roles —

@@ -59,9 +59,9 @@ router.post('/ingest', requireAgentKey, async (req, res) => {
     const employeeId = emp.length ? emp[0].id : null;
 
     const [result] = await pool.query(
-      `INSERT IGNORE INTO erp_attendance_logs (device_user_id, device_user_name, employee_id, punch_time, verify_mode, in_out_mode, source)
-       VALUES (?,?,?,?,?,?,?)`,
-      [deviceUserId, p.deviceUserName || null, employeeId, punchTime, p.verifyMode ?? null, p.inOutMode ?? null, 'zkteco-k70']
+      `INSERT IGNORE INTO erp_attendance_logs (device_user_id, device_user_name, employee_id, punch_time, verify_mode, in_out_mode, source, device_location)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [deviceUserId, p.deviceUserName || null, employeeId, punchTime, p.verifyMode ?? null, p.inOutMode ?? null, 'zkteco-k70', p.location || null]
     );
     if (result.affectedRows) saved++; else skipped++; // skipped here = duplicate punch, already ingested
   }
@@ -106,12 +106,13 @@ router.get('/logs', requireHr, async (req, res) => {
   const { from, to } = rangeParams(req);
   const params = [from, to];
   let sql = `
-    SELECT l.id, l.device_user_id, l.device_user_name, l.employee_id, l.punch_time, l.verify_mode, l.in_out_mode,
+    SELECT l.id, l.device_user_id, l.device_user_name, l.employee_id, l.punch_time, l.verify_mode, l.in_out_mode, l.device_location,
            e.employee_id AS emp_code, e.full_name
     FROM erp_attendance_logs l
     LEFT JOIN employees e ON e.id = l.employee_id
     WHERE DATE(l.punch_time) BETWEEN ? AND ?`;
   if (req.query.employeeId) { sql += ' AND l.employee_id = ?'; params.push(req.query.employeeId); }
+  if (req.query.location) { sql += ' AND l.device_location = ?'; params.push(req.query.location); }
   if (req.query.q) { sql += ' AND (e.employee_id LIKE ? OR e.full_name LIKE ? OR l.device_user_id LIKE ? OR l.device_user_name LIKE ?)'; const like = `%${req.query.q}%`; params.push(like, like, like, like); }
   sql += ' ORDER BY l.device_user_id ASC, l.punch_time ASC'; // grouped per person, ascending, so the fallback alternating-type math below is correct
 
@@ -125,13 +126,25 @@ router.get('/logs', requireHr, async (req, res) => {
     return {
       id: r.id, deviceUserId: r.device_user_id, employeeId: r.employee_id,
       employeeCode: r.emp_code || r.device_user_id, employeeName: r.full_name || r.device_user_name || null,
-      unmapped: !r.employee_id,
+      unmapped: !r.employee_id, location: r.device_location || null,
       time: r.punch_time, type,
       verifyMode: r.verify_mode, inOutMode: r.in_out_mode,
     };
   });
   out.sort((a, b) => new Date(b.time) - new Date(a.time)); // newest first
   res.json(out);
+});
+
+// GET /api/attendance/locations — distinct machine/office labels seen in
+// the punch log so far (agent.js's DEVICE_NAME / DEVICE_2_NAME / ...), for
+// the Location filter dropdown. Detected automatically from real punches —
+// nothing to configure by hand, and a location only appears here once that
+// office's machine has actually pushed at least one punch.
+router.get('/locations', requireHr, async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT DISTINCT device_location FROM erp_attendance_logs WHERE device_location IS NOT NULL AND device_location <> '' ORDER BY device_location ASC`
+  );
+  res.json(rows.map((r) => r.device_location));
 });
 
 // The actual computation behind GET /summary below — pulled out so
@@ -182,15 +195,15 @@ async function computeAttendanceRows(from, to, filter = {}) {
   const [employees] = await pool.query(empSql, empParams);
 
   const [punchRows] = await pool.query(
-    `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, employee_id, punch_time, in_out_mode, source
+    `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, employee_id, punch_time, in_out_mode, source, device_location
      FROM erp_attendance_logs WHERE employee_id IS NOT NULL AND DATE(punch_time) BETWEEN ? AND ?`,
     [from, to]
   );
-  const punchesByEmpDay = new Map(); // "empId|day" -> [{time, mode, source}]
+  const punchesByEmpDay = new Map(); // "empId|day" -> [{time, mode, source, location}]
   for (const r of punchRows) {
     const key = r.employee_id + '|' + r.day;
     if (!punchesByEmpDay.has(key)) punchesByEmpDay.set(key, []);
-    punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source });
+    punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source, location: r.device_location });
   }
   // Real device punches still win over any older manual/imported rows for
   // the same day (manual entry/bulk import are retired going forward, but
@@ -228,11 +241,54 @@ async function computeAttendanceRows(from, to, filter = {}) {
     }
   }
 
+  // Field jobs (job_log_entries — the shared JLR/Job Log Register table,
+  // read-only here) stand in for machine attendance on days someone was out
+  // on a job instead of at an office with a K70. There's no employee_id on
+  // that table (it predates this integration and is free-text), so a job's
+  // Inspector / Inspector Team names are matched against employees.full_name
+  // — exact match, or a whole-word match either direction (so "Wahaj" in a
+  // team field matches full_name "Wahaj Ahmed", and vice versa). Best-effort
+  // by design: HR can see which job justified a "Field" day from fieldJobRef.
+  const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const splitTeamNames = (s) => String(s || '').split(/[+,;\/\n]|\band\b|&/i).map(normName).filter(Boolean);
+  const namesMatch = (a, b) => {
+    if (!a || !b || a.length < 3 || b.length < 3) return false;
+    if (a === b) return true;
+    const pad = (x) => ' ' + x + ' ';
+    return pad(b).includes(pad(a)) || pad(a).includes(pad(b));
+  };
+  const fieldJobByEmpDate = new Map(); // "empId|YYYY-MM-DD" -> {client, workOrder, location}
+  const [jobRows] = await pool.query(
+    `SELECT inspector_name, inspector_team, start_date, end_date, client, work_order, location
+     FROM job_log_entries WHERE start_date IS NOT NULL AND start_date <= ? AND COALESCE(end_date, start_date) >= ?`,
+    [to, from]
+  );
+  if (jobRows.length) {
+    const empNorm = employees.map((e) => ({ id: e.id, norm: normName(e.full_name) })).filter((e) => e.norm);
+    for (const j of jobRows) {
+      const tokens = [normName(j.inspector_name), ...splitTeamNames(j.inspector_team)].filter(Boolean);
+      if (!tokens.length) continue;
+      const matchedIds = empNorm.filter((e) => tokens.some((t) => namesMatch(t, e.norm))).map((e) => e.id);
+      if (!matchedIds.length) continue;
+      const jStart = parseYMD(j.start_date);
+      const jEnd = j.end_date ? parseYMD(j.end_date) : jStart;
+      const start = jStart > rangeFrom ? jStart : rangeFrom;
+      const end = jEnd < rangeTo ? jEnd : rangeTo;
+      if (start > end) continue;
+      const ref = { client: j.client || '', workOrder: j.work_order || '', location: j.location || '' };
+      for (const empId of matchedIds) {
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          fieldJobByEmpDate.set(empId + '|' + ymd(d), ref);
+        }
+      }
+    }
+  }
+
   // Saturday weekly-off quota, per employee per month: a Saturday the
-  // employee actually attended, or that a leave already covers, is settled
-  // on its own and never consumes/needs the quota. Of the remaining "bare"
-  // Saturdays (no attendance, no leave), up to the free count become
-  // WeeklyOff; any beyond it are Absent.
+  // employee actually attended, that a leave already covers, or that a
+  // field job already covers, is settled on its own and never consumes/needs
+  // the quota. Of the remaining "bare" Saturdays, up to the free count
+  // become WeeklyOff; any beyond it are Absent.
   const satOffByEmpDate = new Set(); // "empId|YYYY-MM-DD"
   const monthSaturdays = saturdaysInMonth(monthStart.getFullYear(), monthStart.getMonth() + 1);
   for (const emp of employees) {
@@ -240,7 +296,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
     if (!freeCount) continue;
     const bare = monthSaturdays.filter((sat) => {
       const key = emp.id + '|' + sat;
-      return !punchesByEmpDay.has(key) && !leaveByEmpDate.has(key);
+      return !punchesByEmpDay.has(key) && !leaveByEmpDate.has(key) && !fieldJobByEmpDate.has(key);
     });
     bare.slice(0, freeCount).forEach((sat) => satOffByEmpDate.add(emp.id + '|' + sat));
   }
@@ -294,18 +350,27 @@ async function computeAttendanceRows(from, to, filter = {}) {
         }
       }
 
+      const fieldJob = fieldJobByEmpDate.get(key);
       let dayType;
       if (holiday) dayType = holiday.type === 'CompanyOff' ? 'CompanyOff' : 'Holiday';
       else if (dow === 0) dayType = 'WeeklyOff';
       else if (leave && leave.status === 'Approved') dayType = 'Leave';
       else if (leave && leave.status === 'Leave Without Pay') dayType = 'LeaveWithoutPay';
       else if (punches.length) dayType = 'Present';
+      else if (fieldJob) dayType = 'Field';
       else if (dow === 6 && satOffByEmpDate.has(key)) dayType = 'WeeklyOff';
       else dayType = 'Absent';
 
+      // Location is detected from the machine the day's punches actually came
+      // from (agent.js's DEVICE_NAME) — falls back to the employee's own HR
+      // record only on days with no punch at all (e.g. absent/leave), so
+      // those days still land under the employee's usual office.
+      const punchLoc = (punches.find((p) => p.location) || {}).location;
+
       out.push({
         date: day, employeeId: emp.id, employeeCode: emp.emp_code, name: emp.full_name,
-        unmapped: false, department: emp.department, location: emp.location,
+        fieldJobRef: dayType === 'Field' ? [fieldJob.client, fieldJob.workOrder ? ('WO ' + fieldJob.workOrder) : ''].filter(Boolean).join(' — ') : null,
+        unmapped: false, department: emp.department, location: punchLoc || emp.location,
         checkIn, checkOut, punches: punches.length,
         shiftStart, graceMinutes: emp.grace_minutes, late, lateMinutes, overtimeMinutes,
         dayType, holidayName: holiday ? holiday.name : null,
@@ -326,7 +391,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
   // is asking for a specific employee list — an unmapped punch belongs to
   // no employee, so it's just noise for a payroll run.
   const unmappedRows = filter.employeeIds ? [] : (await pool.query(
-    `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, device_user_id, device_user_name, punch_time, in_out_mode
+    `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, device_user_id, device_user_name, punch_time, in_out_mode, device_location
      FROM erp_attendance_logs WHERE employee_id IS NULL AND DATE(punch_time) BETWEEN ? AND ?
      ORDER BY device_user_id ASC, punch_time ASC`,
     [from, to]
@@ -335,7 +400,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
   for (const r of unmappedRows) {
     const key = r.day + '|' + r.device_user_id;
     if (!unmappedGroups.has(key)) unmappedGroups.set(key, { meta: r, punches: [] });
-    unmappedGroups.get(key).punches.push({ time: r.punch_time, mode: r.in_out_mode });
+    unmappedGroups.get(key).punches.push({ time: r.punch_time, mode: r.in_out_mode, location: r.device_location });
   }
   for (const { meta: r, punches } of unmappedGroups.values()) {
     const hasKnownStatus = punches.some((p) => p.mode !== null && p.mode !== undefined);
@@ -348,7 +413,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
     }
     out.push({
       date: r.day, employeeId: null, employeeCode: r.device_user_id, name: r.device_user_name || null,
-      unmapped: true, department: null, location: null,
+      unmapped: true, department: null, location: (punches.find((p) => p.location) || {}).location || null,
       checkIn, checkOut, punches: punches.length,
       shiftStart: null, graceMinutes: null, late: false, lateMinutes: 0, overtimeMinutes: 0,
       dayType: 'Present', holidayName: null, onLeave: false, dayOfWeek: parseYMD(r.day).getDay(), leaveType: null, leaveRequestType: null, leaveDocNo: null,

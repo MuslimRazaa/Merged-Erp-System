@@ -183,7 +183,8 @@ router.post('/generate', requireHr, async (req, res) => {
           if (!d.checkIn) forcedLateCount++;
           else lateIncidents.push({ date: d.date, lateMinutes: d.lateMinutes });
         }
-      } else if (d.dayType === 'Absent') absentDays++;
+      } else if (d.dayType === 'Field') presentDays++; // out on a job (JLR) instead of at an office machine — paid the same as Present
+      else if (d.dayType === 'Absent') absentDays++;
       else if (d.dayType === 'WeeklyOff') { if (d.dayOfWeek === 0) sundayDays++; else saturdayOffDays++; }
       else if (d.dayType === 'Holiday' || d.dayType === 'CompanyOff') holidayDays++;
       else if (d.dayType === 'Leave') paidLeaveDays += d.leaveRequestType === 'Half Day' ? 0.5 : 1;
