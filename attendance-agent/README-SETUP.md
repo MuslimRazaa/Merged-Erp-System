@@ -127,3 +127,20 @@ independently.
   gets matched to the right person. A punch from an unrecognised ID still
   gets saved (visible as "Unmapped" in the ERP), it just isn't linked to
   anyone until the ID matches.
+
+## Recording a single attendance entry directly
+Run this from the same folder as `agent.js` (it reuses the same `.env`):
+```powershell
+node systems-automatic.js <employeeId> <YYYY-MM-DD> <HH:MM[:SS]> [in|out]
+```
+Examples:
+```powershell
+node systems-automatic.js 1878 2026-09-18 09:05 in
+node systems-automatic.js 1878 2026-09-18 17:30 out
+```
+The 4th argument (`in`/`out`) is optional — leave it off and the backend
+alternates 1st/2nd/3rd... entry that day as in/out/in/out, same as it does
+for any entry with no known status. It goes through the exact same
+`/api/attendance/ingest` endpoint the K70 itself uses, so it's de-duplicated,
+Late/On-time calculated, and shows up in Live Attendance / Attendance
+Report / payroll exactly like any other attendance record.
