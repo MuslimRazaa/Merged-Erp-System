@@ -703,13 +703,13 @@ function applySession(r){
   const chip=document.getElementById('userchip');
   if(chip)chip.outerHTML=userChip();
   nav();render();
-  pullSharedMaster();
+  pullSharedMaster();recBootstrap();
   updateSyncBar();scheduleAutoSync();
   lvPollPending();
   if(navigator.onLine)setTimeout(syncNow,800);
 }
 function logout(){
-  SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');
+  SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');recClearCache();
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
   LEAVE_PENDING_COUNT=0;
@@ -4070,6 +4070,65 @@ async function crmSvcImportRun(){
 
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
+/* ============ server-backed registers ============
+   Modules listed in SERVER_MODS keep their records in MySQL (erp_records /
+   erp_record_files, routes/records.js) instead of only in this browser, so
+   what one person saves is there after logout/login and on any other PC.
+   localStorage is kept purely as a read cache (so every screen that reads
+   coll('ncrs') etc. synchronously keeps working unchanged) — the server is
+   the source of truth: a save only counts once the server confirmed it.
+   Compliance first; Inventory / Procurement / Fixed Assets are enabled the
+   same way by adding their keys here. */
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2']);
+function isSrv(k){return SERVER_MODS.has(k);}
+const REC_AT={},REC_BUSY={};
+/* One-time rescue per browser: records (and attached files) that only ever
+   existed in THIS browser's localStorage are uploaded to the server the
+   first time it's reached. INSERT-IGNORE on the server, so it never
+   overwrites or duplicates anything already there. */
+async function recMigrateLocal(k){
+  if(lsGet('recmig_'+k,false))return;
+  const local=coll(k);
+  if(local.length)await api('/api/records/'+k+'/import',{method:'POST',body:JSON.stringify({records:local})});
+  for(const rec of local){
+    const files=attGet(rec.id);
+    while(files.length){
+      const f=files[0];
+      const blob=await (await fetch(f.data)).blob();
+      const fd=new FormData();fd.append('files',blob,f.name);
+      await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files',{method:'POST',body:fd});
+      files.shift();attSet(rec.id,files); // drop each local copy only after the server has it
+    }
+    try{localStorage.removeItem(P+'att_'+rec.id);}catch(e){}
+  }
+  lsSet('recmig_'+k,true);
+}
+async function recPull(k,force){
+  if(REC_BUSY[k])return REC_BUSY[k];
+  if(!force&&REC_AT[k]&&Date.now()-REC_AT[k]<15000)return false;
+  REC_BUSY[k]=(async()=>{
+    try{
+      await recMigrateLocal(k);
+      const list=await api('/api/records/'+k);
+      REC_AT[k]=Date.now();
+      if(localStorage.getItem(P+k)===JSON.stringify(list))return false;
+      lsSet(k,list);return true;
+    }catch(e){console.warn('records pull failed ('+k+'):',e.message);return false;}
+    finally{delete REC_BUSY[k];}
+  })();
+  return REC_BUSY[k];
+}
+function recEnsure(k){
+  if(!isSrv(k))return;
+  recPull(k).then(changed=>{if(changed&&route==='m_'+k&&!editId)render();});
+}
+/* After login: warm every server-backed module this user can see, so the
+   dashboard / compliance snapshot (which read the cache) are current too. */
+async function recBootstrap(){
+  const res=await Promise.all([...SERVER_MODS].filter(k=>MODULES[k]&&canSee(MODULES[k].g)).map(k=>recPull(k,true)));
+  if(res.some(Boolean)&&!editId)render();
+}
+function recClearCache(){SERVER_MODS.forEach(k=>{try{localStorage.removeItem(P+k);}catch(e){}delete REC_AT[k];});}
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
@@ -4083,6 +4142,7 @@ function fieldInput(f,v){
 }
 function renderModule(){
   const k=modKey(),m=MODULES[k],data=coll(k);
+  recEnsure(k);
   const rec=editId?data.find(r=>r.id===editId)||{}:{};
   let kpis='';
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
@@ -4138,12 +4198,24 @@ function renderListOnly(){
 async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
   const wasNew=!editId;
-  const rec=editId?data.find(r=>r.id===editId):{id:uid()};
+  const existing=editId?data.find(r=>r.id===editId):null;
+  // Server-backed modules edit a COPY: the cache must only change once the
+  // server has actually confirmed the save (see below).
+  const rec=isSrv(k)?(existing?JSON.parse(JSON.stringify(existing)):{id:uid()}):(existing||{id:uid()});
   const prevErpRole=rec.erprole,prevShiftStart=rec.shiftstart; // snapshot BEFORE the form overwrites — only push what actually changed
   m.fields.forEach(f=>{if(f.t==='computed')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
+  if(isSrv(k)){
+    try{
+      const saved=await api('/api/records/'+k+(wasNew?'':'/'+encodeURIComponent(rec.id)),{method:wasNew?'POST':'PUT',body:JSON.stringify(rec)});
+      const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
+      if(i>=0)cur[i]=saved;else cur.push(saved);
+      collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
+    }catch(e){toast('NOT saved — '+e.message,'err');} // form stays open with everything typed, nothing lost
+    return;
+  }
   if(wasNew)data.push(rec);
   collSet(k,data);editId=null;render();
   if(k==='employees'){
@@ -4159,6 +4231,11 @@ function editRec(id){editId=id;renderModule._lk=false;render();window.scrollTo({
 async function delRec(id){
   if(!confirm('Delete this record?'))return;
   const k=modKey();const rec=coll(k).find(r=>r.id===id);
+  if(isSrv(k)){
+    try{await api('/api/records/'+k+'/'+encodeURIComponent(id),{method:'DELETE'});}
+    catch(e){toast('NOT deleted — '+e.message,'err');return;}
+    collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;render();toast('Deleted.','ok');return;
+  }
   collSet(k,coll(k).filter(r=>r.id!==id));try{localStorage.removeItem(P+'att_'+id);localStorage.removeItem(P+'pic_'+id);}catch(e){}render();
   if(k==='employees'&&rec&&rec.isoId){
     try{await api('/api/shared/employees/'+rec.isoId,{method:'DELETE'});}
@@ -4215,7 +4292,66 @@ async function pushEmployeeShift(rec){
 /* ============ document attachments (Compliance) ============ */
 function attGet(id){return lsGet('att_'+id,[]);}
 function attSet(id,v){lsSet('att_'+id,v);}
+/* Server-backed modules: files live in MySQL (erp_record_files), listed /
+   uploaded / downloaded through the API — the card below is filled in once
+   the list arrives, so opening a record never blocks on it. */
+const ATT_SRV={};
+function attRowsSrv(k,id){
+  const files=ATT_SRV[id];
+  if(!files)return '<div class="empty">Loading…</div>';
+  if(!files.length)return '<div class="empty">No documents attached yet.</div>';
+  return '<table><thead><tr><th>File</th><th>Type</th><th class="num">Size</th><th>Attached</th><th class="no-print"></th></tr></thead><tbody>'+
+    files.map(f=>'<tr><td><b>'+esc(f.name)+'</b></td><td>'+esc((f.type||'').split('/').pop()||'file')+'</td><td class="num">'+attSize(f.size)+'</td><td>'+esc(String(f.at||'').slice(0,10))+'</td>'+
+    '<td class="no-print"><button class="btn ghost small" onclick="attDlSrv(\''+k+'\',\''+id+'\','+f.id+')">↓ Download</button> <button class="del" onclick="attDelSrv(\''+k+'\',\''+id+'\','+f.id+')">✕</button></td></tr>').join('')+'</tbody></table>';
+}
+function attRefreshSrv(k,id){
+  const z=document.getElementById('att-zone'),c=document.getElementById('att-count');
+  if(z)z.innerHTML=attRowsSrv(k,id);
+  if(c)c.textContent=(ATT_SRV[id]||[]).length;
+}
+async function attLoadSrv(k,id){
+  try{ATT_SRV[id]=await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files');}
+  catch(e){ATT_SRV[id]=[];toast('Could not load attached documents — '+e.message,'err');}
+  attRefreshSrv(k,id);
+}
+function attPanelSrv(k,id){
+  if(!id)return '<div class="card no-print"><div class="card-h">Attached documents</div><div class="card-b"><div class="hint">Save the record first, then re-open it to attach supporting documents (PDF, images, Office files).</div></div></div>';
+  attLoadSrv(k,id);
+  return '<div class="card"><div class="card-h">Attached documents <span class="pill b" id="att-count">'+(ATT_SRV[id]||[]).length+'</span></div><div class="card-b">'+
+   '<div class="dropzone no-print" onclick="document.getElementById(\'att-file\').click()"><b>Click to attach documents</b> — certificates, reports, evidence (max 15 MB each, saved on the server)</div>'+
+   '<input type="file" id="att-file" multiple style="display:none" onchange="attUploadSrv(\''+k+'\',\''+id+'\',this.files)">'+
+   '<div class="tblwrap" id="att-zone">'+attRowsSrv(k,id)+'</div></div></div>';
+}
+async function attUploadSrv(k,id,list){
+  const files=Array.from(list||[]);if(!files.length)return;
+  const big=files.filter(f=>f.size>15*1048576);
+  if(big.length)toast(big.map(f=>f.name).join(', ')+' is larger than 15 MB — attach a compressed copy instead.','err');
+  const ok=files.filter(f=>f.size<=15*1048576);if(!ok.length)return;
+  const fd=new FormData();ok.forEach(f=>fd.append('files',f,f.name));
+  try{
+    ATT_SRV[id]=await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files',{method:'POST',body:fd});
+    toast(ok.length+' document(s) attached.','ok');
+  }catch(e){toast('NOT attached — '+e.message,'err');}
+  attRefreshSrv(k,id);
+  const inp=document.getElementById('att-file');if(inp)inp.value='';
+}
+async function attDlSrv(k,id,fid){
+  try{
+    const res=await fetch('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+fid+'/download',{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+    if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+    const f=(ATT_SRV[id]||[]).find(x=>x.id===fid);
+    const a=document.createElement('a');a.href=URL.createObjectURL(await res.blob());a.download=f?f.name:'document';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(e){toast('Download failed — '+e.message,'err');}
+}
+async function attDelSrv(k,id,fid){
+  if(!confirm('Remove this attachment?'))return;
+  try{await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+fid,{method:'DELETE'});}
+  catch(e){toast('NOT removed — '+e.message,'err');return;}
+  await attLoadSrv(k,id);
+}
 function attPanel(k,id){
+  if(isSrv(k))return attPanelSrv(k,id);
   if(!id)return '<div class="card no-print"><div class="card-h">Attached documents</div><div class="card-b"><div class="hint">Save the record first, then re-open it to attach supporting documents (PDF, images, Office files).</div></div></div>';
   const files=attGet(id);
   const rows=files.length?'<table><thead><tr><th>File</th><th>Type</th><th class="num">Size</th><th>Attached</th><th class="no-print"></th></tr></thead><tbody>'+
@@ -5500,7 +5636,16 @@ function saveSyncSettings(){
   closeModal('syncmodal');scheduleAutoSync();updateSyncBar();
   if(cfg.url&&navigator.onLine)syncNow();
 }
-function syncKeys(){return allKeys().filter(k=>k!==SYNC_CFG_KEY&&k!==SYNC_META_KEY&&k!==P+'ui_route');}
+/* Keys the old whole-blob sync must leave alone: its own bookkeeping, UI
+   state, the per-user login session (pushing/pulling it would hand one
+   person's session to another), and every server-backed register — those
+   are saved record-by-record through /api/records instead. */
+function syncSkip(k){
+  if(k===SYNC_CFG_KEY||k===SYNC_META_KEY||k===P+'ui_route'||k===P+'session')return true;
+  if(k.startsWith(P+'recmig_'))return true;
+  return SERVER_MODS.has(k.slice(P.length));
+}
+function syncKeys(){return allKeys().filter(k=>!syncSkip(k));}
 function dirtyKeys(){
   const meta=syncMeta();
   return syncKeys().filter(k=>{
@@ -5527,7 +5672,7 @@ async function syncNow(){
     const remote=await pr.json();
     const meta=syncMeta();let pulled=0;
     Object.entries(remote.keys||{}).forEach(([k,rec])=>{
-      if(!k.startsWith(P))return;
+      if(!k.startsWith(P)||syncSkip(k))return;
       const localV=localStorage.getItem(k);
       const localTs=(meta[k]&&meta[k].ts)||0;
       const localDirty=localV!=null&&(!meta[k]||meta[k].hash!==strHash(localV));
@@ -5630,7 +5775,7 @@ document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop')
       const chip=document.getElementById('userchip');if(chip)chip.outerHTML=userChip();
       if(!canSee(routeGroup(route)))route='dashboard';
       nav();render();restored=true;
-      pullSharedMaster();
+      pullSharedMaster();recBootstrap();
       lvPollPending();
     }catch(e){localStorage.removeItem('erp_jwt');}
   }
