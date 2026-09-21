@@ -1858,6 +1858,7 @@ const EMP_PHONE_COUNTRIES=[
 const EMP_SECTIONS=[
  {k:'basic',l:'Basic Info'},{k:'personal',l:'Personal Details'},{k:'access',l:'Account & Access'},{k:'employment',l:'Shift & Employment'},
  {k:'comp',l:'Compensation'},{k:'address',l:'Address'},{k:'bank',l:'Bank & Personal'},{k:'ref',l:'Reference'},{k:'kin',l:'Next of Kin'},
+ {k:'docs',l:'Photo & Documents'},
 ];
 let EMP_LIST=[],EMP_EDIT=null,EMP_TAB='basic';
 // Guards render() (see below) from being silently re-run — by the leave
@@ -2095,7 +2096,120 @@ function empSectionHtml(k){
    efField('ef-kinnic','NIC','text')+
    efField('ef-kinemail','Email','email')+
    '</div>';
+  if(k==='docs')return '<div id="emp-docs-box">'+empDocsFormHtml()+'</div>';
   return '';
+}
+/* ---- Add/Edit Employee form: "Photo & Documents" tab ----
+   Files picked here wait in the browser and are uploaded right after the
+   employee itself is saved (a brand-new employee has no id until then).
+   For an existing employee, files already on the server are listed too —
+   removing one of those takes effect immediately. */
+let EMP_Q={photo:null,photoUrl:null,docs:[]},EMP_SAVED=[],EMP_SAVED_PHOTO_URL=null;
+function empQReset(){
+  if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  if(EMP_SAVED_PHOTO_URL)URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);
+  EMP_Q={photo:null,photoUrl:null,docs:[]};EMP_SAVED=[];EMP_SAVED_PHOTO_URL=null;
+}
+function empDocsFormHtml(){
+  const pic=EMP_Q.photoUrl||EMP_SAVED_PHOTO_URL;
+  const savedPhoto=EMP_SAVED.find(f=>f.category==='Photo');
+  const savedDocs=EMP_SAVED.filter(f=>f.category!=='Photo');
+  const photoCard='<div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">'+
+    '<div style="width:110px;height:110px;border-radius:10px;background:var(--soft) center/cover no-repeat;'+(pic?'background-image:url('+pic+');':'')+'display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">'+(pic?'':'No photo')+'</div>'+
+    '<div><div style="font-weight:700;margin-bottom:4px">Photograph</div>'+
+     '<div class="hint" style="margin-bottom:8px">JPG / PNG — resized automatically'+(EMP_Q.photo?' · <b>will be saved when you click Save employee</b>':'')+'</div>'+
+     '<button type="button" class="btn ghost small" onclick="document.getElementById(\'emp-photo-file\').click()">'+(pic?'Change photo':'Choose photo')+'</button> '+
+     (EMP_Q.photo?'<button type="button" class="btn ghost small" onclick="empClearQueuedPhoto()">Undo</button> ':'')+
+     (!EMP_Q.photo&&savedPhoto?'<button type="button" class="btn ghost small" style="color:#b42318" onclick="empSavedDocDelete('+savedPhoto.id+')">Remove</button>':'')+
+     '<input type="file" id="emp-photo-file" accept="image/*" style="display:none" onchange="empPickPhoto(this.files)"></div></div>';
+  const rowSaved=f=>'<tr><td><b>'+esc(f.name)+'</b></td><td><span class="pill b">'+esc(f.category)+'</span></td><td class="num">'+attSize(f.size)+'</td><td>Saved</td>'+
+    '<td><button type="button" class="btn ghost small" onclick="empSavedDocDownload('+f.id+')">↓ Download</button> <button type="button" class="del" onclick="empSavedDocDelete('+f.id+')">✕</button></td></tr>';
+  const rowQ=(d,i)=>'<tr><td><b>'+esc(d.file.name)+'</b></td><td><span class="pill b">'+esc(d.category)+'</span></td><td class="num">'+attSize(d.file.size)+'</td><td><span class="pill a">On Save</span></td>'+
+    '<td><button type="button" class="del" onclick="empQRemoveDoc('+i+')">✕</button></td></tr>';
+  const all=savedDocs.map(rowSaved).concat(EMP_Q.docs.map(rowQ));
+  const table=all.length?'<table><thead><tr><th>File</th><th>Category</th><th class="num">Size</th><th>Status</th><th></th></tr></thead><tbody>'+all.join('')+'</tbody></table>':'<div class="empty">No documents added yet.</div>';
+  return photoCard+'<div style="font-weight:700;margin-bottom:8px">CV & Documents</div>'+
+    '<div class="fgrid" style="margin-bottom:10px"><div class="field"><label>Category</label><select id="emp-doc-cat">'+EMP_DOC_CATEGORIES.map(c=>'<option>'+esc(c)+'</option>').join('')+'</select></div>'+
+    '<div class="field" style="align-self:end"><button type="button" class="btn ghost" onclick="document.getElementById(\'emp-doc-file\').click()">+ Add file(s)</button><input type="file" id="emp-doc-file" multiple style="display:none" onchange="empPickDocs(this.files)"></div></div>'+
+    '<div class="hint" style="margin-bottom:8px">PDF, Word, images or any file — up to 15 MB each. New files are uploaded when you click <b>Save employee</b>.</div>'+
+    '<div class="tblwrap">'+table+'</div>';
+}
+function empDocsRefreshForm(){
+  const box=document.getElementById('emp-docs-box');if(!box)return;
+  const cat=(document.getElementById('emp-doc-cat')||{}).value;
+  box.innerHTML=empDocsFormHtml();
+  if(cat){const s=document.getElementById('emp-doc-cat');if(s)s.value=cat;}
+}
+function empPickPhoto(list){
+  const f=list&&list[0];if(!f)return;
+  if(!/^image\//.test(f.type)){toast('The photograph must be an image file.','err');return;}
+  if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  EMP_Q.photo=f;EMP_Q.photoUrl=URL.createObjectURL(f);
+  empDocsRefreshForm();
+}
+function empClearQueuedPhoto(){
+  if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  EMP_Q.photo=null;EMP_Q.photoUrl=null;empDocsRefreshForm();
+}
+function empPickDocs(list){
+  const cat=(document.getElementById('emp-doc-cat')||{}).value||'Other';
+  const files=Array.from(list||[]);
+  const big=files.filter(f=>f.size>15*1048576);
+  if(big.length)toast(big.map(f=>f.name).join(', ')+' is larger than 15 MB — not added.','err');
+  files.filter(f=>f.size<=15*1048576).forEach(f=>EMP_Q.docs.push({file:f,category:cat}));
+  empDocsRefreshForm();
+}
+function empQRemoveDoc(i){EMP_Q.docs.splice(i,1);empDocsRefreshForm();}
+async function empLoadSavedFiles(){
+  if(!EMP_EDIT)return;
+  try{
+    EMP_SAVED=await api('/api/employee-files/'+EMP_EDIT.id);
+    if(EMP_SAVED.some(f=>f.category==='Photo')){
+      const b=await evFetchBlob('/api/employee-files/'+EMP_EDIT.id+'/photo');
+      if(EMP_SAVED_PHOTO_URL)URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);
+      EMP_SAVED_PHOTO_URL=URL.createObjectURL(b);
+    }
+  }catch(e){console.warn('employee files load failed:',e.message);}
+  empDocsRefreshForm();
+}
+async function empSavedDocDownload(fid){
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+EMP_EDIT.id+'/'+fid+'/download');
+    const f=EMP_SAVED.find(x=>x.id===fid);
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f?f.name:'document';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(err){toast('Download failed — '+err.message,'err');}
+}
+async function empSavedDocDelete(fid){
+  if(!confirm('Delete this saved file? This takes effect immediately.'))return;
+  try{await api('/api/employee-files/'+EMP_EDIT.id+'/'+fid,{method:'DELETE'});}
+  catch(err){toast('NOT deleted — '+err.message,'err');return;}
+  const wasPhoto=(EMP_SAVED.find(f=>f.id===fid)||{}).category==='Photo';
+  EMP_SAVED=EMP_SAVED.filter(f=>f.id!==fid);
+  if(wasPhoto&&EMP_SAVED_PHOTO_URL){URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);EMP_SAVED_PHOTO_URL=null;}
+  empDocsRefreshForm();toast('Deleted.','ok');
+}
+/* Runs after the employee row exists. Returns the list of things that
+   failed (empty = all good) so the caller can say so without undoing the
+   employee save itself. */
+async function empUploadPending(id){
+  const failed=[];
+  if(EMP_Q.photo){
+    try{
+      const blob=await evShrinkImage(EMP_Q.photo);
+      const fd=new FormData();fd.append('category','Photo');fd.append('files',blob,(EMP_Q.photo.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
+      await api('/api/employee-files/'+id,{method:'POST',body:fd});
+    }catch(e){failed.push('photo ('+e.message+')');}
+  }
+  const byCat={};
+  EMP_Q.docs.forEach(d=>{(byCat[d.category]=byCat[d.category]||[]).push(d.file);});
+  for(const cat of Object.keys(byCat)){
+    try{
+      const fd=new FormData();fd.append('category',cat);byCat[cat].forEach(f=>fd.append('files',f,f.name));
+      await api('/api/employee-files/'+id,{method:'POST',body:fd});
+    }catch(e){failed.push(cat+' file(s) ('+e.message+')');}
+  }
+  return failed;
 }
 function empToggleErpAccessOn(){
   const on=document.getElementById('ef-erpaccess').checked;
@@ -2248,9 +2362,10 @@ function renderEmpFormPage(){
   empFillForm();
   empLoadFieldShiftDays();
   empLoadLoan();
+  empLoadSavedFiles();
   window.scrollTo(0,0);
 }
-function empCancelForm(){FORM_GUARD=false;renderHrEmployees();}
+function empCancelForm(){FORM_GUARD=false;empQReset();renderHrEmployees();}
 function empSwitchTab(k){
   EMP_TAB=k;
   document.querySelectorAll('#empmodal-tabs .att-tab').forEach((b,i)=>b.classList.toggle('on',EMP_SECTIONS[i].k===k));
@@ -2338,7 +2453,7 @@ function empFillFormInner(){
   empRecalcGross();empRecalcAge();
 }
 async function empOpenForm(id){
-  EMP_EDIT=null;EMP_TAB='basic';
+  EMP_EDIT=null;EMP_TAB='basic';empQReset();
   if(id){EMP_EDIT=EMP_LIST.find(e=>String(e.id)===String(id));if(!EMP_EDIT)return;}
   FORM_GUARD=true;
   renderEmpFormPage();
@@ -2421,8 +2536,13 @@ async function empSave(){
       await api('/api/shared/employees/'+id+'/iso-access',{method:'PUT',body:JSON.stringify(isoBody)});
     }
 
+    // Photo / documents picked on the "Photo & Documents" tab go up now that
+    // the employee has an id. A failure here must not undo the employee save.
+    const upFailed=(EMP_Q.photo||EMP_Q.docs.length)?await empUploadPending(id):[];
+    empQReset();
     FORM_GUARD=false;
-    toast('Employee saved.','ok');
+    if(upFailed.length)toast('Employee saved, but these did NOT upload: '+upFailed.join('; ')+'. Open the employee and add them again.','err');
+    else toast('Employee saved.','ok');
     renderHrEmployees();
   }catch(e){
     showErr(e.message); // showErr() itself toasts
@@ -2610,6 +2730,8 @@ async function renderEmpView(){
        '<div id="ev-leave-table" class="tblwrap" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
        '<div style="font-weight:700;margin-bottom:8px">Leave history — which days were applied for</div>'+
        '<div id="ev-leave-history" class="tblwrap"><div class="empty">Loading…</div></div>';
+    }else if(EMP_VIEW_TAB==='documents'){
+      body='<div id="ev-docs"><div class="empty">Loading…</div></div>';
     }else{
       body='<div class="empty">No '+esc(EMP_VIEW_TAB)+' records on file yet.</div>';
     }
@@ -2622,7 +2744,7 @@ async function renderEmpView(){
       '</span></div>'+
      '<div class="card-b">'+
       '<div style="display:flex;align-items:center;gap:14px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
-       '<div style="width:56px;height:56px;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex-shrink:0">'+esc(ini)+'</div>'+
+       '<div id="ev-avatar" style="width:56px;height:56px;border-radius:50%;background:var(--soft) center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex-shrink:0;overflow:hidden">'+esc(ini)+'</div>'+
        '<div><div style="font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px">'+esc(e.name)+
         '<span class="pill '+(e.status==='Active'?'g':'r')+'">'+esc(e.status||'')+'</span></div>'+
         '<div class="hint">'+esc(e.employeeId)+'</div></div>'+
@@ -2635,13 +2757,127 @@ async function renderEmpView(){
       '<div style="margin-top:16px">'+body+'</div>'+
      '</div></div>';
 
+    evLoadAvatar(e.id);
     if(EMP_VIEW_TAB==='attendance')evAttInit(e);
     else if(EMP_VIEW_TAB==='leave')evLeaveInit(e);
+    else if(EMP_VIEW_TAB==='documents')evDocsInit(e);
   }catch(err){
     c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
   }
 }
 function empViewSwitchTab(tab){EMP_VIEW_TAB=tab;render();}
+
+/* ---- Employee View: Documents tab (photo, CV, ID, certificates... saved on the server) ---- */
+const EMP_DOC_CATEGORIES=['CV','ID / Passport','Education','Certificate','Contract','Other'];
+let EMP_FILES=[],EMP_PHOTO_URL=null;
+async function evFetchBlob(path){
+  const res=await fetch(path,{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+  if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+  return res.blob();
+}
+/* Real photo in the header circle (initials stay if there is none). */
+async function evLoadAvatar(empId){
+  const el0=document.getElementById('ev-avatar');if(el0&&!el0.dataset.ini)el0.dataset.ini=el0.textContent;
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+empId+'/photo');
+    if(EMP_PHOTO_URL)URL.revokeObjectURL(EMP_PHOTO_URL);
+    EMP_PHOTO_URL=URL.createObjectURL(blob);
+    const el=document.getElementById('ev-avatar');
+    if(el&&String(EMP_VIEW_ID)===String(empId)){el.style.backgroundImage='url('+EMP_PHOTO_URL+')';el.textContent='';}
+  }catch(e){EMP_PHOTO_URL=null;} // no photo yet — initials stay
+}
+function evDocsHtml(){
+  const photo=EMP_FILES.find(f=>f.category==='Photo');
+  const docs=EMP_FILES.filter(f=>f.category!=='Photo');
+  const hasPic=!!(EMP_PHOTO_URL&&photo);
+  const photoCard='<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px">'+
+    '<div style="font-weight:700;margin-bottom:12px">Photograph</div>'+
+    '<div style="display:flex;align-items:center;gap:16px">'+
+     '<div style="width:110px;height:110px;border-radius:10px;background:var(--soft) center/cover no-repeat;'+(hasPic?'background-image:url('+EMP_PHOTO_URL+');':'')+'display:flex;align-items:center;justify-content:center;font-size:12px">'+(hasPic?'':'No photo')+'</div>'+
+     '<div><div class="hint" style="margin-bottom:8px">JPG / PNG, resized automatically. Shown in the header of this employee.</div>'+
+      '<button class="btn ghost small" onclick="document.getElementById(\'ev-photo-file\').click()">'+(photo?'Replace photo':'Upload photo')+'</button> '+
+      (photo?'<button class="btn ghost small" style="color:#b42318" onclick="evDocDelete('+photo.id+')">Remove</button>':'')+
+      '<input type="file" id="ev-photo-file" accept="image/*" style="display:none" onchange="evPhotoUpload(this.files)"></div>'+
+    '</div></div>';
+  const rows=docs.length?'<table><thead><tr><th>File</th><th>Category</th><th class="num">Size</th><th>Uploaded</th><th></th></tr></thead><tbody>'+
+    docs.map(f=>'<tr><td><b>'+esc(f.name)+'</b></td><td><span class="pill b">'+esc(f.category)+'</span></td><td class="num">'+attSize(f.size)+'</td><td>'+esc(String(f.at||'').slice(0,10))+'</td>'+
+     '<td><button class="btn ghost small" onclick="evDocDownload('+f.id+')">↓ Download</button> <button class="del" onclick="evDocDelete('+f.id+')">✕</button></td></tr>').join('')+'</tbody></table>'
+    :'<div class="empty">No documents uploaded yet.</div>';
+  const docCard='<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px">'+
+    '<div style="font-weight:700;margin-bottom:12px">CV & Documents <span class="pill b">'+docs.length+'</span></div>'+
+    '<div class="fgrid" style="margin-bottom:12px">'+
+     '<div class="field"><label>Category</label><select id="ev-doc-cat">'+EMP_DOC_CATEGORIES.map(c=>'<option>'+esc(c)+'</option>').join('')+'</select></div>'+
+     '<div class="field" style="align-self:end"><button class="btn" onclick="document.getElementById(\'ev-doc-file\').click()">⬆ Choose file(s) & upload</button>'+
+      '<input type="file" id="ev-doc-file" multiple style="display:none" onchange="evDocUpload(this.files)"></div>'+
+    '</div>'+
+    '<div class="hint" style="margin-bottom:8px">PDF, Word, images or any file — up to 15 MB each.</div>'+
+    '<div class="tblwrap">'+rows+'</div></div>';
+  return photoCard+docCard;
+}
+async function evDocsInit(e){
+  const box=document.getElementById('ev-docs');
+  try{
+    EMP_FILES=await api('/api/employee-files/'+e.id);
+    if(EMP_FILES.some(f=>f.category==='Photo')&&!EMP_PHOTO_URL)await evLoadAvatar(e.id);
+    box.innerHTML=evDocsHtml();
+  }catch(err){box.innerHTML='<div class="empty">Could not load documents — '+esc(err.message)+'</div>';}
+}
+function evDocsRefresh(){const box=document.getElementById('ev-docs');if(box)box.innerHTML=evDocsHtml();}
+async function evDocUpload(list){
+  const files=Array.from(list||[]);if(!files.length)return;
+  const cat=document.getElementById('ev-doc-cat').value;
+  const ok=files.filter(f=>f.size<=15*1048576);
+  if(ok.length<files.length)toast(files.filter(f=>f.size>15*1048576).map(f=>f.name).join(', ')+' is larger than 15 MB — not uploaded.','err');
+  if(!ok.length)return;
+  const fd=new FormData();fd.append('category',cat);ok.forEach(f=>fd.append('files',f,f.name));
+  try{EMP_FILES=await api('/api/employee-files/'+EMP_VIEW_ID,{method:'POST',body:fd});toast(ok.length+' file(s) uploaded.','ok');}
+  catch(err){toast('NOT uploaded — '+err.message,'err');}
+  evDocsRefresh();
+}
+/* Downscale the photo in the browser first (max 1000px, JPEG) — a phone
+   camera shot is several MB and nobody needs that for a profile picture. */
+function evShrinkImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(),u=URL.createObjectURL(file);
+    img.onload=()=>{
+      const sc=Math.min(1,1000/Math.max(img.width,img.height));
+      const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+      URL.revokeObjectURL(u);
+      cv.toBlob(b=>b?resolve(b):reject(new Error('Could not process the image.')),'image/jpeg',0.85);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(u);reject(new Error('That file is not a readable image.'));};
+    img.src=u;
+  });
+}
+async function evPhotoUpload(list){
+  const f=list&&list[0];if(!f)return;
+  try{
+    const blob=await evShrinkImage(f);
+    const fd=new FormData();fd.append('category','Photo');fd.append('files',blob,(f.name||'photo').replace(/.[^.]+$/,'')+'.jpg');
+    EMP_FILES=await api('/api/employee-files/'+EMP_VIEW_ID,{method:'POST',body:fd});
+    EMP_PHOTO_URL=null;await evLoadAvatar(EMP_VIEW_ID);
+    toast('Photo saved.','ok');
+  }catch(err){toast('NOT saved — '+err.message,'err');}
+  evDocsRefresh();
+}
+async function evDocDownload(fid){
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+EMP_VIEW_ID+'/'+fid+'/download');
+    const f=EMP_FILES.find(x=>x.id===fid);
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f?f.name:'document';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(err){toast('Download failed — '+err.message,'err');}
+}
+async function evDocDelete(fid){
+  if(!confirm('Delete this file?'))return;
+  try{await api('/api/employee-files/'+EMP_VIEW_ID+'/'+fid,{method:'DELETE'});}
+  catch(err){toast('NOT deleted — '+err.message,'err');return;}
+  const wasPhoto=(EMP_FILES.find(f=>f.id===fid)||{}).category==='Photo';
+  EMP_FILES=EMP_FILES.filter(f=>f.id!==fid);
+  if(wasPhoto){EMP_PHOTO_URL=null;const el=document.getElementById('ev-avatar');if(el){el.style.backgroundImage='';el.textContent=el.dataset.ini||'';}}
+  evDocsRefresh();toast('Deleted.','ok');
+}
 
 /* ---- Employee View: Attendance tab (this-month KPIs + own date-range report + PDF/Excel/CSV) ---- */
 // Company month = 25th of one month to 25th of the next (same cycle as
@@ -4079,7 +4315,7 @@ function collSet(k,v){lsSet(k,v);}
    the source of truth: a save only counts once the server confirmed it.
    Compliance first; Inventory / Procurement / Fixed Assets are enabled the
    same way by adding their keys here. */
-const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2']);
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders']);
 function isSrv(k){return SERVER_MODS.has(k);}
 const REC_AT={},REC_BUSY={};
 /* One-time rescue per browser: records (and attached files) that only ever
@@ -4105,7 +4341,7 @@ async function recMigrateLocal(k){
 }
 async function recPull(k,force){
   if(REC_BUSY[k])return REC_BUSY[k];
-  if(!force&&REC_AT[k]&&Date.now()-REC_AT[k]<15000)return false;
+  if(!force&&REC_AT[k]&&localStorage.getItem(P+k)!=null&&Date.now()-REC_AT[k]<15000)return false; // never throttle an empty cache
   REC_BUSY[k]=(async()=>{
     try{
       await recMigrateLocal(k);
@@ -4120,7 +4356,24 @@ async function recPull(k,force){
 }
 function recEnsure(k){
   if(!isSrv(k))return;
-  recPull(k).then(changed=>{if(changed&&route==='m_'+k&&!editId)render();});
+  recPull(k).then(changed=>{
+    if(!changed)return;
+    if(route==='m_'+k){if(!editId)render();}
+    else if(route.startsWith('m_'))recRefreshRefs(k);
+  });
+}
+/* A screen's dropdowns (REF fields, e.g. Invoice -> Sales order) read ANOTHER
+   collection from the cache. When that collection gets refreshed in the
+   background, update just those <select>s in place — a full re-render would
+   throw away whatever the user has already typed into the open form. */
+function recRefreshRefs(collName){
+  const m=MODULES[modKey()];if(!m)return;
+  m.fields.filter(f=>f.t==='ref'&&f.coll===collName).forEach(f=>{
+    const el=document.getElementById('f-'+f.k);if(!el)return;
+    const cur=el.value;
+    el.innerHTML=refOptions(f.coll,f.dk,cur);
+    if(cur&&el.value!==cur){const o=document.createElement('option');o.textContent=cur;el.appendChild(o);el.value=cur;} // keep a saved value that's no longer in the list
+  });
 }
 /* After login: warm every server-backed module this user can see, so the
    dashboard / compliance snapshot (which read the cache) are current too. */
@@ -4143,6 +4396,7 @@ function fieldInput(f,v){
 function renderModule(){
   const k=modKey(),m=MODULES[k],data=coll(k);
   recEnsure(k);
+  m.fields.forEach(f=>{if(f.t==='ref'&&f.coll!==k)recEnsure(f.coll);}); // dropdown sources (Invoice -> Sales orders, Receipt -> Invoices …) must be fresh too
   const rec=editId?data.find(r=>r.id===editId)||{}:{};
   let kpis='';
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
