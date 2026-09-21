@@ -41,8 +41,14 @@
      Net Salary = Gross Salary − Other Deductions − Late Deduction − Income Tax
      Other Deductions = Per-Day Rate × (Absent Days + Unpaid Leave Days)
      Late Deduction    = Per-Day Rate × Late Penalty Days
-     Income Tax        = FBR salaried-individual slab tax (see computeMonthlyIncomeTax) —
-                          verify against the current FBR notification each tax year.
+     Income Tax        = FBR salaried-individual slab tax for the payroll's tax year (see
+                          FBR_SLABS_BY_TAX_YEAR / computeMonthlyIncomeTax) — add a new entry
+                          there when a Finance Act changes the rates.
+   The columns always add up: Net = Per-Day Rate × Payable Days − Income Tax, where
+   Payable Days = the payroll month's days (or fewer, for a shorter range) minus Absent,
+   Unpaid Leave and Late Penalty days. A 25th-to-25th cycle is 31–32 calendar days but
+   a month is 28–31 pay days: the extra calendar days are NOT paid on top, they only
+   make absences count — earlier every extra day was paid as if it were a normal day.
    ============================================================ */
 'use strict';
 const express = require('express');
@@ -50,6 +56,7 @@ const pool = require('../db');
 const { requireAuth } = require('./auth');
 const { canAccess } = require('../roles');
 const { computeAttendanceRows } = require('./attendance');
+const { toYmd, daysBetween } = require('../fieldJobs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -59,28 +66,61 @@ function requireHr(req, res, next) {
   next();
 }
 
-// FBR salaried-individual income tax slabs — annual income (PKR), tax year
-// 2024-25 rates as last known. FBR revises these most years; update this
-// table (and only this table) when a new Finance Act changes them.
-const FBR_ANNUAL_SLABS = [
-  { upTo: 600000, rate: 0, base: 0 },
-  { upTo: 1200000, rate: 0.05, base: 0 },
-  { upTo: 2200000, rate: 0.15, base: 30000 },
-  { upTo: 3200000, rate: 0.25, base: 180000 },
-  { upTo: 4100000, rate: 0.30, base: 430000 },
-  { upTo: Infinity, rate: 0.35, base: 700000 },
-];
+// FBR salaried-individual income tax slabs — annual income (PKR), by TAX YEAR
+// (the year the July–June fiscal year ends in: Tax Year 2026 = Jul 2025–Jun 2026).
+// Each slab: tax = base + rate × (annual income − previous slab's upper limit).
+// A payroll uses the slabs of the tax year its "To" date falls in; if that year
+// has no entry yet (a new Finance Act not loaded), the most recent entry
+// below it is used and the report says so. Add a new entry here — and only
+// here — when the rates change.
+const FBR_SLABS_BY_TAX_YEAR = {
+  2025: { label: 'Tax Year 2025 (Jul 2024 – Jun 2025)', slabs: [
+    { upTo: 600000, rate: 0, base: 0 },
+    { upTo: 1200000, rate: 0.05, base: 0 },
+    { upTo: 2200000, rate: 0.15, base: 30000 },
+    { upTo: 3200000, rate: 0.25, base: 180000 },
+    { upTo: 4100000, rate: 0.30, base: 430000 },
+    { upTo: Infinity, rate: 0.35, base: 700000 },
+  ] },
+  2026: { label: 'Tax Year 2026 (Jul 2025 – Jun 2026)', slabs: [
+    { upTo: 600000, rate: 0, base: 0 },
+    { upTo: 1200000, rate: 0.01, base: 0 },
+    { upTo: 2200000, rate: 0.11, base: 6000 },
+    { upTo: 3200000, rate: 0.23, base: 116000 },
+    { upTo: 4100000, rate: 0.30, base: 346000 },
+    { upTo: Infinity, rate: 0.35, base: 616000 },
+  ] },
+  2027: { label: 'Tax Year 2027 (Jul 2026 – Jun 2027)', slabs: [
+    { upTo: 600000, rate: 0, base: 0 },
+    { upTo: 1200000, rate: 0.01, base: 0 },
+    { upTo: 2200000, rate: 0.11, base: 6000 },
+    { upTo: 3200000, rate: 0.20, base: 116000 },
+    { upTo: 4100000, rate: 0.25, base: 316000 },
+    { upTo: 5600000, rate: 0.29, base: 541000 },
+    { upTo: 7000000, rate: 0.32, base: 976000 },
+    { upTo: Infinity, rate: 0.35, base: 1424000 },
+  ] },
+};
+// Which slab table applies to a payroll ending on `toYmd` ('YYYY-MM-DD').
+function taxTableFor(toYmd) {
+  const [y, m] = String(toYmd).split('-').map(Number);
+  const taxYear = m >= 7 ? y + 1 : y; // July onwards belongs to the tax year that ends next June
+  const known = Object.keys(FBR_SLABS_BY_TAX_YEAR).map(Number).sort((a, b) => b - a);
+  const used = known.find((k) => k <= taxYear) ?? known[known.length - 1];
+  return { taxYear, used, table: FBR_SLABS_BY_TAX_YEAR[used], fallback: used !== taxYear };
+}
 // Approximates the standard withholding calculation: annualize the monthly
 // Gross Salary (x12), find its slab, apply that slab's rate to the amount
 // ABOVE the previous slab's threshold, add the previous slabs' fixed base —
 // then divide back down to a monthly figure. Real withholding can differ
-// slightly (rounding, mid-year revisions, other taxable heads) — treat this
-// as the standard estimate, not a substitute for FBR's own calculator.
-function computeMonthlyIncomeTax(grossSalaryMonthly) {
+// slightly (rounding, mid-year revisions, other taxable heads, the high-income
+// surcharge) — treat this as the standard estimate, not a substitute for
+// FBR's own calculator.
+function computeMonthlyIncomeTax(grossSalaryMonthly, slabs) {
   if (!(grossSalaryMonthly > 0)) return 0;
   const annual = grossSalaryMonthly * 12;
   let prevThreshold = 0;
-  for (const slab of FBR_ANNUAL_SLABS) {
+  for (const slab of slabs) {
     if (annual <= slab.upTo) {
       const annualTax = slab.base + (annual - prevThreshold) * slab.rate;
       return Math.max(0, annualTax / 12);
@@ -89,6 +129,44 @@ function computeMonthlyIncomeTax(grossSalaryMonthly) {
   }
   return 0;
 }
+
+// Tax breakdown for one annual income under a slab table — used by the Finance
+// Tax Calculator so it can show WHICH slab applied and the tax per slab.
+function taxBreakdown(annual, slabs) {
+  let prev = 0; const lines = []; let tax = 0;
+  for (const slab of slabs) {
+    if (annual <= prev) break;
+    const top = Math.min(annual, slab.upTo);
+    lines.push({ from: prev, to: slab.upTo === Infinity ? null : slab.upTo, rate: slab.rate, taxableInSlab: top - prev });
+    if (annual <= slab.upTo) tax = slab.base + (annual - prev) * slab.rate;
+    prev = slab.upTo;
+  }
+  return { annualTax: Math.max(0, tax), slabs: lines };
+}
+
+// GET /api/payroll/tax-calc?salary=200000&period=monthly|annual&taxYear=2027
+// Open to any signed-in user whose role can see HR or Accounting.
+router.get('/tax-calc', (req, res) => {
+  const role = req.erpUser.role;
+  if (!canAccess(role, 'Human Resources') && !canAccess(role, 'Accounting')) return res.status(403).json({ error: 'No access to the Tax Calculator.' });
+  const amount = Number(req.query.salary);
+  if (!(amount >= 0) || !isFinite(amount)) return res.status(400).json({ error: 'Enter a valid salary amount.' });
+  const years = Object.keys(FBR_SLABS_BY_TAX_YEAR).map(Number).sort((a, b) => b - a);
+  const taxYear = Number(req.query.taxYear) || years[0];
+  const table = FBR_SLABS_BY_TAX_YEAR[taxYear];
+  if (!table) return res.status(400).json({ error: 'No slabs loaded for Tax Year ' + taxYear + '.' });
+  const annualGross = req.query.period === 'annual' ? amount : amount * 12;
+  const b = taxBreakdown(annualGross, table.slabs);
+  res.json({
+    taxYear, label: table.label, availableYears: years.map((y) => ({ taxYear: y, label: FBR_SLABS_BY_TAX_YEAR[y].label })),
+    annualGross, monthlyGross: annualGross / 12,
+    annualTax: b.annualTax, monthlyTax: b.annualTax / 12,
+    annualNet: annualGross - b.annualTax, monthlyNet: (annualGross - b.annualTax) / 12,
+    effectiveRatePct: annualGross > 0 ? (b.annualTax / annualGross) * 100 : 0,
+    slabs: b.slabs,
+  });
+});
+
 
 // POST /api/payroll/generate
 // { from, to, mode: 'department'|'employee', departments: [name,...], employees: [id,...] }
@@ -131,19 +209,27 @@ router.post('/generate', requireHr, async (req, res) => {
     for (const p of profiles) profileById.set(p.employee_id, p);
   }
 
-  // Approved "Field Shift" days per employee, same rule as the Compensation
-  // tab's running Field Allowance total.
+  // Approved "Field Shift" days per employee — ONLY the days that fall inside
+  // this payroll's date range. (It used to add every Field Shift day the
+  // employee had ever taken, so each month's payroll paid the allowance again
+  // for all the earlier months' days too.)
   const [fieldShiftRows] = empIds.length ? await pool.query(
     `SELECT employee_id, from_date, to_date, leave_request_type FROM erp_leave_requests
-     WHERE leave_type = 'Field Shift' AND status = 'Approved' AND employee_id IN (${empIds.map(() => '?').join(',')})`,
-    empIds
+     WHERE leave_type = 'Field Shift' AND status = 'Approved' AND from_date <= ? AND to_date >= ?
+       AND employee_id IN (${empIds.map(() => '?').join(',')})`,
+    [to, from, ...empIds]
   ) : [[]];
   const fieldShiftDaysById = new Map();
   for (const r of fieldShiftRows) {
-    const span = Math.round((new Date(r.to_date) - new Date(r.from_date)) / 86400000) + 1;
+    const a = toYmd(r.from_date) > from ? toYmd(r.from_date) : from;
+    const b = toYmd(r.to_date) < to ? toYmd(r.to_date) : to;
+    if (b < a) continue;
+    const span = daysBetween(a, b) + 1;
     const days = r.leave_request_type === 'Half Day' ? span * 0.5 : span;
     fieldShiftDaysById.set(r.employee_id, (fieldShiftDaysById.get(r.employee_id) || 0) + days);
   }
+
+  const tax = taxTableFor(to);
 
   // Group the day-by-day rows per employee.
   const byEmployee = new Map();
@@ -201,11 +287,18 @@ router.post('/generate', requireHr, async (req, res) => {
       else unforgivenLateCount++;
     }
     const lateCount = unforgivenLateCount + forcedLateCount;
+    const lateArrivals = lateIncidents.length + forcedLateCount;          // every late arrival, before overtime forgiveness
+    const lateForgivenByOvertime = lateIncidents.length - unforgivenLateCount;
     const weeklyOffDays = sundayDays + saturdayOffDays;
 
     const latePenaltyDays = Math.floor(lateCount / 3);
     const paidDays = presentDays + weeklyOffDays + holidayDays + paidLeaveDays;
-    const netPaidDays = Math.max(0, paidDays - latePenaltyDays);
+    // Payable days = a full pay month (or the range, if shorter) less every
+    // deducted day. NOT paidDays − penalty: a 25th-to-25th cycle is 31–32
+    // calendar days against a 30-day pay month, so counting every paid calendar
+    // day paid the extra days on top of the salary and hid absences.
+    const baseDays = Math.min(totalDaysInRange, daysInMonth);
+    const netPaidDays = Math.max(0, baseDays - absentDays - unpaidLeaveDays - latePenaltyDays);
 
     const profile = profileById.get(meta.employeeId);
     const grossSalary = profile && profile.gross_salary != null ? Number(profile.gross_salary) : null;
@@ -216,7 +309,7 @@ router.post('/generate', requireHr, async (req, res) => {
     // rules in the header comment above.
     const otherDeductionAmount = perDayRate != null ? perDayRate * (absentDays + unpaidLeaveDays) : null;
     const lateDeductionAmount = perDayRate != null ? perDayRate * latePenaltyDays : null;
-    const incomeTax = grossSalary != null ? computeMonthlyIncomeTax(grossSalary) : null;
+    const incomeTax = grossSalary != null ? computeMonthlyIncomeTax(grossSalary, tax.table.slabs) : null;
     // perDayRate*netPaidDays already excludes absent/unpaid days (paidDays
     // never counted them) and the late penalty (netPaidDays already
     // subtracts latePenaltyDays) — otherDeductionAmount/lateDeductionAmount
@@ -233,8 +326,8 @@ router.post('/generate', requireHr, async (req, res) => {
       currency: (profile && profile.currency) || 'AED',
       grossSalary, salaryMissing, daysInMonth, totalDaysInRange, perDayRate,
       presentDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
-      lateCount, latePenaltyDays, overtimeMinutesTotal,
-      paidDays, netPaidDays,
+      lateCount, lateArrivals, lateForgivenByOvertime, latePenaltyDays, overtimeMinutesTotal,
+      paidDays, netPaidDays, baseDays,
       otherDeductionAmount, lateDeductionAmount, incomeTax, netSalary,
       fieldAllowancePerDay, fieldShiftDays, fieldAllowanceTotal,
       grossPayable: netSalary != null ? netSalary + fieldAllowanceTotal : null,
@@ -243,7 +336,7 @@ router.post('/generate', requireHr, async (req, res) => {
   }
 
   report.sort((a, b) => (a.department || '').localeCompare(b.department || '') || (a.employeeName || '').localeCompare(b.employeeName || ''));
-  res.json({ from, to, totalDaysInRange, daysInMonth, rows: report });
+  res.json({ from, to, totalDaysInRange, daysInMonth, taxYear: tax.table.label, taxYearFallback: tax.fallback, rows: report });
 });
 
 module.exports = router;

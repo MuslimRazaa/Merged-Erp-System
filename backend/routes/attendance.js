@@ -174,6 +174,12 @@ router.get('/locations', requireHr, async (req, res) => {
 // 1 absent, offset by same-day overtime" rule.
 async function computeAttendanceRows(from, to, filter = {}) {
   const rangeFrom = parseYMD(from), rangeTo = parseYMD(to);
+  // The whole calendar months the range touches. The company's payroll cycle
+  // (25th to 25th) always straddles two months, and leave, the Saturday quota
+  // and field jobs are all decided month by month — so the data behind them is
+  // read for the full months, while rows are still produced only for [from,to].
+  const monthStart = new Date(rangeFrom.getFullYear(), rangeFrom.getMonth(), 1);
+  const monthEnd = new Date(rangeTo.getFullYear(), rangeTo.getMonth() + 1, 0);
 
   let empSql = `
     SELECT e.id, e.employee_id AS emp_code, e.full_name, e.department, e.location,
@@ -198,7 +204,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
   const [punchRows] = await pool.query(
     `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, employee_id, punch_time, in_out_mode, source, device_location
      FROM erp_attendance_logs WHERE employee_id IS NOT NULL AND DATE(punch_time) BETWEEN ? AND ?${filter.employeeIds && filter.employeeIds.length ? ` AND employee_id IN (${filter.employeeIds.map(() => '?').join(',')})` : ''}`,
-    [from, to, ...(filter.employeeIds && filter.employeeIds.length ? filter.employeeIds : [])]
+    [ymd(monthStart), ymd(monthEnd), ...(filter.employeeIds && filter.employeeIds.length ? filter.employeeIds : [])]
   );
   const punchesByEmpDay = new Map(); // "empId|day" -> [{time, mode, source, location}]
   for (const r of punchRows) {
@@ -206,6 +212,11 @@ async function computeAttendanceRows(from, to, filter = {}) {
     if (!punchesByEmpDay.has(key)) punchesByEmpDay.set(key, []);
     punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source, location: r.device_location });
   }
+  // Earliest first, always. The query has no ORDER BY, so rows otherwise come
+  // back in insertion order — and a punch added later (a backfill, a device
+  // that synced late, a record entered by hand) would then be taken as the
+  // day's "first" punch, wrongly deciding Late / check-in / check-out.
+  for (const list of punchesByEmpDay.values()) list.sort((a, b) => new Date(a.time) - new Date(b.time));
   // Real device punches still win over any older manual/imported rows for
   // the same day (manual entry/bulk import are retired going forward, but
   // historical rows tagged that way may still exist).
@@ -225,8 +236,6 @@ async function computeAttendanceRows(from, to, filter = {}) {
   // calendar month the range touches, not just [from,to], because the
   // Saturday quota below needs full-month leave data to know which
   // Saturdays are already excused before it hands out the free ones.
-  const monthStart = new Date(rangeFrom.getFullYear(), rangeFrom.getMonth(), 1);
-  const monthEnd = new Date(rangeTo.getFullYear(), rangeTo.getMonth() + 1, 0);
   const [leaveRows] = await pool.query(
     `SELECT employee_id, from_date, to_date, leave_type, leave_request_type, doc_no, status FROM erp_leave_requests
      WHERE status IN ('Approved','Leave Without Pay') AND from_date <= ? AND to_date >= ?`,
@@ -248,23 +257,29 @@ async function computeAttendanceRows(from, to, filter = {}) {
   // roster (not just this call's filtered list) so a name shared by two
   // employees is recognised as ambiguous even when only one of them is asked for.
   const [allEmployeeNames] = await pool.query('SELECT id, full_name FROM employees');
-  const { byEmpDate: fieldJobByEmpDate } = await loadFieldPresence(pool, { from, to, employees: allEmployeeNames });
+  const { byEmpDate: fieldJobByEmpDate } = await loadFieldPresence(pool, { from: ymd(monthStart), to: ymd(monthEnd), employees: allEmployeeNames });
 
   // Saturday weekly-off quota, per employee per month: a Saturday the
   // employee actually attended, that a leave already covers, or that a
   // field job already covers, is settled on its own and never consumes/needs
   // the quota. Of the remaining "bare" Saturdays, up to the free count
   // become WeeklyOff; any beyond it are Absent.
+  // Done for EACH calendar month the range touches: a 26-Aug..25-Sep payroll
+  // cycle has August Saturdays AND September Saturdays, and each month gets
+  // its own quota — earlier this only looked at the first month, so every
+  // Saturday of the second month came out Absent for a Permanent employee.
   const satOffByEmpDate = new Set(); // "empId|YYYY-MM-DD"
-  const monthSaturdays = saturdaysInMonth(monthStart.getFullYear(), monthStart.getMonth() + 1);
-  for (const emp of employees) {
-    const freeCount = emp.employment_type === 'Permanent' ? Math.max(monthSaturdays.length - 2, 0) : 0;
-    if (!freeCount) continue;
-    const bare = monthSaturdays.filter((sat) => {
-      const key = emp.id + '|' + sat;
-      return !punchesByEmpDay.has(key) && !leaveByEmpDate.has(key) && !fieldJobByEmpDate.has(key);
-    });
-    bare.slice(0, freeCount).forEach((sat) => satOffByEmpDate.add(emp.id + '|' + sat));
+  for (let m = new Date(monthStart); m <= monthEnd; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+    const monthSaturdays = saturdaysInMonth(m.getFullYear(), m.getMonth() + 1);
+    for (const emp of employees) {
+      const freeCount = emp.employment_type === 'Permanent' ? Math.max(monthSaturdays.length - 2, 0) : 0;
+      if (!freeCount) continue;
+      const bare = monthSaturdays.filter((sat) => {
+        const key = emp.id + '|' + sat;
+        return !punchesByEmpDay.has(key) && !leaveByEmpDate.has(key) && !fieldJobByEmpDate.has(key);
+      });
+      bare.slice(0, freeCount).forEach((sat) => satOffByEmpDate.add(emp.id + '|' + sat));
+    }
   }
 
   const out = [];

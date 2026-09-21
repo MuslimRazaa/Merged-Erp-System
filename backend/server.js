@@ -57,7 +57,20 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '25mb' }));
 
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString(), node: process.version }));
+// serverUtcOffsetMinutes / serverLocalTime: the clock this process uses for
+// "late" (shift start + grace) and day boundaries. Attendance and payroll
+// compare punch times against the shift in THIS timezone, so it should read
+// +300 (Pakistan, UTC+5) — anything else means Late/Absent are being judged on
+// the wrong clock.
+app.get('/api/health', (req, res) => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  res.json({
+    ok: true, time: now.toISOString(), node: process.version,
+    serverUtcOffsetMinutes: -now.getTimezoneOffset(),
+    serverLocalTime: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+  });
+});
 
 app.use('/api/auth', authRouter);
 app.use('/api/shared', sharedRouter);

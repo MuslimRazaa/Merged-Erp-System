@@ -560,7 +560,7 @@ const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
-  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'tax_calc',ic:'%',name:'Tax Calculator'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
 let route=lsGet('ui_route','dashboard');
@@ -1328,6 +1328,44 @@ function prMonthLabel(toDateStr){
   const d=new Date(toDateStr+'T00:00:00');
   return d.toLocaleDateString('en-US',{month:'long',year:'numeric'});
 }
+/* ---- Salaried income-tax calculator (same slabs the Payroll uses: backend FBR_SLABS_BY_TAX_YEAR) ---- */
+let TC={salary:'',period:'monthly',year:'',res:null,err:''};
+async function renderTaxCalc(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Salaried Income Tax Calculator<span class="hint" style="font-weight:400"> — same FBR slabs the Payroll uses, so the numbers always match</span></div>'+
+   '<div class="fgrid">'+
+    '<div class="field"><label>Tax Year</label><select id="tc-year" onchange="tcRun()"></select></div>'+
+    '<div class="field"><label>Salary is</label><select id="tc-period" onchange="tcRun()"><option value="monthly"'+(TC.period==='monthly'?' selected':'')+'>Monthly (gross)</option><option value="annual"'+(TC.period==='annual'?' selected':'')+'>Annual (gross)</option></select></div>'+
+    '<div class="field"><label>Gross Salary (PKR)</label><input id="tc-salary" type="number" min="0" step="any" placeholder="e.g. 200000" value="'+esc(TC.salary)+'" oninput="tcRun()"></div>'+
+   '</div><div id="tc-err" class="hint" style="color:#b00020"></div><div id="tc-out"></div>'+
+   '<div class="hint" style="margin-top:12px">Estimate on salary income only (no surcharge, no other taxable heads or rebates). Confirm against the current FBR notification.</div></div>';
+  await tcRun(true);
+}
+let __tcT=null;
+function tcRun(now){
+  clearTimeout(__tcT);
+  __tcT=setTimeout(async()=>{
+    const sal=document.getElementById('tc-salary'),per=document.getElementById('tc-period'),yr=document.getElementById('tc-year');
+    if(!sal)return;
+    TC.salary=sal.value;TC.period=per.value;if(yr.value)TC.year=yr.value;
+    const out=document.getElementById('tc-out'),err=document.getElementById('tc-err');
+    try{
+      const q='?salary='+encodeURIComponent(TC.salary===''?0:TC.salary)+'&period='+TC.period+(TC.year?'&taxYear='+TC.year:'');
+      const r=await api('/api/payroll/tax-calc'+q);
+      if(!yr.options.length){yr.innerHTML=r.availableYears.map(y=>'<option value="'+y.taxYear+'">'+esc(y.label)+'</option>').join('');}
+      yr.value=String(r.taxYear);TC.year=String(r.taxYear);
+      err.textContent='';
+      if(TC.salary===''){out.innerHTML='';return;}
+      const row=(a,b,c2,bold)=>'<tr'+(bold?' style="font-weight:700"':'')+'><td>'+a+'</td><td class="num">'+fmt(b)+'</td><td class="num">'+fmt(c2)+'</td></tr>';
+      out.innerHTML='<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th></th><th class="num">Monthly (PKR)</th><th class="num">Annual (PKR)</th></tr></thead><tbody>'+
+        row('Gross Income',r.monthlyGross,r.annualGross)+row('Income Tax',r.monthlyTax,r.annualTax,true)+row('Net Income',r.monthlyNet,r.annualNet,true)+
+        '</tbody></table></div><div class="hint" style="margin:8px 0">Effective rate: <b>'+r.effectiveRatePct.toFixed(2)+'%</b></div>'+
+        '<div class="tbl-wrap"><table><thead><tr><th>Slab (annual income)</th><th class="num">Rate</th><th class="num">Income in slab</th></tr></thead><tbody>'+
+        r.slabs.map(x=>'<tr><td>'+fmt(x.from).replace('.00','')+' – '+(x.to==null?'and above':fmt(x.to).replace('.00',''))+'</td><td class="num">'+(x.rate*100).toFixed(0)+'%</td><td class="num">'+fmt(x.taxableInSlab)+'</td></tr>').join('')+
+        '</tbody></table></div>';
+    }catch(e){err.textContent=e.message;out.innerHTML='';}
+  },now===true?0:250);
+}
 async function renderPayroll(){
   const c=document.getElementById('content');
   const to=window.__prTo||today();
@@ -1434,7 +1472,7 @@ async function prGenerate(){
 function showErrEl(el,msg){el.textContent=msg;el.style.display='block';toast(msg,'err');}
 function prRenderReport(){
   const rep=PR_REPORT;
-  document.getElementById('pr-result-hint').textContent=' — '+prMonthLabel(rep.to)+' ('+rep.from+' to '+rep.to+', '+rep.totalDaysInRange+' days)';
+  document.getElementById('pr-result-hint').textContent=' — '+prMonthLabel(rep.to)+' ('+rep.from+' to '+rep.to+', '+rep.totalDaysInRange+' days) · Income tax: '+(rep.taxYear||'FBR slabs')+(rep.taxYearFallback?' (latest rates loaded — no newer year added yet)':'');
   const missing=rep.rows.filter(r=>r.salaryMissing).length;
   const totalPayable=rep.rows.reduce((s,r)=>s+(r.grossPayable||0),0);
   document.getElementById('pr-kpis').innerHTML='<div class="kpis">'+
@@ -1454,7 +1492,7 @@ function prRenderReport(){
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
      '<td class="num">'+r.presentDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
-     '<td class="num">'+r.lateCount+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
+     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime, '+r.lateCount+' counted (every 3 counted = 1 day deducted)':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
@@ -6055,7 +6093,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],tax_calc:['Accounting','Tax Calculator'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -6064,7 +6102,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
