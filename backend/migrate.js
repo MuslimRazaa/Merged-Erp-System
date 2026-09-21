@@ -622,7 +622,28 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config ready (no ISO tables were altered).');
+  // HR "Documents" tab on the Employee view: profile photo, CV, ID copies,
+  // certificates, contracts... — one row per file, bytes in the row itself.
+  // ERP-only table; cascades away with the employee, no ISO table touched.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_employee_files (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      employee_id INT NOT NULL,
+      category    VARCHAR(40)  NOT NULL DEFAULT 'Other',
+      file_name   VARCHAR(255) NOT NULL,
+      mime_type   VARCHAR(150) NULL,
+      file_size   INT NOT NULL DEFAULT 0,
+      file_data   LONGBLOB NOT NULL,
+      uploaded_by VARCHAR(255) NULL,
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_erp_employee_files_emp (employee_id, category),
+      CONSTRAINT fk_erp_employee_files_employee
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+        ON DELETE CASCADE
+    )
+  `);
+
+  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;
