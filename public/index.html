@@ -738,6 +738,7 @@ async function pullSharedMaster(){
   // (see crmMirrorCustomersToLocalStorage). Silently skipped for a role
   // with no CRM access.
   try{await crmLoadCustomers();}catch(e){}
+  try{await crmLoadQuotationRefs();}catch(e){}
 }
 /* Birthday reminder — pops up once per day (per browser) whenever any
    employee's birthday falls today, tomorrow, or the day after. Only ever
@@ -3188,6 +3189,22 @@ async function crmLoadCustomers(){
   CRM_CUSTOMERS=await api('/api/crm/customers');
   crmMirrorCustomersToLocalStorage();
 }
+/* Same idea for quotations: Sales Orders' "Quotation ref" dropdown reads the
+   local 'quotes' collection (its old home, long since replaced by the CRM
+   Quotations screen), so mirror the real, server-side quotations into it. */
+function crmMirrorQuotationsToLocalStorage(){
+  lsSet('quotes',CRM_QUOTATIONS.map(q=>({id:'crmq'+q.id,no:q.quotationNo,customer:q.customerName,amount:q.grandTotal,status:q.status,date:q.quotationDate})));
+}
+async function crmLoadQuotationRefs(){
+  CRM_QUOTATIONS=await api('/api/crm/quotations');
+  crmMirrorQuotationsToLocalStorage();
+}
+let CRM_QREF_AT=0;
+function crmQuoteRefEnsure(){
+  if(Date.now()-CRM_QREF_AT<15000&&localStorage.getItem(P+'quotes')!=null)return;
+  CRM_QREF_AT=Date.now();
+  crmLoadQuotationRefs().then(()=>{if(route.startsWith('m_'))recRefreshRefs('quotes');}).catch(()=>{});
+}
 let CRM_CUST_SELECTED=new Set();
 async function renderCrmCustomers(){
   CRM_CUST_SELECTED=new Set();
@@ -3802,6 +3819,7 @@ async function renderCrmQuotations(){
   try{
     if(!CRM_EQUIPMENT.length){try{await crmLoadCatalogRef();}catch(e){}}
     CRM_QUOTATIONS=await api('/api/crm/quotations');
+    crmMirrorQuotationsToLocalStorage();
     crmFilterQuotations();
   }catch(e){const el=document.getElementById('crmqt-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
@@ -4381,7 +4399,7 @@ async function recBootstrap(){
   const res=await Promise.all([...SERVER_MODS].filter(k=>MODULES[k]&&canSee(MODULES[k].g)).map(k=>recPull(k,true)));
   if(res.some(Boolean)&&!editId)render();
 }
-function recClearCache(){SERVER_MODS.forEach(k=>{try{localStorage.removeItem(P+k);}catch(e){}delete REC_AT[k];});}
+function recClearCache(){SERVER_MODS.forEach(k=>{try{localStorage.removeItem(P+k);}catch(e){}delete REC_AT[k];});try{localStorage.removeItem(P+'quotes');}catch(e){}CRM_QREF_AT=0;}
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
@@ -4397,6 +4415,7 @@ function renderModule(){
   const k=modKey(),m=MODULES[k],data=coll(k);
   recEnsure(k);
   m.fields.forEach(f=>{if(f.t==='ref'&&f.coll!==k)recEnsure(f.coll);}); // dropdown sources (Invoice -> Sales orders, Receipt -> Invoices …) must be fresh too
+  if(m.fields.some(f=>f.t==='ref'&&f.coll==='quotes'))crmQuoteRefEnsure(); // Sales Order -> Quotation ref comes from the CRM quotations
   const rec=editId?data.find(r=>r.id===editId)||{}:{};
   let kpis='';
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
@@ -5897,7 +5916,7 @@ function saveSyncSettings(){
 function syncSkip(k){
   if(k===SYNC_CFG_KEY||k===SYNC_META_KEY||k===P+'ui_route'||k===P+'session')return true;
   if(k.startsWith(P+'recmig_'))return true;
-  return SERVER_MODS.has(k.slice(P.length));
+  return SERVER_MODS.has(k.slice(P.length))||k===P+'quotes'; // 'quotes' is a read-only mirror of the CRM quotations
 }
 function syncKeys(){return allKeys().filter(k=>!syncSkip(k));}
 function dirtyKeys(){
