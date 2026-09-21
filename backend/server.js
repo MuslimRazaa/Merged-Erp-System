@@ -81,4 +81,11 @@ migrate()
       console.log(`Sharing database "${process.env.DB_NAME}" with the ISO/LMS backend — read-only on employees/departments/locations except where explicitly noted in routes/shared.js.`);
     });
   })
-  .catch((e) => { console.error('[FATAL] migration failed, not starting:', e.message); process.exit(1); });
+  .catch((e) => {
+    // mysql2 connection failures (e.g. ECONNREFUSED) arrive as an AggregateError
+    // with an empty .message — fall back to the code / inner errors so the cause is visible.
+    const detail = e.message || e.code || (e.errors || []).map((x) => x.message).join('; ') || String(e);
+    console.error('[FATAL] migration failed, not starting:', detail);
+    if (!process.env.DB_HOST || !process.env.DB_NAME) console.error('[FATAL] DB_HOST / DB_NAME not set — create backend/.env (see .env.example).');
+    process.exit(1);
+  });
