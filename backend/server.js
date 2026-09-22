@@ -41,6 +41,8 @@ const holidaysRouter = require('./routes/holidays');
 const loansRouter = require('./routes/loans');
 const payrollRouter = require('./routes/payroll');
 const crmRouter = require('./routes/crm');
+const recordsRouter = require('./routes/records');
+const employeeFilesRouter = require('./routes/employeeFiles');
 
 const PORT = +(process.env.PORT || 5050);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -55,7 +57,20 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '25mb' }));
 
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString(), node: process.version }));
+// serverUtcOffsetMinutes / serverLocalTime: the clock this process uses for
+// "late" (shift start + grace) and day boundaries. Attendance and payroll
+// compare punch times against the shift in THIS timezone, so it should read
+// +300 (Pakistan, UTC+5) — anything else means Late/Absent are being judged on
+// the wrong clock.
+app.get('/api/health', (req, res) => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  res.json({
+    ok: true, time: now.toISOString(), node: process.version,
+    serverUtcOffsetMinutes: -now.getTimezoneOffset(),
+    serverLocalTime: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+  });
+});
 
 app.use('/api/auth', authRouter);
 app.use('/api/shared', sharedRouter);
@@ -67,6 +82,8 @@ app.use('/api/holidays', holidaysRouter);
 app.use('/api/loans', loansRouter);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/crm', crmRouter);
+app.use('/api/records', recordsRouter);
+app.use('/api/employee-files', employeeFilesRouter);
 
 // Serve the existing HTML/JS front end unchanged.
 app.use(express.static(PUBLIC_DIR));

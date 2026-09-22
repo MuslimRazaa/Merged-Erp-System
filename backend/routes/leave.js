@@ -29,6 +29,8 @@ const express = require('express');
 const pool = require('../db');
 const { requireAuth, audit } = require('./auth');
 const { canAccess } = require('../roles');
+const { computeFieldBreaks } = require('./attendance');
+const { toYmd, daysBetween, financialYearRange } = require('../fieldJobs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -49,6 +51,24 @@ function requireHr(req, res, next) {
   next();
 }
 function isAdminTier(role) { return role === 'Administrator' || role === 'Sub Admin'; }
+
+// A "Field Break" leave draws on the balance earned by working Sundays /
+// holidays out on a field job (see computeFieldBreaks in routes/attendance.js).
+// Returns an error message, or null when the balance covers the request. It
+// is checked when the request is filed AND again at the final approval, so an
+// approved Field Break can never take the balance below zero.
+async function fieldBreakShortfall(employeeId, fromDate, toDate, requestType) {
+  const from = toYmd(fromDate), to = toYmd(toDate);
+  if (!from || !to || to < from) return 'From Date and To Date are not valid.';
+  const fy = financialYearRange(from);
+  if (to > fy.end) return 'A Field Break cannot run across the July 1 year-end — please file it as two requests.';
+  const days = (daysBetween(from, to) + 1) * (requestType === 'Half Day' ? 0.5 : 1);
+  const b = await computeFieldBreaks(employeeId, from);
+  if (days > b.remaining) {
+    return `Not enough Field Break balance: ${b.remaining} day(s) available for ${b.fy} (earned ${b.earned}, already used ${b.availed}); this request is for ${days}.`;
+  }
+  return null;
+}
 
 // hod_id/hod_code/hod_name (the employee's registered HOD, via
 // erp_employee_profile.reports_to — see the Employees form's Access tab)
@@ -104,6 +124,11 @@ router.post('/', async (req, res) => {
     const [emp] = await pool.query('SELECT id FROM employees WHERE id = ?', [+b.employeeId]);
     if (!emp.length) return res.status(404).json({ error: 'Employee not found.' });
     targetId = +b.employeeId;
+  }
+
+  if (b.leaveType === 'Field Break') {
+    const problem = await fieldBreakShortfall(targetId, b.fromDate, b.toDate, b.leaveRequestType);
+    if (problem) return res.status(400).json({ error: problem });
   }
 
   const [result] = await pool.query(
@@ -214,6 +239,10 @@ router.put('/:id/status', async (req, res) => {
         } else {
           return res.status(400).json({ error: `This request is not awaiting a decision (current status: ${row.status}).` });
         }
+      }
+      if (status === 'Approved' && row.leave_type === 'Field Break') {
+        const problem = await fieldBreakShortfall(row.employee_id, row.from_date, row.to_date, row.leave_request_type);
+        if (problem) return res.status(400).json({ error: problem });
       }
       await pool.query(
         'UPDATE erp_leave_requests SET status = ?, decided_by = ?, decided_at = NOW(), decision_remarks = ? WHERE id = ?',

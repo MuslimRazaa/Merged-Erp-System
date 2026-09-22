@@ -17,6 +17,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAuth, audit } = require('./auth');
 const { canAccess } = require('../roles');
+const { loadFieldPresence, financialYearRange, toYmd, daysBetween, localYmd } = require('../fieldJobs');
 
 const router = express.Router();
 
@@ -24,6 +25,9 @@ const router = express.Router();
 // attendance-agent/agent.js's getAttendancesRaw) — a real device status,
 // not a guess.
 const VERIFY_STATE_LABELS = { 0: 'Check-in', 1: 'Check-out', 2: 'Break-out', 3: 'Break-in', 4: 'OT-in', 5: 'OT-out' };
+// Grace period after shift_end before checkout minutes count as overtime —
+// e.g. shift end 5:30 -> overtime only starts counting after 6:30, not 5:31.
+const OVERTIME_GRACE_MINUTES = 60;
 
 function requireAgentKey(req, res, next) {
   const key = req.headers['x-agent-key'] || '';
@@ -173,6 +177,12 @@ router.get('/locations', requireHr, async (req, res) => {
 // 1 absent, offset by same-day overtime" rule.
 async function computeAttendanceRows(from, to, filter = {}) {
   const rangeFrom = parseYMD(from), rangeTo = parseYMD(to);
+  // The whole calendar months the range touches. The company's payroll cycle
+  // (25th to 25th) always straddles two months, and leave, the Saturday quota
+  // and field jobs are all decided month by month — so the data behind them is
+  // read for the full months, while rows are still produced only for [from,to].
+  const monthStart = new Date(rangeFrom.getFullYear(), rangeFrom.getMonth(), 1);
+  const monthEnd = new Date(rangeTo.getFullYear(), rangeTo.getMonth() + 1, 0);
 
   let empSql = `
     SELECT e.id, e.employee_id AS emp_code, e.full_name, e.department, e.location,
@@ -196,8 +206,8 @@ async function computeAttendanceRows(from, to, filter = {}) {
 
   const [punchRows] = await pool.query(
     `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, employee_id, punch_time, in_out_mode, source, device_location
-     FROM erp_attendance_logs WHERE employee_id IS NOT NULL AND DATE(punch_time) BETWEEN ? AND ?`,
-    [from, to]
+     FROM erp_attendance_logs WHERE employee_id IS NOT NULL AND DATE(punch_time) BETWEEN ? AND ?${filter.employeeIds && filter.employeeIds.length ? ` AND employee_id IN (${filter.employeeIds.map(() => '?').join(',')})` : ''}`,
+    [ymd(monthStart), ymd(monthEnd), ...(filter.employeeIds && filter.employeeIds.length ? filter.employeeIds : [])]
   );
   const punchesByEmpDay = new Map(); // "empId|day" -> [{time, mode, source, location}]
   for (const r of punchRows) {
@@ -205,6 +215,11 @@ async function computeAttendanceRows(from, to, filter = {}) {
     if (!punchesByEmpDay.has(key)) punchesByEmpDay.set(key, []);
     punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source, location: r.device_location });
   }
+  // Earliest first, always. The query has no ORDER BY, so rows otherwise come
+  // back in insertion order — and a punch added later (a backfill, a device
+  // that synced late, a record entered by hand) would then be taken as the
+  // day's "first" punch, wrongly deciding Late / check-in / check-out.
+  for (const list of punchesByEmpDay.values()) list.sort((a, b) => new Date(a.time) - new Date(b.time));
   // Real device punches still win over any older manual/imported rows for
   // the same day (manual entry/bulk import are retired going forward, but
   // historical rows tagged that way may still exist).
@@ -224,8 +239,6 @@ async function computeAttendanceRows(from, to, filter = {}) {
   // calendar month the range touches, not just [from,to], because the
   // Saturday quota below needs full-month leave data to know which
   // Saturdays are already excused before it hands out the free ones.
-  const monthStart = new Date(rangeFrom.getFullYear(), rangeFrom.getMonth(), 1);
-  const monthEnd = new Date(rangeTo.getFullYear(), rangeTo.getMonth() + 1, 0);
   const [leaveRows] = await pool.query(
     `SELECT employee_id, from_date, to_date, leave_type, leave_request_type, doc_no, status FROM erp_leave_requests
      WHERE status IN ('Approved','Leave Without Pay') AND from_date <= ? AND to_date >= ?`,
@@ -241,67 +254,35 @@ async function computeAttendanceRows(from, to, filter = {}) {
     }
   }
 
-  // Field jobs (job_log_entries — the shared JLR/Job Log Register table,
-  // read-only here) stand in for machine attendance on days someone was out
-  // on a job instead of at an office with a K70. As of the JLR "Add Entry"
-  // form now offering the full ERP employee roster directly in its
-  // Inspector Name / Team Member dropdowns (see JobLogLookup.getEmployeeRoster
-  // on the ISO side), a job's free-text name is matched EXACTLY (case/space-
-  // normalized) against employees.full_name — no manual linking step needed:
-  // if it was picked from that dropdown, the text is already the employee's
-  // real name. A labour/helper added via JLR's own "+ Add" (not from the
-  // employee roster) simply won't match anything here, so never affects
-  // attendance — exactly as intended. Job entries made before this roster
-  // integration existed are untouched and matched the same way; they just
-  // won't produce a Field day unless their free-text name happens to equal
-  // an employee's exact full_name.
-  const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  const splitTeamNames = (s) => String(s || '').split(/[+,;\/\n]|\band\b|&/i).map(normName).filter(Boolean);
-  const fieldJobByEmpDate = new Map(); // "empId|YYYY-MM-DD" -> {client, workOrder, location}
-  const empIdByExactName = new Map();
-  for (const emp of employees) {
-    const n = normName(emp.full_name);
-    if (n) empIdByExactName.set(n, emp.id);
-  }
-  if (empIdByExactName.size) {
-    const [jobRows] = await pool.query(
-      `SELECT inspector_name, inspector_team, start_date, end_date, client, work_order, location
-       FROM job_log_entries WHERE start_date IS NOT NULL AND start_date <= ? AND COALESCE(end_date, start_date) >= ?`,
-      [to, from]
-    );
-    for (const j of jobRows) {
-      const tokens = [normName(j.inspector_name), ...splitTeamNames(j.inspector_team)].filter(Boolean);
-      const matchedIds = [...new Set(tokens.map((t) => empIdByExactName.get(t)).filter(Boolean))];
-      if (!matchedIds.length) continue;
-      const jStart = parseYMD(j.start_date);
-      const jEnd = j.end_date ? parseYMD(j.end_date) : jStart;
-      const start = jStart > rangeFrom ? jStart : rangeFrom;
-      const end = jEnd < rangeTo ? jEnd : rangeTo;
-      if (start > end) continue;
-      const ref = { client: j.client || '', workOrder: j.work_order || '', location: j.location || '' };
-      for (const empId of matchedIds) {
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          fieldJobByEmpDate.set(empId + '|' + ymd(d), ref);
-        }
-      }
-    }
-  }
+  // Field jobs — who was out on a JLR job on which day (start..end, open-ended
+  // jobs through today, Add / Replace / Remove changes applied). All the
+  // rules live in ../fieldJobs.js. Names are matched against the FULL employee
+  // roster (not just this call's filtered list) so a name shared by two
+  // employees is recognised as ambiguous even when only one of them is asked for.
+  const [allEmployeeNames] = await pool.query('SELECT id, full_name FROM employees');
+  const { byEmpDate: fieldJobByEmpDate } = await loadFieldPresence(pool, { from: ymd(monthStart), to: ymd(monthEnd), employees: allEmployeeNames });
 
   // Saturday weekly-off quota, per employee per month: a Saturday the
   // employee actually attended, that a leave already covers, or that a
   // field job already covers, is settled on its own and never consumes/needs
   // the quota. Of the remaining "bare" Saturdays, up to the free count
   // become WeeklyOff; any beyond it are Absent.
+  // Done for EACH calendar month the range touches: a 26-Aug..25-Sep payroll
+  // cycle has August Saturdays AND September Saturdays, and each month gets
+  // its own quota — earlier this only looked at the first month, so every
+  // Saturday of the second month came out Absent for a Permanent employee.
   const satOffByEmpDate = new Set(); // "empId|YYYY-MM-DD"
-  const monthSaturdays = saturdaysInMonth(monthStart.getFullYear(), monthStart.getMonth() + 1);
-  for (const emp of employees) {
-    const freeCount = emp.employment_type === 'Permanent' ? Math.max(monthSaturdays.length - 2, 0) : 0;
-    if (!freeCount) continue;
-    const bare = monthSaturdays.filter((sat) => {
-      const key = emp.id + '|' + sat;
-      return !punchesByEmpDay.has(key) && !leaveByEmpDate.has(key) && !fieldJobByEmpDate.has(key);
-    });
-    bare.slice(0, freeCount).forEach((sat) => satOffByEmpDate.add(emp.id + '|' + sat));
+  for (let m = new Date(monthStart); m <= monthEnd; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+    const monthSaturdays = saturdaysInMonth(m.getFullYear(), m.getMonth() + 1);
+    for (const emp of employees) {
+      const freeCount = emp.employment_type === 'Permanent' ? Math.max(monthSaturdays.length - 2, 0) : 0;
+      if (!freeCount) continue;
+      const bare = monthSaturdays.filter((sat) => {
+        const key = emp.id + '|' + sat;
+        return !punchesByEmpDay.has(key) && !leaveByEmpDate.has(key) && !fieldJobByEmpDate.has(key);
+      });
+      bare.slice(0, freeCount).forEach((sat) => satOffByEmpDate.add(emp.id + '|' + sat));
+    }
   }
 
   const out = [];
@@ -340,27 +321,37 @@ async function computeAttendanceRows(from, to, filter = {}) {
           // (there's nothing to compare the missing check-in against).
           late = true;
         }
-        // Overtime: minutes checked out AFTER shift_end (only computable when
-        // a shift_end is actually configured — see PUT /shift/:employeeId).
-        // Payroll uses this to offset the same day's lateMinutes (an
-        // employee who leaves late having also arrived late isn't
-        // double-penalized if their overtime covers the lateness).
+        // Overtime: minutes checked out after shift_end + a 1-hour grace
+        // (only computable when a shift_end is actually configured — see PUT
+        // /shift/:employeeId). Shift end 5:30 -> overtime only counts past
+        // 6:30, not from 5:31; staying the odd few minutes late isn't
+        // overtime. Payroll uses the resulting minutes to offset lateMinutes
+        // from elsewhere in the pay cycle (an employee who leaves late having
+        // also arrived late isn't double-penalized if overtime covers it).
         if (checkOut && emp.shift_end) {
           const [eh, em2] = String(emp.shift_end).slice(0, 5).split(':').map(Number);
-          const shiftEndAt = new Date(checkOut);
-          shiftEndAt.setHours(eh, em2, 0, 0);
-          if (checkOut > shiftEndAt) overtimeMinutes = Math.round((checkOut - shiftEndAt) / 60000);
+          const otStartsAt = new Date(checkOut);
+          otStartsAt.setHours(eh, em2 + OVERTIME_GRACE_MINUTES, 0, 0);
+          if (checkOut > otStartsAt) overtimeMinutes = Math.round((checkOut - otStartsAt) / 60000);
         }
       }
 
       const fieldJob = fieldJobByEmpDate.get(key);
+      // On a field job that day and no approved leave / leave-without-pay
+      // covering it -> it counts as attendance. That includes a Sunday,
+      // Saturday or holiday in the middle of the job (those are worked days
+      // out in the field, not days off); a real machine punch on an ordinary
+      // weekday still shows as Present as before. A leave on the day wins
+      // over the field job, and a Sunday/holiday with a leave keeps its usual
+      // day-off treatment so the leave isn't consumed by it.
+      const fieldWins = !!fieldJob && !leave;
       let dayType;
-      if (holiday) dayType = holiday.type === 'CompanyOff' ? 'CompanyOff' : 'Holiday';
+      if (fieldWins && (!punches.length || holiday || dow === 0)) dayType = 'Field';
+      else if (holiday) dayType = holiday.type === 'CompanyOff' ? 'CompanyOff' : 'Holiday';
       else if (dow === 0) dayType = 'WeeklyOff';
       else if (leave && leave.status === 'Approved') dayType = 'Leave';
       else if (leave && leave.status === 'Leave Without Pay') dayType = 'LeaveWithoutPay';
       else if (punches.length) dayType = 'Present';
-      else if (fieldJob) dayType = 'Field';
       else if (dow === 6 && satOffByEmpDate.has(key)) dayType = 'WeeklyOff';
       else dayType = 'Absent';
 
@@ -373,6 +364,11 @@ async function computeAttendanceRows(from, to, filter = {}) {
       out.push({
         date: day, employeeId: emp.id, employeeCode: emp.emp_code, name: emp.full_name,
         fieldJobRef: dayType === 'Field' ? [fieldJob.client, fieldJob.workOrder ? ('WO ' + fieldJob.workOrder) : ''].filter(Boolean).join(' — ') : null,
+        fieldJobId: dayType === 'Field' ? fieldJob.jobId : null,
+        fieldJobOpen: dayType === 'Field' ? fieldJob.open : false,
+        // A day worked in the field that would otherwise have been a day off
+        // (a Sunday, or any holiday) earns one Field Break — see computeFieldBreaks.
+        fieldBreakEarned: dayType === 'Field' && (dow === 0 || !!holiday),
         unmapped: false, department: emp.department, location: punchLoc || emp.location,
         checkIn, checkOut, punches: punches.length,
         shiftStart, graceMinutes: emp.grace_minutes, late, lateMinutes, overtimeMinutes,
@@ -459,5 +455,60 @@ router.put('/shift/:employeeId', requireHr, async (req, res) => {
 // handles automatically and consistently. Attendance now comes ONLY from the
 // real device (POST /ingest). See routes/holidays.js for the replacement.
 
+/* ---------------- Field Breaks ----------------
+   A day worked on a field job that would otherwise have been a day off — a
+   Sunday, or any holiday (Gazetted / Islamic / Company Off) — earns 1 Field
+   Break. Breaks are counted per July–June financial year and start again
+   from zero every July 1; a Field Break leave (an approved leave request of
+   that type) uses one up. "Earned" is taken straight from
+   computeAttendanceRows' own day classification (fieldBreakEarned), so the
+   Leave page can never disagree with the Attendance Report about which days
+   were field days. */
+async function computeFieldBreaks(employeeId, anchorYmd) {
+  const today = localYmd(new Date());
+  const fy = financialYearRange(anchorYmd || today);
+  const accrueTo = fy.end < today ? fy.end : today; // nothing is earned for days that haven't happened yet
+  const rows = accrueTo >= fy.start
+    ? await computeAttendanceRows(fy.start, accrueTo, { employeeIds: [employeeId] })
+    : [];
+  const earnedDays = rows
+    .filter((r) => r.employeeId === employeeId && r.fieldBreakEarned)
+    .map((r) => ({ date: r.date, reason: r.holidayName ? 'Holiday — ' + r.holidayName : 'Sunday', job: r.fieldJobRef || null }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const [leaves] = await pool.query(
+    `SELECT from_date, to_date, leave_request_type FROM erp_leave_requests
+     WHERE employee_id = ? AND leave_type = 'Field Break' AND status = 'Approved' AND from_date <= ? AND to_date >= ?`,
+    [employeeId, fy.end, fy.start]
+  );
+  let availed = 0;
+  for (const l of leaves) {
+    const a = toYmd(l.from_date) > fy.start ? toYmd(l.from_date) : fy.start;
+    const b = toYmd(l.to_date) < fy.end ? toYmd(l.to_date) : fy.end;
+    if (b < a) continue;
+    availed += (daysBetween(a, b) + 1) * (l.leave_request_type === 'Half Day' ? 0.5 : 1);
+  }
+  const earned = earnedDays.length;
+  return {
+    employeeId, fy: fy.label, from: fy.start, to: fy.end, accruedTo: accrueTo < fy.start ? null : accrueTo,
+    earned, availed, remaining: Math.max(0, earned - availed),
+    overdrawn: Math.max(0, availed - earned), // only if field days were later removed/corrected in the JLR after a break was already approved
+    earnedDays,
+  };
+}
+
+// GET /api/attendance/field-breaks/:employeeId[?date=YYYY-MM-DD] — the
+// employee's Field Break balance for the July–June year containing `date`
+// (default: today). Themselves, or HR.
+router.get('/field-breaks/:employeeId', async (req, res) => {
+  const employeeId = +req.params.employeeId;
+  if (!Number.isFinite(employeeId)) return res.status(400).json({ error: 'Invalid employee id.' });
+  if (employeeId !== req.erpUser.id && !canAccess(req.erpUser.role, 'Human Resources')) return res.status(403).json({ error: 'You cannot view this.' });
+  const date = req.query.date ? toYmd(req.query.date) : null;
+  if (req.query.date && !date) return res.status(400).json({ error: 'date must be YYYY-MM-DD.' });
+  res.json(await computeFieldBreaks(employeeId, date));
+});
+
 module.exports = router;
 module.exports.computeAttendanceRows = computeAttendanceRows;
+module.exports.computeFieldBreaks = computeFieldBreaks;

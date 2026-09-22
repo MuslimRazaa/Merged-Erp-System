@@ -588,7 +588,62 @@ async function migrate() {
   `);
   await pool.query('INSERT IGNORE INTO erp_crm_config (id) VALUES (1)');
 
-  console.log('[erp-migrate] erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config ready (no ISO tables were altered).');
+  // Server-side storage for the generic register modules (Compliance, and
+  // later Inventory / Procurement / Fixed Assets) — one row per record, data
+  // as JSON, so each save is its own write instead of overwriting a whole
+  // browser-side collection blob. Files (Compliance "Attached documents")
+  // live in erp_record_files as real BLOBs, not base64 in the browser.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_records (
+      module      VARCHAR(40)  NOT NULL,
+      id          VARCHAR(64)  NOT NULL,
+      data        LONGTEXT     NOT NULL,
+      created_by  VARCHAR(255) NULL,
+      updated_by  VARCHAR(255) NULL,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at  TIMESTAMP NULL,
+      PRIMARY KEY (module, id),
+      INDEX idx_erp_records_list (module, deleted_at, created_at)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_record_files (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      module      VARCHAR(40)  NOT NULL,
+      record_id   VARCHAR(64)  NOT NULL,
+      file_name   VARCHAR(255) NOT NULL,
+      mime_type   VARCHAR(150) NULL,
+      file_size   INT NOT NULL DEFAULT 0,
+      file_data   LONGBLOB NOT NULL,
+      uploaded_by VARCHAR(255) NULL,
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_erp_record_files_rec (module, record_id)
+    )
+  `);
+
+  // HR "Documents" tab on the Employee view: profile photo, CV, ID copies,
+  // certificates, contracts... — one row per file, bytes in the row itself.
+  // ERP-only table; cascades away with the employee, no ISO table touched.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_employee_files (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      employee_id INT NOT NULL,
+      category    VARCHAR(40)  NOT NULL DEFAULT 'Other',
+      file_name   VARCHAR(255) NOT NULL,
+      mime_type   VARCHAR(150) NULL,
+      file_size   INT NOT NULL DEFAULT 0,
+      file_data   LONGBLOB NOT NULL,
+      uploaded_by VARCHAR(255) NULL,
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_erp_employee_files_emp (employee_id, category),
+      CONSTRAINT fk_erp_employee_files_employee
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+        ON DELETE CASCADE
+    )
+  `);
+
+  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

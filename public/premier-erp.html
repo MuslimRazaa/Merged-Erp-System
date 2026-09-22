@@ -26,6 +26,7 @@ input,select,textarea{font:inherit;color:inherit}
 
 #app{display:flex;min-height:100vh}
 /* ---------- sidebar ---------- */
+/* hello child */
 aside{width:236px;flex:none;background:var(--side);color:#E7EDF5;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
 .brand{display:flex;gap:10px;align-items:center;padding:20px 16px 16px}
 .brand .mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--teal));display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:15px;flex:none}
@@ -559,7 +560,7 @@ const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
-  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'tax_calc',ic:'%',name:'Tax Calculator'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
 let route=lsGet('ui_route','dashboard');
@@ -702,13 +703,13 @@ function applySession(r){
   const chip=document.getElementById('userchip');
   if(chip)chip.outerHTML=userChip();
   nav();render();
-  pullSharedMaster();
+  pullSharedMaster();recBootstrap();
   updateSyncBar();scheduleAutoSync();
   lvPollPending();
   if(navigator.onLine)setTimeout(syncNow,800);
 }
 function logout(){
-  SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');
+  SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');recClearCache();
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
   LEAVE_PENDING_COUNT=0;
@@ -737,6 +738,7 @@ async function pullSharedMaster(){
   // (see crmMirrorCustomersToLocalStorage). Silently skipped for a role
   // with no CRM access.
   try{await crmLoadCustomers();}catch(e){}
+  try{await crmLoadQuotationRefs();}catch(e){}
 }
 /* Birthday reminder — pops up once per day (per browser) whenever any
    employee's birthday falls today, tomorrow, or the day after. Only ever
@@ -1149,7 +1151,12 @@ function rptDayTypeLabel(r){
     case 'WeeklyOff': return r.dayOfWeek===0?'Gazetted Holiday (Sunday)':'Weekly Off';
     case 'Leave': return 'On Leave — '+(r.leaveType||'');
     case 'LeaveWithoutPay': return 'Leave Without Pay — '+(r.leaveType||'');
-    case 'Field': return 'Present (Field)'+(r.fieldJobRef?' — '+r.fieldJobRef:'');
+    case 'Field': {
+      // A field day that falls on a day off says so (Sunday / the holiday's
+      // name / Saturday) — that is exactly what earns the Field Break.
+      const note=r.holidayName?r.holidayName:(r.dayOfWeek===0?'Sunday':(r.dayOfWeek===6?'Saturday':''));
+      return 'Present (Field'+(note?' · '+note:'')+')'+(r.fieldJobRef?' — '+r.fieldJobRef:'')+(r.fieldJobOpen?' — job open (no end date)':'');
+    }
     case 'Absent': return 'Absent';
     default: return null; // 'Present' — show the real times
   }
@@ -1321,6 +1328,44 @@ function prMonthLabel(toDateStr){
   const d=new Date(toDateStr+'T00:00:00');
   return d.toLocaleDateString('en-US',{month:'long',year:'numeric'});
 }
+/* ---- Salaried income-tax calculator (same slabs the Payroll uses: backend FBR_SLABS_BY_TAX_YEAR) ---- */
+let TC={salary:'',period:'monthly',year:'',res:null,err:''};
+async function renderTaxCalc(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Salaried Income Tax Calculator<span class="hint" style="font-weight:400"> — same FBR slabs the Payroll uses, so the numbers always match</span></div>'+
+   '<div class="fgrid">'+
+    '<div class="field"><label>Tax Year</label><select id="tc-year" onchange="tcRun()"></select></div>'+
+    '<div class="field"><label>Salary is</label><select id="tc-period" onchange="tcRun()"><option value="monthly"'+(TC.period==='monthly'?' selected':'')+'>Monthly (gross)</option><option value="annual"'+(TC.period==='annual'?' selected':'')+'>Annual (gross)</option></select></div>'+
+    '<div class="field"><label>Gross Salary (PKR)</label><input id="tc-salary" type="number" min="0" step="any" placeholder="e.g. 200000" value="'+esc(TC.salary)+'" oninput="tcRun()"></div>'+
+   '</div><div id="tc-err" class="hint" style="color:#b00020"></div><div id="tc-out"></div>'+
+   '<div class="hint" style="margin-top:12px">Estimate on salary income only (no surcharge, no other taxable heads or rebates). Confirm against the current FBR notification.</div></div>';
+  await tcRun(true);
+}
+let __tcT=null;
+function tcRun(now){
+  clearTimeout(__tcT);
+  __tcT=setTimeout(async()=>{
+    const sal=document.getElementById('tc-salary'),per=document.getElementById('tc-period'),yr=document.getElementById('tc-year');
+    if(!sal)return;
+    TC.salary=sal.value;TC.period=per.value;if(yr.value)TC.year=yr.value;
+    const out=document.getElementById('tc-out'),err=document.getElementById('tc-err');
+    try{
+      const q='?salary='+encodeURIComponent(TC.salary===''?0:TC.salary)+'&period='+TC.period+(TC.year?'&taxYear='+TC.year:'');
+      const r=await api('/api/payroll/tax-calc'+q);
+      if(!yr.options.length){yr.innerHTML=r.availableYears.map(y=>'<option value="'+y.taxYear+'">'+esc(y.label)+'</option>').join('');}
+      yr.value=String(r.taxYear);TC.year=String(r.taxYear);
+      err.textContent='';
+      if(TC.salary===''){out.innerHTML='';return;}
+      const row=(a,b,c2,bold)=>'<tr'+(bold?' style="font-weight:700"':'')+'><td>'+a+'</td><td class="num">'+fmt(b)+'</td><td class="num">'+fmt(c2)+'</td></tr>';
+      out.innerHTML='<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th></th><th class="num">Monthly (PKR)</th><th class="num">Annual (PKR)</th></tr></thead><tbody>'+
+        row('Gross Income',r.monthlyGross,r.annualGross)+row('Income Tax',r.monthlyTax,r.annualTax,true)+row('Net Income',r.monthlyNet,r.annualNet,true)+
+        '</tbody></table></div><div class="hint" style="margin:8px 0">Effective rate: <b>'+r.effectiveRatePct.toFixed(2)+'%</b></div>'+
+        '<div class="tbl-wrap"><table><thead><tr><th>Slab (annual income)</th><th class="num">Rate</th><th class="num">Income in slab</th></tr></thead><tbody>'+
+        r.slabs.map(x=>'<tr><td>'+fmt(x.from).replace('.00','')+' – '+(x.to==null?'and above':fmt(x.to).replace('.00',''))+'</td><td class="num">'+(x.rate*100).toFixed(0)+'%</td><td class="num">'+fmt(x.taxableInSlab)+'</td></tr>').join('')+
+        '</tbody></table></div>';
+    }catch(e){err.textContent=e.message;out.innerHTML='';}
+  },now===true?0:250);
+}
 async function renderPayroll(){
   const c=document.getElementById('content');
   const to=window.__prTo||today();
@@ -1427,7 +1472,7 @@ async function prGenerate(){
 function showErrEl(el,msg){el.textContent=msg;el.style.display='block';toast(msg,'err');}
 function prRenderReport(){
   const rep=PR_REPORT;
-  document.getElementById('pr-result-hint').textContent=' — '+prMonthLabel(rep.to)+' ('+rep.from+' to '+rep.to+', '+rep.totalDaysInRange+' days)';
+  document.getElementById('pr-result-hint').textContent=' — '+prMonthLabel(rep.to)+' ('+rep.from+' to '+rep.to+', '+rep.totalDaysInRange+' days) · Income tax: '+(rep.taxYear||'FBR slabs')+(rep.taxYearFallback?' (latest rates loaded — no newer year added yet)':'');
   const missing=rep.rows.filter(r=>r.salaryMissing).length;
   const totalPayable=rep.rows.reduce((s,r)=>s+(r.grossPayable||0),0);
   document.getElementById('pr-kpis').innerHTML='<div class="kpis">'+
@@ -1447,7 +1492,7 @@ function prRenderReport(){
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
      '<td class="num">'+r.presentDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
-     '<td class="num">'+r.lateCount+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
+     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime (smallest lates forgiven first), '+r.lateCount+' counted (every 3 counted = 1 day deducted). Overtime only counts 1 hour past shift end.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
@@ -1524,16 +1569,17 @@ async function renderLeaveRequests(){
    '<div class="card"><div class="card-h" id="lv-form-title">New Leave Request<span class="sp"></span><button class="btn ghost small" onclick="lvNewForm()">+ New</button></div><div class="card-b">'+
     '<div class="fgrid">'+
      '<div class="field"><label>Document Type</label><input id="lv-doctype" value="Leave Request Form - Default" disabled></div>'+
-     (hasHr?'<div class="field"><label>Employee</label><select id="lv-emp">'+coll('employees').map(e=>'<option value="'+esc(e.isoId)+'">'+esc(e.empno)+' — '+esc(e.name)+'</option>').join('')+'</select></div>'
+     (hasHr?'<div class="field"><label>Employee</label><select id="lv-emp" onchange="lvFbHint()">'+coll('employees').map(e=>'<option value="'+esc(e.isoId)+'">'+esc(e.empno)+' — '+esc(e.name)+'</option>').join('')+'</select></div>'
       :'<div class="field"><label>Employee</label><input value="'+esc(SESSION?SESSION.name:'')+'" disabled></div>')+
      '<div class="field"><label>Leave Request Type</label><select id="lv-reqtype">'+LV_REQUEST_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
      '<div class="field"><label>Current Status</label><input id="lv-status" value="InProcess" disabled></div>'+
      '<div class="field"><label>Document No.</label><input id="lv-docno" value="Assigned on save" disabled></div>'+
-     '<div class="field"><label>Type of Leave</label><select id="lv-type">'+LV_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
-     '<div class="field"><label>From Date</label><input id="lv-from" type="date"></div>'+
+     '<div class="field"><label>Type of Leave</label><select id="lv-type" onchange="lvFbHint()">'+LV_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+     '<div class="field"><label>From Date</label><input id="lv-from" type="date" onchange="lvFbHint()"></div>'+
      '<div class="field"><label>To Date</label><input id="lv-to" type="date"></div>'+
      '<div class="field"><label>Request Date</label><input id="lv-reqdate" type="date" value="'+today()+'"></div>'+
     '</div>'+
+    '<div class="hint" id="lv-fb-hint" style="display:none;margin-top:8px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>'+
     '<div class="fgrid" style="margin-top:10px">'+
      '<div class="field full"><label>Purpose</label><textarea id="lv-purpose" rows="2"></textarea></div>'+
      '<div class="field full"><label>Remarks</label><textarea id="lv-remarks" rows="2"></textarea></div>'+
@@ -1614,6 +1660,7 @@ function lvFillForm(row){
   set('lv-purpose',row?row.purpose:'');
   set('lv-remarks',row?row.remarks:'');
   const empEl=document.getElementById('lv-emp');if(empEl)empEl.value=row?row.employeeId:(SESSION?SESSION.uid:'');
+  lvFbHint();
   const locked=row&&row.status!=='InProcess';
   ['lv-reqtype','lv-type','lv-from','lv-to','lv-reqdate','lv-purpose','lv-remarks','lv-emp'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=locked;});
   const releaseBtn=document.getElementById('lv-release-btn');if(releaseBtn)releaseBtn.disabled=!(row&&row.status==='InProcess');
@@ -1656,6 +1703,26 @@ async function lvSaveInternal(){
   }catch(e){err.textContent=e.message;err.style.display='block';return null;}
 }
 async function lvSave(){await lvSaveInternal();}
+/* Field Break leave draws on breaks earned by working Sundays / holidays on
+   a field job (per July–June year). Shown as soon as that type is picked so
+   nobody files one the balance can't cover — the server enforces it either way. */
+async function lvFbHint(){
+  const box=document.getElementById('lv-fb-hint');if(!box)return;
+  const type=(document.getElementById('lv-type')||{}).value;
+  if(type!=='Field Break'){box.style.display='none';return;}
+  const empEl=document.getElementById('lv-emp');
+  const empId=empEl&&empEl.value?empEl.value:(SESSION?SESSION.uid:null);
+  if(!empId){box.style.display='none';return;}
+  const from=(document.getElementById('lv-from')||{}).value;
+  box.style.display='block';box.textContent='Checking Field Break balance…';
+  try{
+    const b=await api('/api/attendance/field-breaks/'+encodeURIComponent(empId)+(from?'?date='+encodeURIComponent(from):''));
+    if((document.getElementById('lv-type')||{}).value!=='Field Break')return; // user changed the type while this loaded
+    box.innerHTML='<b>Field Break balance — '+esc(b.fy)+' (July–June):</b> '+b.remaining+' day(s) available · earned '+b.earned+' · already used '+b.availed+
+      (b.overdrawn?' · <span style="color:#b42318">'+b.overdrawn+' over-used (field days were corrected later)</span>':'')+
+      '<div class="hint" style="margin-top:2px">A Field Break is earned for each Sunday or holiday worked on a field job.</div>';
+  }catch(e){box.textContent='Could not load the Field Break balance — '+e.message;}
+}
 // The primary action: save (create or update the draft) AND immediately
 // release it for approval, in one click — the two-step Save-then-Release
 // flow was confusing enough in practice that requests were getting left
@@ -1857,6 +1924,7 @@ const EMP_PHONE_COUNTRIES=[
 const EMP_SECTIONS=[
  {k:'basic',l:'Basic Info'},{k:'personal',l:'Personal Details'},{k:'access',l:'Account & Access'},{k:'employment',l:'Shift & Employment'},
  {k:'comp',l:'Compensation'},{k:'address',l:'Address'},{k:'bank',l:'Bank & Personal'},{k:'ref',l:'Reference'},{k:'kin',l:'Next of Kin'},
+ {k:'docs',l:'Photo & Documents'},
 ];
 let EMP_LIST=[],EMP_EDIT=null,EMP_TAB='basic';
 // Guards render() (see below) from being silently re-run — by the leave
@@ -2094,7 +2162,120 @@ function empSectionHtml(k){
    efField('ef-kinnic','NIC','text')+
    efField('ef-kinemail','Email','email')+
    '</div>';
+  if(k==='docs')return '<div id="emp-docs-box">'+empDocsFormHtml()+'</div>';
   return '';
+}
+/* ---- Add/Edit Employee form: "Photo & Documents" tab ----
+   Files picked here wait in the browser and are uploaded right after the
+   employee itself is saved (a brand-new employee has no id until then).
+   For an existing employee, files already on the server are listed too —
+   removing one of those takes effect immediately. */
+let EMP_Q={photo:null,photoUrl:null,docs:[]},EMP_SAVED=[],EMP_SAVED_PHOTO_URL=null;
+function empQReset(){
+  if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  if(EMP_SAVED_PHOTO_URL)URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);
+  EMP_Q={photo:null,photoUrl:null,docs:[]};EMP_SAVED=[];EMP_SAVED_PHOTO_URL=null;
+}
+function empDocsFormHtml(){
+  const pic=EMP_Q.photoUrl||EMP_SAVED_PHOTO_URL;
+  const savedPhoto=EMP_SAVED.find(f=>f.category==='Photo');
+  const savedDocs=EMP_SAVED.filter(f=>f.category!=='Photo');
+  const photoCard='<div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">'+
+    '<div style="width:110px;height:110px;border-radius:10px;background:var(--soft) center/cover no-repeat;'+(pic?'background-image:url('+pic+');':'')+'display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">'+(pic?'':'No photo')+'</div>'+
+    '<div><div style="font-weight:700;margin-bottom:4px">Photograph</div>'+
+     '<div class="hint" style="margin-bottom:8px">JPG / PNG — resized automatically'+(EMP_Q.photo?' · <b>will be saved when you click Save employee</b>':'')+'</div>'+
+     '<button type="button" class="btn ghost small" onclick="document.getElementById(\'emp-photo-file\').click()">'+(pic?'Change photo':'Choose photo')+'</button> '+
+     (EMP_Q.photo?'<button type="button" class="btn ghost small" onclick="empClearQueuedPhoto()">Undo</button> ':'')+
+     (!EMP_Q.photo&&savedPhoto?'<button type="button" class="btn ghost small" style="color:#b42318" onclick="empSavedDocDelete('+savedPhoto.id+')">Remove</button>':'')+
+     '<input type="file" id="emp-photo-file" accept="image/*" style="display:none" onchange="empPickPhoto(this.files)"></div></div>';
+  const rowSaved=f=>'<tr><td><b>'+esc(f.name)+'</b></td><td><span class="pill b">'+esc(f.category)+'</span></td><td class="num">'+attSize(f.size)+'</td><td>Saved</td>'+
+    '<td><button type="button" class="btn ghost small" onclick="empSavedDocDownload('+f.id+')">↓ Download</button> <button type="button" class="del" onclick="empSavedDocDelete('+f.id+')">✕</button></td></tr>';
+  const rowQ=(d,i)=>'<tr><td><b>'+esc(d.file.name)+'</b></td><td><span class="pill b">'+esc(d.category)+'</span></td><td class="num">'+attSize(d.file.size)+'</td><td><span class="pill a">On Save</span></td>'+
+    '<td><button type="button" class="del" onclick="empQRemoveDoc('+i+')">✕</button></td></tr>';
+  const all=savedDocs.map(rowSaved).concat(EMP_Q.docs.map(rowQ));
+  const table=all.length?'<table><thead><tr><th>File</th><th>Category</th><th class="num">Size</th><th>Status</th><th></th></tr></thead><tbody>'+all.join('')+'</tbody></table>':'<div class="empty">No documents added yet.</div>';
+  return photoCard+'<div style="font-weight:700;margin-bottom:8px">CV & Documents</div>'+
+    '<div class="fgrid" style="margin-bottom:10px"><div class="field"><label>Category</label><select id="emp-doc-cat">'+EMP_DOC_CATEGORIES.map(c=>'<option>'+esc(c)+'</option>').join('')+'</select></div>'+
+    '<div class="field" style="align-self:end"><button type="button" class="btn ghost" onclick="document.getElementById(\'emp-doc-file\').click()">+ Add file(s)</button><input type="file" id="emp-doc-file" multiple style="display:none" onchange="empPickDocs(this.files)"></div></div>'+
+    '<div class="hint" style="margin-bottom:8px">PDF, Word, images or any file — up to 15 MB each. New files are uploaded when you click <b>Save employee</b>.</div>'+
+    '<div class="tblwrap">'+table+'</div>';
+}
+function empDocsRefreshForm(){
+  const box=document.getElementById('emp-docs-box');if(!box)return;
+  const cat=(document.getElementById('emp-doc-cat')||{}).value;
+  box.innerHTML=empDocsFormHtml();
+  if(cat){const s=document.getElementById('emp-doc-cat');if(s)s.value=cat;}
+}
+function empPickPhoto(list){
+  const f=list&&list[0];if(!f)return;
+  if(!/^image\//.test(f.type)){toast('The photograph must be an image file.','err');return;}
+  if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  EMP_Q.photo=f;EMP_Q.photoUrl=URL.createObjectURL(f);
+  empDocsRefreshForm();
+}
+function empClearQueuedPhoto(){
+  if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  EMP_Q.photo=null;EMP_Q.photoUrl=null;empDocsRefreshForm();
+}
+function empPickDocs(list){
+  const cat=(document.getElementById('emp-doc-cat')||{}).value||'Other';
+  const files=Array.from(list||[]);
+  const big=files.filter(f=>f.size>15*1048576);
+  if(big.length)toast(big.map(f=>f.name).join(', ')+' is larger than 15 MB — not added.','err');
+  files.filter(f=>f.size<=15*1048576).forEach(f=>EMP_Q.docs.push({file:f,category:cat}));
+  empDocsRefreshForm();
+}
+function empQRemoveDoc(i){EMP_Q.docs.splice(i,1);empDocsRefreshForm();}
+async function empLoadSavedFiles(){
+  if(!EMP_EDIT)return;
+  try{
+    EMP_SAVED=await api('/api/employee-files/'+EMP_EDIT.id);
+    if(EMP_SAVED.some(f=>f.category==='Photo')){
+      const b=await evFetchBlob('/api/employee-files/'+EMP_EDIT.id+'/photo');
+      if(EMP_SAVED_PHOTO_URL)URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);
+      EMP_SAVED_PHOTO_URL=URL.createObjectURL(b);
+    }
+  }catch(e){console.warn('employee files load failed:',e.message);}
+  empDocsRefreshForm();
+}
+async function empSavedDocDownload(fid){
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+EMP_EDIT.id+'/'+fid+'/download');
+    const f=EMP_SAVED.find(x=>x.id===fid);
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f?f.name:'document';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(err){toast('Download failed — '+err.message,'err');}
+}
+async function empSavedDocDelete(fid){
+  if(!confirm('Delete this saved file? This takes effect immediately.'))return;
+  try{await api('/api/employee-files/'+EMP_EDIT.id+'/'+fid,{method:'DELETE'});}
+  catch(err){toast('NOT deleted — '+err.message,'err');return;}
+  const wasPhoto=(EMP_SAVED.find(f=>f.id===fid)||{}).category==='Photo';
+  EMP_SAVED=EMP_SAVED.filter(f=>f.id!==fid);
+  if(wasPhoto&&EMP_SAVED_PHOTO_URL){URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);EMP_SAVED_PHOTO_URL=null;}
+  empDocsRefreshForm();toast('Deleted.','ok');
+}
+/* Runs after the employee row exists. Returns the list of things that
+   failed (empty = all good) so the caller can say so without undoing the
+   employee save itself. */
+async function empUploadPending(id){
+  const failed=[];
+  if(EMP_Q.photo){
+    try{
+      const blob=await evShrinkImage(EMP_Q.photo);
+      const fd=new FormData();fd.append('category','Photo');fd.append('files',blob,(EMP_Q.photo.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
+      await api('/api/employee-files/'+id,{method:'POST',body:fd});
+    }catch(e){failed.push('photo ('+e.message+')');}
+  }
+  const byCat={};
+  EMP_Q.docs.forEach(d=>{(byCat[d.category]=byCat[d.category]||[]).push(d.file);});
+  for(const cat of Object.keys(byCat)){
+    try{
+      const fd=new FormData();fd.append('category',cat);byCat[cat].forEach(f=>fd.append('files',f,f.name));
+      await api('/api/employee-files/'+id,{method:'POST',body:fd});
+    }catch(e){failed.push(cat+' file(s) ('+e.message+')');}
+  }
+  return failed;
 }
 function empToggleErpAccessOn(){
   const on=document.getElementById('ef-erpaccess').checked;
@@ -2247,9 +2428,10 @@ function renderEmpFormPage(){
   empFillForm();
   empLoadFieldShiftDays();
   empLoadLoan();
+  empLoadSavedFiles();
   window.scrollTo(0,0);
 }
-function empCancelForm(){FORM_GUARD=false;renderHrEmployees();}
+function empCancelForm(){FORM_GUARD=false;empQReset();renderHrEmployees();}
 function empSwitchTab(k){
   EMP_TAB=k;
   document.querySelectorAll('#empmodal-tabs .att-tab').forEach((b,i)=>b.classList.toggle('on',EMP_SECTIONS[i].k===k));
@@ -2337,7 +2519,7 @@ function empFillFormInner(){
   empRecalcGross();empRecalcAge();
 }
 async function empOpenForm(id){
-  EMP_EDIT=null;EMP_TAB='basic';
+  EMP_EDIT=null;EMP_TAB='basic';empQReset();
   if(id){EMP_EDIT=EMP_LIST.find(e=>String(e.id)===String(id));if(!EMP_EDIT)return;}
   FORM_GUARD=true;
   renderEmpFormPage();
@@ -2420,8 +2602,13 @@ async function empSave(){
       await api('/api/shared/employees/'+id+'/iso-access',{method:'PUT',body:JSON.stringify(isoBody)});
     }
 
+    // Photo / documents picked on the "Photo & Documents" tab go up now that
+    // the employee has an id. A failure here must not undo the employee save.
+    const upFailed=(EMP_Q.photo||EMP_Q.docs.length)?await empUploadPending(id):[];
+    empQReset();
     FORM_GUARD=false;
-    toast('Employee saved.','ok');
+    if(upFailed.length)toast('Employee saved, but these did NOT upload: '+upFailed.join('; ')+'. Open the employee and add them again.','err');
+    else toast('Employee saved.','ok');
     renderHrEmployees();
   }catch(e){
     showErr(e.message); // showErr() itself toasts
@@ -2607,8 +2794,11 @@ async function renderEmpView(){
     }else if(EMP_VIEW_TAB==='leave'){
       body='<div id="ev-leave-kpis" class="kpis" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
        '<div id="ev-leave-table" class="tblwrap" style="margin-bottom:16px"><div class="empty">Loading…</div></div>'+
+       '<div id="ev-fb-days" class="tblwrap" style="margin-bottom:16px"></div>'+
        '<div style="font-weight:700;margin-bottom:8px">Leave history — which days were applied for</div>'+
        '<div id="ev-leave-history" class="tblwrap"><div class="empty">Loading…</div></div>';
+    }else if(EMP_VIEW_TAB==='documents'){
+      body='<div id="ev-docs"><div class="empty">Loading…</div></div>';
     }else{
       body='<div class="empty">No '+esc(EMP_VIEW_TAB)+' records on file yet.</div>';
     }
@@ -2621,7 +2811,7 @@ async function renderEmpView(){
       '</span></div>'+
      '<div class="card-b">'+
       '<div style="display:flex;align-items:center;gap:14px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
-       '<div style="width:56px;height:56px;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex-shrink:0">'+esc(ini)+'</div>'+
+       '<div id="ev-avatar" style="width:56px;height:56px;border-radius:50%;background:var(--soft) center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex-shrink:0;overflow:hidden">'+esc(ini)+'</div>'+
        '<div><div style="font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px">'+esc(e.name)+
         '<span class="pill '+(e.status==='Active'?'g':'r')+'">'+esc(e.status||'')+'</span></div>'+
         '<div class="hint">'+esc(e.employeeId)+'</div></div>'+
@@ -2634,13 +2824,127 @@ async function renderEmpView(){
       '<div style="margin-top:16px">'+body+'</div>'+
      '</div></div>';
 
+    evLoadAvatar(e.id);
     if(EMP_VIEW_TAB==='attendance')evAttInit(e);
     else if(EMP_VIEW_TAB==='leave')evLeaveInit(e);
+    else if(EMP_VIEW_TAB==='documents')evDocsInit(e);
   }catch(err){
     c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
   }
 }
 function empViewSwitchTab(tab){EMP_VIEW_TAB=tab;render();}
+
+/* ---- Employee View: Documents tab (photo, CV, ID, certificates... saved on the server) ---- */
+const EMP_DOC_CATEGORIES=['CV','ID / Passport','Education','Certificate','Contract','Other'];
+let EMP_FILES=[],EMP_PHOTO_URL=null;
+async function evFetchBlob(path){
+  const res=await fetch(path,{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+  if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+  return res.blob();
+}
+/* Real photo in the header circle (initials stay if there is none). */
+async function evLoadAvatar(empId){
+  const el0=document.getElementById('ev-avatar');if(el0&&!el0.dataset.ini)el0.dataset.ini=el0.textContent;
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+empId+'/photo');
+    if(EMP_PHOTO_URL)URL.revokeObjectURL(EMP_PHOTO_URL);
+    EMP_PHOTO_URL=URL.createObjectURL(blob);
+    const el=document.getElementById('ev-avatar');
+    if(el&&String(EMP_VIEW_ID)===String(empId)){el.style.backgroundImage='url('+EMP_PHOTO_URL+')';el.textContent='';}
+  }catch(e){EMP_PHOTO_URL=null;} // no photo yet — initials stay
+}
+function evDocsHtml(){
+  const photo=EMP_FILES.find(f=>f.category==='Photo');
+  const docs=EMP_FILES.filter(f=>f.category!=='Photo');
+  const hasPic=!!(EMP_PHOTO_URL&&photo);
+  const photoCard='<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px">'+
+    '<div style="font-weight:700;margin-bottom:12px">Photograph</div>'+
+    '<div style="display:flex;align-items:center;gap:16px">'+
+     '<div style="width:110px;height:110px;border-radius:10px;background:var(--soft) center/cover no-repeat;'+(hasPic?'background-image:url('+EMP_PHOTO_URL+');':'')+'display:flex;align-items:center;justify-content:center;font-size:12px">'+(hasPic?'':'No photo')+'</div>'+
+     '<div><div class="hint" style="margin-bottom:8px">JPG / PNG, resized automatically. Shown in the header of this employee.</div>'+
+      '<button class="btn ghost small" onclick="document.getElementById(\'ev-photo-file\').click()">'+(photo?'Replace photo':'Upload photo')+'</button> '+
+      (photo?'<button class="btn ghost small" style="color:#b42318" onclick="evDocDelete('+photo.id+')">Remove</button>':'')+
+      '<input type="file" id="ev-photo-file" accept="image/*" style="display:none" onchange="evPhotoUpload(this.files)"></div>'+
+    '</div></div>';
+  const rows=docs.length?'<table><thead><tr><th>File</th><th>Category</th><th class="num">Size</th><th>Uploaded</th><th></th></tr></thead><tbody>'+
+    docs.map(f=>'<tr><td><b>'+esc(f.name)+'</b></td><td><span class="pill b">'+esc(f.category)+'</span></td><td class="num">'+attSize(f.size)+'</td><td>'+esc(String(f.at||'').slice(0,10))+'</td>'+
+     '<td><button class="btn ghost small" onclick="evDocDownload('+f.id+')">↓ Download</button> <button class="del" onclick="evDocDelete('+f.id+')">✕</button></td></tr>').join('')+'</tbody></table>'
+    :'<div class="empty">No documents uploaded yet.</div>';
+  const docCard='<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px">'+
+    '<div style="font-weight:700;margin-bottom:12px">CV & Documents <span class="pill b">'+docs.length+'</span></div>'+
+    '<div class="fgrid" style="margin-bottom:12px">'+
+     '<div class="field"><label>Category</label><select id="ev-doc-cat">'+EMP_DOC_CATEGORIES.map(c=>'<option>'+esc(c)+'</option>').join('')+'</select></div>'+
+     '<div class="field" style="align-self:end"><button class="btn" onclick="document.getElementById(\'ev-doc-file\').click()">⬆ Choose file(s) & upload</button>'+
+      '<input type="file" id="ev-doc-file" multiple style="display:none" onchange="evDocUpload(this.files)"></div>'+
+    '</div>'+
+    '<div class="hint" style="margin-bottom:8px">PDF, Word, images or any file — up to 15 MB each.</div>'+
+    '<div class="tblwrap">'+rows+'</div></div>';
+  return photoCard+docCard;
+}
+async function evDocsInit(e){
+  const box=document.getElementById('ev-docs');
+  try{
+    EMP_FILES=await api('/api/employee-files/'+e.id);
+    if(EMP_FILES.some(f=>f.category==='Photo')&&!EMP_PHOTO_URL)await evLoadAvatar(e.id);
+    box.innerHTML=evDocsHtml();
+  }catch(err){box.innerHTML='<div class="empty">Could not load documents — '+esc(err.message)+'</div>';}
+}
+function evDocsRefresh(){const box=document.getElementById('ev-docs');if(box)box.innerHTML=evDocsHtml();}
+async function evDocUpload(list){
+  const files=Array.from(list||[]);if(!files.length)return;
+  const cat=document.getElementById('ev-doc-cat').value;
+  const ok=files.filter(f=>f.size<=15*1048576);
+  if(ok.length<files.length)toast(files.filter(f=>f.size>15*1048576).map(f=>f.name).join(', ')+' is larger than 15 MB — not uploaded.','err');
+  if(!ok.length)return;
+  const fd=new FormData();fd.append('category',cat);ok.forEach(f=>fd.append('files',f,f.name));
+  try{EMP_FILES=await api('/api/employee-files/'+EMP_VIEW_ID,{method:'POST',body:fd});toast(ok.length+' file(s) uploaded.','ok');}
+  catch(err){toast('NOT uploaded — '+err.message,'err');}
+  evDocsRefresh();
+}
+/* Downscale the photo in the browser first (max 1000px, JPEG) — a phone
+   camera shot is several MB and nobody needs that for a profile picture. */
+function evShrinkImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(),u=URL.createObjectURL(file);
+    img.onload=()=>{
+      const sc=Math.min(1,1000/Math.max(img.width,img.height));
+      const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+      URL.revokeObjectURL(u);
+      cv.toBlob(b=>b?resolve(b):reject(new Error('Could not process the image.')),'image/jpeg',0.85);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(u);reject(new Error('That file is not a readable image.'));};
+    img.src=u;
+  });
+}
+async function evPhotoUpload(list){
+  const f=list&&list[0];if(!f)return;
+  try{
+    const blob=await evShrinkImage(f);
+    const fd=new FormData();fd.append('category','Photo');fd.append('files',blob,(f.name||'photo').replace(/.[^.]+$/,'')+'.jpg');
+    EMP_FILES=await api('/api/employee-files/'+EMP_VIEW_ID,{method:'POST',body:fd});
+    EMP_PHOTO_URL=null;await evLoadAvatar(EMP_VIEW_ID);
+    toast('Photo saved.','ok');
+  }catch(err){toast('NOT saved — '+err.message,'err');}
+  evDocsRefresh();
+}
+async function evDocDownload(fid){
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+EMP_VIEW_ID+'/'+fid+'/download');
+    const f=EMP_FILES.find(x=>x.id===fid);
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f?f.name:'document';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(err){toast('Download failed — '+err.message,'err');}
+}
+async function evDocDelete(fid){
+  if(!confirm('Delete this file?'))return;
+  try{await api('/api/employee-files/'+EMP_VIEW_ID+'/'+fid,{method:'DELETE'});}
+  catch(err){toast('NOT deleted — '+err.message,'err');return;}
+  const wasPhoto=(EMP_FILES.find(f=>f.id===fid)||{}).category==='Photo';
+  EMP_FILES=EMP_FILES.filter(f=>f.id!==fid);
+  if(wasPhoto){EMP_PHOTO_URL=null;const el=document.getElementById('ev-avatar');if(el){el.style.backgroundImage='';el.textContent=el.dataset.ini||'';}}
+  evDocsRefresh();toast('Deleted.','ok');
+}
 
 /* ---- Employee View: Attendance tab (this-month KPIs + own date-range report + PDF/Excel/CSV) ---- */
 // Company month = 25th of one month to 25th of the next (same cycle as
@@ -2763,7 +3067,7 @@ function evLeaveDays(r){
   const d1=new Date(r.fromDate),d2=new Date(r.toDate);
   return Math.max(1,Math.round((d2-d1)/86400000)+1);
 }
-function evBuildLeaveBalanceTable(mine,p){
+function evBuildLeaveBalanceTable(mine,p,fb){
   const isPermanent=p.employmentType==='Permanent';
   const joinDate=p.joinDate?new Date(p.joinDate):null;
   const oneYearDone=!!(joinDate&&(Date.now()-joinDate.getTime())>=365*86400000);
@@ -2777,6 +3081,10 @@ function evBuildLeaveBalanceTable(mine,p){
     if(t==='Casual Leave')entitled=isPermanent?12:0;
     else if(t==='Medical Leave')entitled=isPermanent?12:0;
     else if(t==='Annual Leave')entitled=annualEntitled;
+    // Field Break: earned from Sundays / holidays worked on JLR field jobs, per
+    // July–June financial year, straight from the server (same day
+    // classification as the Attendance Report) — never a fixed quota.
+    if(t==='Field Break'&&fb)return{type:'Field Break (FY '+fb.fy+')',entitled:fb.earned,availed:fb.availed,remaining:fb.remaining};
     const availed=availedByType[t]||0;
     const remaining=entitled!=null?Math.max(0,entitled-availed):null;
     return{type:t,entitled,availed,remaining};
@@ -2787,7 +3095,8 @@ async function evLeaveInit(e){
   try{
     const all=await api('/api/leave');
     const mine=all.filter(r=>String(r.employeeId)===String(e.id));
-    const rows=evBuildLeaveBalanceTable(mine,e.profile||{});
+    const fb=await api('/api/attendance/field-breaks/'+e.id).catch(()=>null);
+    const rows=evBuildLeaveBalanceTable(mine,e.profile||{},fb);
     const quotaRows=rows.filter(r=>r.entitled!==null);
     const totalEntitled=quotaRows.reduce((s,r)=>s+r.entitled,0);
     const totalRemaining=quotaRows.reduce((s,r)=>s+r.remaining,0);
@@ -2799,6 +3108,15 @@ async function evLeaveInit(e){
     if(tEl)tEl.innerHTML='<table><thead><tr><th>Leave Type</th><th>Entitled ('+new Date().getFullYear()+')</th><th>Availed</th><th>Remaining</th></tr></thead><tbody>'+
      rows.map(r=>'<tr><td>'+esc(r.type)+'</td><td>'+(r.entitled==null?'<span class="hint">Approval-based</span>':r.entitled)+'</td><td>'+r.availed+'</td><td>'+(r.remaining==null?'—':r.remaining)+'</td></tr>').join('')+
      '</tbody></table>';
+    const fbEl=document.getElementById('ev-fb-days');
+    if(fbEl)fbEl.innerHTML=fb
+      ?'<div style="font-weight:700;margin-bottom:8px">Field Breaks earned — '+esc(fb.fy)+' <span class="hint" style="font-weight:400">(1 for each Sunday / holiday worked on a field job · resets every July 1)</span></div>'+
+        (fb.overdrawn?'<div class="hint" style="color:#b42318;margin-bottom:8px">'+fb.overdrawn+' day(s) of Field Break were approved that are no longer backed by a field day (the job record was corrected later) — please review.</div>':'')+
+        (fb.earnedDays.length
+          ?'<table><thead><tr><th>Date</th><th>Day</th><th>Field job</th></tr></thead><tbody>'+
+            fb.earnedDays.map(d=>'<tr><td>'+esc(d.date)+'</td><td>'+esc(d.reason)+'</td><td>'+esc(d.job||'—')+'</td></tr>').join('')+'</tbody></table>'
+          :'<div class="empty">No Field Breaks earned yet this year.</div>')
+      :'';
     // Every leave application this employee has filed — which days, what
     // type, and where it stands — not just the aggregated counts above.
     const hist=mine.slice().sort((a,b)=>new Date(b.fromDate)-new Date(a.fromDate));
@@ -2950,6 +3268,22 @@ function crmMirrorCustomersToLocalStorage(){
 async function crmLoadCustomers(){
   CRM_CUSTOMERS=await api('/api/crm/customers');
   crmMirrorCustomersToLocalStorage();
+}
+/* Same idea for quotations: Sales Orders' "Quotation ref" dropdown reads the
+   local 'quotes' collection (its old home, long since replaced by the CRM
+   Quotations screen), so mirror the real, server-side quotations into it. */
+function crmMirrorQuotationsToLocalStorage(){
+  lsSet('quotes',CRM_QUOTATIONS.map(q=>({id:'crmq'+q.id,no:q.quotationNo,customer:q.customerName,amount:q.grandTotal,status:q.status,date:q.quotationDate})));
+}
+async function crmLoadQuotationRefs(){
+  CRM_QUOTATIONS=await api('/api/crm/quotations');
+  crmMirrorQuotationsToLocalStorage();
+}
+let CRM_QREF_AT=0;
+function crmQuoteRefEnsure(){
+  if(Date.now()-CRM_QREF_AT<15000&&localStorage.getItem(P+'quotes')!=null)return;
+  CRM_QREF_AT=Date.now();
+  crmLoadQuotationRefs().then(()=>{if(route.startsWith('m_'))recRefreshRefs('quotes');}).catch(()=>{});
 }
 let CRM_CUST_SELECTED=new Set();
 async function renderCrmCustomers(){
@@ -3565,6 +3899,7 @@ async function renderCrmQuotations(){
   try{
     if(!CRM_EQUIPMENT.length){try{await crmLoadCatalogRef();}catch(e){}}
     CRM_QUOTATIONS=await api('/api/crm/quotations');
+    crmMirrorQuotationsToLocalStorage();
     crmFilterQuotations();
   }catch(e){const el=document.getElementById('crmqt-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
@@ -3962,6 +4297,8 @@ function crmRenderCatalogBrowse(){
    '</tbody></table>';
   el.innerHTML=body;
 }
+
+//hello change
 // Searchable Equipment/Standard/Item Description combos — a plain <select>
 // gets unusable once a list runs into the hundreds (Calibration alone has
 // 500+ items), so these are a text-input + filtered-list widget instead:
@@ -4067,6 +4404,82 @@ async function crmSvcImportRun(){
 
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
+/* ============ server-backed registers ============
+   Modules listed in SERVER_MODS keep their records in MySQL (erp_records /
+   erp_record_files, routes/records.js) instead of only in this browser, so
+   what one person saves is there after logout/login and on any other PC.
+   localStorage is kept purely as a read cache (so every screen that reads
+   coll('ncrs') etc. synchronously keeps working unchanged) — the server is
+   the source of truth: a save only counts once the server confirmed it.
+   Compliance first; Inventory / Procurement / Fixed Assets are enabled the
+   same way by adding their keys here. */
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance']);
+function isSrv(k){return SERVER_MODS.has(k);}
+const REC_AT={},REC_BUSY={};
+/* One-time rescue per browser: records (and attached files) that only ever
+   existed in THIS browser's localStorage are uploaded to the server the
+   first time it's reached. INSERT-IGNORE on the server, so it never
+   overwrites or duplicates anything already there. */
+async function recMigrateLocal(k){
+  if(lsGet('recmig_'+k,false))return;
+  const local=coll(k);
+  if(local.length)await api('/api/records/'+k+'/import',{method:'POST',body:JSON.stringify({records:local})});
+  for(const rec of local){
+    const files=attGet(rec.id);
+    while(files.length){
+      const f=files[0];
+      const blob=await (await fetch(f.data)).blob();
+      const fd=new FormData();fd.append('files',blob,f.name);
+      await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files',{method:'POST',body:fd});
+      files.shift();attSet(rec.id,files); // drop each local copy only after the server has it
+    }
+    try{localStorage.removeItem(P+'att_'+rec.id);}catch(e){}
+  }
+  lsSet('recmig_'+k,true);
+}
+async function recPull(k,force){
+  if(REC_BUSY[k])return REC_BUSY[k];
+  if(!force&&REC_AT[k]&&localStorage.getItem(P+k)!=null&&Date.now()-REC_AT[k]<15000)return false; // never throttle an empty cache
+  REC_BUSY[k]=(async()=>{
+    try{
+      await recMigrateLocal(k);
+      const list=await api('/api/records/'+k);
+      REC_AT[k]=Date.now();
+      if(localStorage.getItem(P+k)===JSON.stringify(list))return false;
+      lsSet(k,list);return true;
+    }catch(e){console.warn('records pull failed ('+k+'):',e.message);return false;}
+    finally{delete REC_BUSY[k];}
+  })();
+  return REC_BUSY[k];
+}
+function recEnsure(k){
+  if(!isSrv(k))return;
+  recPull(k).then(changed=>{
+    if(!changed)return;
+    if(route==='m_'+k){if(!editId)render();}
+    else if(route.startsWith('m_'))recRefreshRefs(k);
+  });
+}
+/* A screen's dropdowns (REF fields, e.g. Invoice -> Sales order) read ANOTHER
+   collection from the cache. When that collection gets refreshed in the
+   background, update just those <select>s in place — a full re-render would
+   throw away whatever the user has already typed into the open form. */
+function recRefreshRefs(collName){
+  const m=MODULES[modKey()];if(!m)return;
+  m.fields.filter(f=>f.t==='ref'&&f.coll===collName).forEach(f=>{
+    const el=document.getElementById('f-'+f.k);if(!el)return;
+    const cur=el.value;
+    el.innerHTML=refOptions(f.coll,f.dk,cur);
+    if(cur&&el.value!==cur){const o=document.createElement('option');o.textContent=cur;el.appendChild(o);el.value=cur;} // keep a saved value that's no longer in the list
+  });
+}
+/* After login: warm every server-backed module this user can see, so the
+   dashboard / compliance snapshot (which read the cache) are current too. */
+async function recBootstrap(){
+  const res=await Promise.all([...SERVER_MODS].filter(k=>MODULES[k]&&canSee(MODULES[k].g)).map(k=>recPull(k,true)));
+  if(res.some(Boolean)&&!editId)render();
+}
+function recClearCache(){SERVER_MODS.forEach(k=>{try{localStorage.removeItem(P+k);}catch(e){}delete REC_AT[k];});try{localStorage.removeItem(P+'quotes');}catch(e){}CRM_QREF_AT=0;}
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
@@ -4080,6 +4493,9 @@ function fieldInput(f,v){
 }
 function renderModule(){
   const k=modKey(),m=MODULES[k],data=coll(k);
+  recEnsure(k);
+  m.fields.forEach(f=>{if(f.t==='ref'&&f.coll!==k)recEnsure(f.coll);}); // dropdown sources (Invoice -> Sales orders, Receipt -> Invoices …) must be fresh too
+  if(m.fields.some(f=>f.t==='ref'&&f.coll==='quotes'))crmQuoteRefEnsure(); // Sales Order -> Quotation ref comes from the CRM quotations
   const rec=editId?data.find(r=>r.id===editId)||{}:{};
   let kpis='';
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
@@ -4135,12 +4551,24 @@ function renderListOnly(){
 async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
   const wasNew=!editId;
-  const rec=editId?data.find(r=>r.id===editId):{id:uid()};
+  const existing=editId?data.find(r=>r.id===editId):null;
+  // Server-backed modules edit a COPY: the cache must only change once the
+  // server has actually confirmed the save (see below).
+  const rec=isSrv(k)?(existing?JSON.parse(JSON.stringify(existing)):{id:uid()}):(existing||{id:uid()});
   const prevErpRole=rec.erprole,prevShiftStart=rec.shiftstart; // snapshot BEFORE the form overwrites — only push what actually changed
   m.fields.forEach(f=>{if(f.t==='computed')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
+  if(isSrv(k)){
+    try{
+      const saved=await api('/api/records/'+k+(wasNew?'':'/'+encodeURIComponent(rec.id)),{method:wasNew?'POST':'PUT',body:JSON.stringify(rec)});
+      const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
+      if(i>=0)cur[i]=saved;else cur.push(saved);
+      collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
+    }catch(e){toast('NOT saved — '+e.message,'err');} // form stays open with everything typed, nothing lost
+    return;
+  }
   if(wasNew)data.push(rec);
   collSet(k,data);editId=null;render();
   if(k==='employees'){
@@ -4156,6 +4584,11 @@ function editRec(id){editId=id;renderModule._lk=false;render();window.scrollTo({
 async function delRec(id){
   if(!confirm('Delete this record?'))return;
   const k=modKey();const rec=coll(k).find(r=>r.id===id);
+  if(isSrv(k)){
+    try{await api('/api/records/'+k+'/'+encodeURIComponent(id),{method:'DELETE'});}
+    catch(e){toast('NOT deleted — '+e.message,'err');return;}
+    collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;render();toast('Deleted.','ok');return;
+  }
   collSet(k,coll(k).filter(r=>r.id!==id));try{localStorage.removeItem(P+'att_'+id);localStorage.removeItem(P+'pic_'+id);}catch(e){}render();
   if(k==='employees'&&rec&&rec.isoId){
     try{await api('/api/shared/employees/'+rec.isoId,{method:'DELETE'});}
@@ -4212,7 +4645,66 @@ async function pushEmployeeShift(rec){
 /* ============ document attachments (Compliance) ============ */
 function attGet(id){return lsGet('att_'+id,[]);}
 function attSet(id,v){lsSet('att_'+id,v);}
+/* Server-backed modules: files live in MySQL (erp_record_files), listed /
+   uploaded / downloaded through the API — the card below is filled in once
+   the list arrives, so opening a record never blocks on it. */
+const ATT_SRV={};
+function attRowsSrv(k,id){
+  const files=ATT_SRV[id];
+  if(!files)return '<div class="empty">Loading…</div>';
+  if(!files.length)return '<div class="empty">No documents attached yet.</div>';
+  return '<table><thead><tr><th>File</th><th>Type</th><th class="num">Size</th><th>Attached</th><th class="no-print"></th></tr></thead><tbody>'+
+    files.map(f=>'<tr><td><b>'+esc(f.name)+'</b></td><td>'+esc((f.type||'').split('/').pop()||'file')+'</td><td class="num">'+attSize(f.size)+'</td><td>'+esc(String(f.at||'').slice(0,10))+'</td>'+
+    '<td class="no-print"><button class="btn ghost small" onclick="attDlSrv(\''+k+'\',\''+id+'\','+f.id+')">↓ Download</button> <button class="del" onclick="attDelSrv(\''+k+'\',\''+id+'\','+f.id+')">✕</button></td></tr>').join('')+'</tbody></table>';
+}
+function attRefreshSrv(k,id){
+  const z=document.getElementById('att-zone'),c=document.getElementById('att-count');
+  if(z)z.innerHTML=attRowsSrv(k,id);
+  if(c)c.textContent=(ATT_SRV[id]||[]).length;
+}
+async function attLoadSrv(k,id){
+  try{ATT_SRV[id]=await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files');}
+  catch(e){ATT_SRV[id]=[];toast('Could not load attached documents — '+e.message,'err');}
+  attRefreshSrv(k,id);
+}
+function attPanelSrv(k,id){
+  if(!id)return '<div class="card no-print"><div class="card-h">Attached documents</div><div class="card-b"><div class="hint">Save the record first, then re-open it to attach supporting documents (PDF, images, Office files).</div></div></div>';
+  attLoadSrv(k,id);
+  return '<div class="card"><div class="card-h">Attached documents <span class="pill b" id="att-count">'+(ATT_SRV[id]||[]).length+'</span></div><div class="card-b">'+
+   '<div class="dropzone no-print" onclick="document.getElementById(\'att-file\').click()"><b>Click to attach documents</b> — certificates, reports, evidence (max 15 MB each, saved on the server)</div>'+
+   '<input type="file" id="att-file" multiple style="display:none" onchange="attUploadSrv(\''+k+'\',\''+id+'\',this.files)">'+
+   '<div class="tblwrap" id="att-zone">'+attRowsSrv(k,id)+'</div></div></div>';
+}
+async function attUploadSrv(k,id,list){
+  const files=Array.from(list||[]);if(!files.length)return;
+  const big=files.filter(f=>f.size>15*1048576);
+  if(big.length)toast(big.map(f=>f.name).join(', ')+' is larger than 15 MB — attach a compressed copy instead.','err');
+  const ok=files.filter(f=>f.size<=15*1048576);if(!ok.length)return;
+  const fd=new FormData();ok.forEach(f=>fd.append('files',f,f.name));
+  try{
+    ATT_SRV[id]=await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files',{method:'POST',body:fd});
+    toast(ok.length+' document(s) attached.','ok');
+  }catch(e){toast('NOT attached — '+e.message,'err');}
+  attRefreshSrv(k,id);
+  const inp=document.getElementById('att-file');if(inp)inp.value='';
+}
+async function attDlSrv(k,id,fid){
+  try{
+    const res=await fetch('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+fid+'/download',{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+    if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+    const f=(ATT_SRV[id]||[]).find(x=>x.id===fid);
+    const a=document.createElement('a');a.href=URL.createObjectURL(await res.blob());a.download=f?f.name:'document';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(e){toast('Download failed — '+e.message,'err');}
+}
+async function attDelSrv(k,id,fid){
+  if(!confirm('Remove this attachment?'))return;
+  try{await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+fid,{method:'DELETE'});}
+  catch(e){toast('NOT removed — '+e.message,'err');return;}
+  await attLoadSrv(k,id);
+}
 function attPanel(k,id){
+  if(isSrv(k))return attPanelSrv(k,id);
   if(!id)return '<div class="card no-print"><div class="card-h">Attached documents</div><div class="card-b"><div class="hint">Save the record first, then re-open it to attach supporting documents (PDF, images, Office files).</div></div></div>';
   const files=attGet(id);
   const rows=files.length?'<table><thead><tr><th>File</th><th>Type</th><th class="num">Size</th><th>Attached</th><th class="no-print"></th></tr></thead><tbody>'+
@@ -5497,7 +5989,16 @@ function saveSyncSettings(){
   closeModal('syncmodal');scheduleAutoSync();updateSyncBar();
   if(cfg.url&&navigator.onLine)syncNow();
 }
-function syncKeys(){return allKeys().filter(k=>k!==SYNC_CFG_KEY&&k!==SYNC_META_KEY&&k!==P+'ui_route');}
+/* Keys the old whole-blob sync must leave alone: its own bookkeeping, UI
+   state, the per-user login session (pushing/pulling it would hand one
+   person's session to another), and every server-backed register — those
+   are saved record-by-record through /api/records instead. */
+function syncSkip(k){
+  if(k===SYNC_CFG_KEY||k===SYNC_META_KEY||k===P+'ui_route'||k===P+'session')return true;
+  if(k.startsWith(P+'recmig_'))return true;
+  return SERVER_MODS.has(k.slice(P.length))||k===P+'quotes'; // 'quotes' is a read-only mirror of the CRM quotations
+}
+function syncKeys(){return allKeys().filter(k=>!syncSkip(k));}
 function dirtyKeys(){
   const meta=syncMeta();
   return syncKeys().filter(k=>{
@@ -5524,7 +6025,7 @@ async function syncNow(){
     const remote=await pr.json();
     const meta=syncMeta();let pulled=0;
     Object.entries(remote.keys||{}).forEach(([k,rec])=>{
-      if(!k.startsWith(P))return;
+      if(!k.startsWith(P)||syncSkip(k))return;
       const localV=localStorage.getItem(k);
       const localTs=(meta[k]&&meta[k].ts)||0;
       const localDirty=localV!=null&&(!meta[k]||meta[k].hash!==strHash(localV));
@@ -5592,7 +6093,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],tax_calc:['Accounting','Tax Calculator'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -5601,7 +6102,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
@@ -5627,7 +6128,7 @@ document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop')
       const chip=document.getElementById('userchip');if(chip)chip.outerHTML=userChip();
       if(!canSee(routeGroup(route)))route='dashboard';
       nav();render();restored=true;
-      pullSharedMaster();
+      pullSharedMaster();recBootstrap();
       lvPollPending();
     }catch(e){localStorage.removeItem('erp_jwt');}
   }
