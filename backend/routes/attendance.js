@@ -25,6 +25,9 @@ const router = express.Router();
 // attendance-agent/agent.js's getAttendancesRaw) — a real device status,
 // not a guess.
 const VERIFY_STATE_LABELS = { 0: 'Check-in', 1: 'Check-out', 2: 'Break-out', 3: 'Break-in', 4: 'OT-in', 5: 'OT-out' };
+// Grace period after shift_end before checkout minutes count as overtime —
+// e.g. shift end 5:30 -> overtime only starts counting after 6:30, not 5:31.
+const OVERTIME_GRACE_MINUTES = 60;
 
 function requireAgentKey(req, res, next) {
   const key = req.headers['x-agent-key'] || '';
@@ -318,16 +321,18 @@ async function computeAttendanceRows(from, to, filter = {}) {
           // (there's nothing to compare the missing check-in against).
           late = true;
         }
-        // Overtime: minutes checked out AFTER shift_end (only computable when
-        // a shift_end is actually configured — see PUT /shift/:employeeId).
-        // Payroll uses this to offset the same day's lateMinutes (an
-        // employee who leaves late having also arrived late isn't
-        // double-penalized if their overtime covers the lateness).
+        // Overtime: minutes checked out after shift_end + a 1-hour grace
+        // (only computable when a shift_end is actually configured — see PUT
+        // /shift/:employeeId). Shift end 5:30 -> overtime only counts past
+        // 6:30, not from 5:31; staying the odd few minutes late isn't
+        // overtime. Payroll uses the resulting minutes to offset lateMinutes
+        // from elsewhere in the pay cycle (an employee who leaves late having
+        // also arrived late isn't double-penalized if overtime covers it).
         if (checkOut && emp.shift_end) {
           const [eh, em2] = String(emp.shift_end).slice(0, 5).split(':').map(Number);
-          const shiftEndAt = new Date(checkOut);
-          shiftEndAt.setHours(eh, em2, 0, 0);
-          if (checkOut > shiftEndAt) overtimeMinutes = Math.round((checkOut - shiftEndAt) / 60000);
+          const otStartsAt = new Date(checkOut);
+          otStartsAt.setHours(eh, em2 + OVERTIME_GRACE_MINUTES, 0, 0);
+          if (checkOut > otStartsAt) overtimeMinutes = Math.round((checkOut - otStartsAt) / 60000);
         }
       }
 

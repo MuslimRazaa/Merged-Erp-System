@@ -26,12 +26,16 @@
    Half-day pay is driven ONLY by an actual Half-Day leave request
    (leave_request_type) — never inferred from a missing punch.
    Late: every 3 late arrivals (after the overtime offset below) = 1 extra
-   deducted day (latePenaltyDays). Overtime offset is a MONTHLY POOL, not
-   just same-day: total overtime minutes across the whole selected range can
-   forgive lateness from ANY day in it, not only the day it was earned on
-   (late 09:45 today, 30 min overtime tomorrow still forgives today's
-   lateness) — smallest lates are forgiven first to clear as many incidents
-   as the pool allows. A missing-check-in Late has no minutes to compare, so
+   deducted day (latePenaltyDays). Overtime minutes only start counting 1 hour
+   after shift_end (see attendance.js's OVERTIME_GRACE_MINUTES) — shift end
+   5:30 -> overtime begins after 6:30, not from 5:31; staying a few minutes
+   late isn't overtime. Overtime offset is a MONTHLY POOL, not just same-day:
+   total overtime minutes across the whole selected range can forgive
+   lateness from ANY day in it, not only the day it was earned on (late 09:45
+   today, 30 min overtime tomorrow still forgives today's lateness) —
+   SMALLEST lates are forgiven first, so the pool clears as many incidents as
+   possible before the biggest ones (each incident is fully forgiven or not
+   at all, no partial credit). A missing-check-in Late has no minutes to compare, so
    it's never forgiven by the pool — it always counts.
    Per-Day Rate = Gross Salary ÷ (days in the PAYROLL MONTH — 30/31/28/29,
    whichever calendar month the "To" date falls in). This is fixed by the
