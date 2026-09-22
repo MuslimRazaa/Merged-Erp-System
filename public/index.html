@@ -248,6 +248,12 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('syncmodal')">Close</button><button class="btn" onclick="saveSyncSettings()">Save settings</button></div>
 </div></div>
 
+<div class="modal" id="pdfmodal"><div class="box" style="max-width:980px;width:96vw">
+  <h3 id="pdfmodal-title">Preview</h3>
+  <iframe id="pdfmodal-frame" title="PDF preview" style="width:100%;height:72vh;border:1px solid var(--bd,#d8dee9);border-radius:6px;background:#fff"></iframe>
+  <div class="actions" style="justify-content:flex-end"><button class="btn" id="pdfmodal-dl">↓ Download PDF</button><button class="btn ghost" onclick="pdfPreviewClose()">Close</button></div>
+</div></div>
+
 <div class="modal" id="attmodal"><div class="box" style="max-width:640px">
   <h3 id="attmodal-title">Punches</h3>
   <div id="attmodal-body"></div>
@@ -505,6 +511,14 @@ const N=(k,l)=>({k,l,t:'number'});
 const D=(k,l)=>({k,l,t:'date'});
 const S=(k,l,o)=>({k,l,t:'select',o});
 const A=(k,l)=>({k,l,t:'area'});
+const A2=(k,l)=>({k,l,t:'area',half:1});  // textarea that stays in its column instead of spanning the row
+/* Auto-numbered record counter — a plain running number per module.
+   Assigned once, when the record is first saved (highest so far + 1), and
+   never re-numbered afterwards, so an edit keeps the document's number.
+   The form shows the next number up front, greyed out, so the user can see
+   what this document will be filed as before saving it. */
+function nextRecNo(mk){return coll(mk).reduce((m2,r)=>Math.max(m2,+r.recno||0),0)+1;}
+const RECNO=(mk)=>({k:'recno',l:'Record Number',t:'computed',auto:1,fn:r=>r.recno||nextRecNo(mk)});
 const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
 
 /* ============ generic collection modules ============ */
@@ -529,7 +543,13 @@ payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Vouch
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,fields:[T('no','WO no.','WO-2026-001'),D('date','Issue date'),REF('client','Client','customers','name'),REF('contract','Contract','contracts','no'),T('clientpo','Client PO ref'),S('service','Service type',['Drill pipe inspection','Drill collar / BHA inspection','HWDP inspection','Casing inspection','Tubing inspection','NDT - MPI','NDT - UT','NDT - EMI','Rig inspection (API 4G)','Lifting gear survey','Calibration','Specialty tools','Multiple / campaign']),A('scope','Scope / description'),T('loc','Location / yard'),T('rig','Rig / well'),S('prio','Priority',['Routine','Urgent','Rig-critical']),D('reqdate','Required completion'),T('insp','Assigned inspector(s)'),N('estval','Estimated value'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','In progress','Reported','Invoiced','Closed','Cancelled','On hold']),A('notes','Remarks')],list:['no','date','client','service','prio','reqdate','insp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','In progress'].includes(r.status)).length,l:'Open work orders'},{n:d.filter(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status)).length,l:'Rig-critical open',warn:d.some(r=>r.prio==='Rig-critical'&&!['Closed','Cancelled','Invoiced','Reported'].includes(r.status))}]},
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
+   (see woPdf() — every field below prints, and nothing prints that isn't
+   entered here). `contract`/`status` are the only two ERP-only extras:
+   they drive the contract map + KPIs and stay off the printed sheet. */
+/* nolist: the saved-records table lives on its own screen (View Work
+   Orders — renderWoView), so this one only shows the entry form. */
+workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),REF('loc','Location','shared_locations','name'),REF('client','Bill To Customer','customers','name'),REF('subloc','Sub Location','shared_locations','name'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
 trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Completed'),D('expiry','Expiry'),T('certno','Certificate no.'),S('status','Status',['Valid','Expiring','Expired','Planned'])],list:['emp','course','provider','date','expiry','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Expired').length,l:'Expired certs',warn:1}]},
 /* ---------------- COMPLIANCE ---------------- */
 docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),S('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
@@ -560,8 +580,8 @@ const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
-  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'tax_calc',ic:'%',name:'Tax Calculator'}],
-  'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
+  'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
 let route=lsGet('ui_route','dashboard');
 // Explicit tab order for a group \u2014 a mix of EXTRA_NAV route ids (dedicated
@@ -571,6 +591,7 @@ let route=lsGet('ui_route','dashboard');
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
   'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
+  'Inspection':['insp_report','insp_list','contracts','workorders','insp_wo_view','insp_map'],
 };
 let NAV_EXPANDED=new Set();
 function navExtraItemHtml(x){
@@ -4501,11 +4522,15 @@ function renderModule(){
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
   if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
+  if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   renderModule._lk=false;
   const form='<div class="card"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
-    '<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'?' full':'')+'"><label>'+f.l+'</label>'+fieldInput(f,rec[f.k])+'</div>').join('')+'</div>'+
+    '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'"><label>'+f.l+'</label>'+
+      // auto-numbered fields preview the number this record will get
+      fieldInput(f,(rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k])+'</div>').join('')+'</div>'+
     (m.lines?'<div id="ql-zone">'+qlGrid(rec)+'</div>':'')+
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
+    (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
     '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
@@ -4514,7 +4539,7 @@ function renderModule(){
     ((m.g==='Compliance'||m.att)?attPanel(k,editId):'');
   const q=filterQ.toLowerCase();
   const rows=data.filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
-  const list='<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
+  const list=m.nolist?'':'<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
     expBtns('list-zone',k)+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
     '<div class="tblwrap" id="list-zone">'+listTable(m,rows)+'</div></div></div>';
@@ -4546,7 +4571,7 @@ function renderListOnly(){
   const k=modKey(),m=MODULES[k];
   const q=filterQ.toLowerCase();
   const rows=coll(k).filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
-  document.getElementById('list-zone').innerHTML=listTable(m,rows);
+  const z=document.getElementById('list-zone');if(z)z.innerHTML=listTable(m,rows);
 }
 async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
@@ -4571,6 +4596,11 @@ async function saveRec(){
   }
   if(wasNew)data.push(rec);
   collSet(k,data);editId=null;render();
+  // Confirm the save on screen — with the record number when the module is
+  // auto-numbered, so the user sees which document was just filed and the
+  // fresh form below already shows the next number.
+  const auto=m.fields.find(f=>f.auto);
+  toast(m.name.replace(/ies$/,'y').replace(/s$/,'')+(wasNew?' saved':' updated')+(auto&&rec[auto.k]?' — Record No. '+rec[auto.k]:'')+'.','ok');
   if(k==='employees'){
     await pushEmployeeToIso(rec,wasNew);
     // Guard: if this employee's role/shift wasn't actually pulled from the
@@ -4845,6 +4875,48 @@ function plPick(i,name){
   if(sv.price&&!PL[i].rate)PL[i].rate=sv.price;
   plRefresh();
 }
+/* ============ work order line grid ============================
+   Same columns as the work-order entry screen:
+     SNo | Line No | Customer Line.No | Equipment | Equipment
+     Description | Category | Cost Center | Services | UOM | Size |
+     Quantity
+   On the printed sheet (woPdf) one row becomes one numbered block
+   under "Description of Goods and Services":
+     Category ........................ UOM   Quantity   (bold line)
+     Equipment Description                              (bracket note)
+     Services                                           (criteria line)
+   ============================================================= */
+let WL=[{}];
+const WO_UOM=['','End','Joint','Each','AU','Set','Lot','Trip','Day','Hour','Meter','Foot','KM','Ton'];
+function wlGrid(rec){
+  const eqOpts=[...new Set(coll('services').map(x=>x.name).concat(coll('items').map(x=>x.name)).filter(Boolean))]
+    .map(n=>'<option value="'+esc(n)+'">').join('');
+  const lineNoOpts=(sel)=>{let o='<option value=""></option>';for(let n=1;n<=50;n++)o+='<option'+(String(sel)===String(n)?' selected':'')+'>'+n+'</option>';return o;};
+  const uomOpts=(sel)=>WO_UOM.map(u=>'<option'+(u===(sel||'')?' selected':'')+'>'+u+'</option>').join('');
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Work order lines <button class="btn ghost small" style="margin-left:8px" onclick="WL.push({});wlRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Category, Equipment Description and Services print as the three description lines</span></div>'+
+  '<div class="tblwrap"><table><thead><tr>'+
+   '<th style="width:34px">SNo</th><th style="width:80px">Line No</th><th style="width:100px">Customer Line.No</th>'+
+   '<th style="width:130px">Equipment</th><th style="width:150px">Equipment Description</th><th style="width:150px">Category</th>'+
+   '<th style="width:120px">Cost Center</th><th style="width:170px">Services</th><th style="width:80px">UOM</th>'+
+   '<th style="width:60px">Size</th><th style="width:80px" class="num">Quantity</th><th style="width:30px"></th>'+
+  '</tr></thead><tbody>'+
+  WL.map((l,i)=>'<tr>'+
+   '<td class="num">'+(i+1)+'</td>'+
+   '<td><select onchange="WL['+i+'].lineno=this.value">'+lineNoOpts(l.lineno)+'</select></td>'+
+   '<td><input value="'+esc(l.custlineno||'')+'" oninput="WL['+i+'].custlineno=this.value"></td>'+
+   '<td><input list="dl-wlequip" value="'+esc(l.equip||'')+'" oninput="WL['+i+'].equip=this.value" placeholder="Transportation"></td>'+
+   '<td><textarea rows="2" oninput="WL['+i+'].eqdesc=this.value" placeholder="(01 Round Trip Covered in 840 KM)">'+esc(l.eqdesc||'')+'</textarea></td>'+
+   '<td><input value="'+esc(l.cat||'')+'" oninput="WL['+i+'].cat=this.value" placeholder="Labour (At Actual)"></td>'+
+   '<td><input value="'+esc(l.cc||'')+'" oninput="WL['+i+'].cc=this.value" placeholder="Labour"></td>'+
+   '<td><textarea rows="2" oninput="WL['+i+'].svc=this.value" placeholder="Labour">'+esc(l.svc||'')+'</textarea></td>'+
+   '<td><select onchange="WL['+i+'].uom=this.value">'+uomOpts(l.uom)+'</select></td>'+
+   '<td><input value="'+esc(l.size||'')+'" oninput="WL['+i+'].size=this.value" placeholder="-"></td>'+
+   '<td><input type="number" step="0.01" class="num" value="'+esc(l.qty||'')+'" oninput="WL['+i+'].qty=this.value"></td>'+
+   '<td><button class="del" onclick="WL.splice('+i+',1);wlRefresh()">✕</button></td></tr>').join('')+
+  '</tbody></table></div><datalist id="dl-wlequip">'+eqOpts+'</datalist>'+
+  '<div class="hint" style="margin-top:6px">'+WL.filter(l=>l.cat||l.svc||l.qty).length+' line(s). Saved with the work order — use "Update record" to store changes.</div>';
+}
+function wlRefresh(){renderModule._lk=true;const z=document.getElementById('wl-zone');if(z)z.innerHTML=wlGrid(null);}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
@@ -4873,7 +4945,7 @@ const DOCPDF={
  payments:{title:'PAYMENT VOUCHER',party:['vendor','Paid to'],amount:r=>(+r.amount||0),sig:['Prepared by','Approved by']},
  vendorbills:{title:'VENDOR BILL',party:['vendor','Vendor'],amount:r=>(+r.amount||0)+(+r.tax||0),extra:r=>[['Amount (excl. tax)',fmt(+r.amount||0)],['Tax',fmt(+r.tax||0)]],sig:['Checked by','Approved by']},
  grns:{title:'GOODS RECEIPT NOTE',party:['vendor','Vendor'],amount:null,sig:['Received by','QC / inspected by']},
- workorders:{title:'WORK ORDER',party:['client','Client'],amount:r=>(+r.estval||0),sig:['Issued by','Acknowledged by (client)']},
+ workorders:{title:'WORK ORDER',custom:'woPdf'},
  contracts:{title:'CONTRACT RATE SHEET',party:['client','Client'],amount:null,sig:['For Premier Tubular Services','For the Client'],table:r=>(r.pricelist&&r.pricelist.length)?{head:['#','Code','Description','Unit','Rate '+(r.cur||''),'Discount / terms'],rows:r.pricelist.map((l,i)=>[String(i+1),l.code||'',l.desc||'',l.unit||'',l.rate?fmt(+l.rate):'',l.disc||''])}:null}
 };
 function amountWords(n){
@@ -4894,6 +4966,9 @@ function amountWords(n){
 }
 function docPdf(k,id){
   const cfg=DOCPDF[k];if(!cfg){alert('No PDF layout for this module.');return;}
+  // Modules whose printed sheet is a fixed company form (not the generic
+  // key/value layout below) name their own builder — see woPdf().
+  if(cfg.custom&&typeof window[cfg.custom]==='function'){window[cfg.custom](id);return;}
   const m=MODULES[k],r=coll(k).find(x=>x.id===id);
   if(!r){alert('Save the record first.');return;}
   const party=coll('customers').find(c=>c.name===r[cfg.party[0]])||{};
@@ -4923,6 +4998,195 @@ function docPdf(k,id){
   doc.line(doc.mL,doc.y,doc.mL+170,doc.y);doc.line(doc.w-doc.mR-170,doc.y,doc.w-doc.mR,doc.y);
   doc.y-=11;doc.text(doc.mL,doc.y,cfg.sig[0],8);doc.text(doc.w-doc.mR-170,doc.y,cfg.sig[1],8);
   doc.out(cfg.title.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+String(r.no||id).replace(/[^A-Za-z0-9_-]+/g,'-'));
+}
+/* ================================================================
+   WORK ORDER — the printed Premier Tubular form, field for field.
+   Everything entered on the Work Orders screen prints here and
+   nothing else: letterhead, the Date/WO#/Entered/Start/End block,
+   Customer / Address / Attention / Location, the numbered
+   "Description of Goods and Services" lines (bold service line,
+   bracketed note, standard/criteria line, Unit + Quantity), then
+   Customer Remarks, Customer Acceptance and the Prepared/Approved
+   By signatures, over the company footer.
+   ================================================================ */
+const WO_CO={
+  name:'Premier Tubular Inspection Services (Pvt.) Ltd',
+  addr:'69/E Block # 6, P.E.C.H.S., KARACHI PAKISTAN.',
+  phone:'+92-21-34533739-34559070',
+  email:['islamabad@premiertubular.com','karachi@premiertubular.com'],
+  ntn:'0711563-6'
+};
+// The form prints dates as dd-mm-yyyy; <input type=date> hands us yyyy-mm-dd.
+function woDmy(v){
+  if(!v)return '';
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v).trim());
+  return m?m[3]+'-'+m[2]+'-'+m[1]:String(v);
+}
+function woQty(v){
+  if(v==null||v==='')return '';
+  const n=+v;return isNaN(n)?String(v):n.toFixed(2);
+}
+function woPdf(id,mode){        // mode 'view' shows it on screen, otherwise it downloads
+  const r=coll('workorders').find(x=>x.id===id);
+  if(!r){alert('Save the work order first.');return;}
+  const cust=coll('customers').find(c=>c.name===r.client)||{};
+  const lines=(r.wlines&&r.wlines.length)?r.wlines:[];
+  const doc=new PdfDoc();
+  doc.noFooter=true;                          // this form draws its own footer
+  const L=doc.mL,R=doc.w-doc.mR,W=R-L;
+  const TY=t=>doc.h-t;                        // measured from the top, like the printed form
+
+  /* ---------- letterhead ---------- */
+  doc.uText(L,TY(46),WO_CO.name,14,true);
+  doc.text(L,TY(72),WO_CO.addr,10);
+  const lv=L+58;                              // label column is 58pt wide — no dead space before the value
+  doc.text(L,TY(104),'Phone',8.5,true);   doc.text(lv,TY(104),WO_CO.phone,8.5);
+  doc.text(L,TY(120),'Email',8.5,true);   doc.text(lv,TY(120),WO_CO.email[0],8.5);
+  doc.text(lv,TY(132),WO_CO.email[1],8.5);
+  doc.text(L,TY(150),'N.T.N NO.',8.5,true);doc.text(lv,TY(150),WO_CO.ntn,8.5);
+
+  /* Text that must stay inside a ruled cell: wrap it, shrink it if it still
+     doesn't fit the cell's height, and only then clip — so however long a
+     customer's name is, it never runs over the border. */
+  const cell=(x,ty,w,h,s,size,bold,center)=>{
+    s=String(s==null?'':s);if(!s)return;
+    let sz=size,ls=doc.wrap(s,w,sz,bold),lead=sz*1.3;
+    while(sz>5.5&&ls.length*lead>h){sz-=0.5;ls=doc.wrap(s,w,sz,bold);lead=sz*1.3;}
+    const maxL=Math.max(1,Math.floor(h/lead));
+    if(ls.length>maxL){ls=ls.slice(0,maxL);ls[maxL-1]=doc.fit(ls[maxL-1]+'…',w,sz);}
+    ls.forEach((t,i)=>{
+      const yy=TY(ty+i*lead);
+      if(center)doc.textC(x+w/2,yy,t,sz,bold);else doc.text(x,yy,t,sz,bold);
+    });
+  };
+
+  /* ---------- work order # / date box (top right) ---------- */
+  const c1=L+Math.round(W*0.31),c2=L+Math.round(W*0.67);
+  const boxT=92,h1=20,h2=26,h3=20;
+  doc.box(c2,TY(boxT+h1+h2+h3),R-c2,h1+h2+h3);
+  doc.rule(c2,TY(boxT+h1),R,TY(boxT+h1),0.9);
+  doc.rule(c2,TY(boxT+h1+h2),R,TY(boxT+h1+h2),0.9);
+  doc.textC((c2+R)/2,TY(boxT+14),'Work Order #',9,true);
+  doc.textC((c2+R)/2,TY(boxT+h1+18),String(r.no||''),9.5);
+  doc.text(c2+10,TY(boxT+h1+h2+14),'Date:',9,true);
+  doc.text(c2+48,TY(boxT+h1+h2+14),woDmy(r.date),9);
+
+  /* ---------- customer / location / dates block ---------- */
+  const bT=172,hHdr=20,hName=46,hAddrL=20,hAddrV=46,bH=hHdr+hName+hAddrL+hAddrV,bB=bT+bH;
+  doc.box(L,TY(bB),W,bH);
+  doc.rule(c1,TY(bB),c1,TY(bT),0.9);          // column splits, full height
+  doc.rule(c2,TY(bB),c2,TY(bT),0.9);
+  doc.rule(L,TY(bT+hHdr),c1,TY(bT+hHdr),0.9); // "Customer:" header underline
+  doc.rule(c2,TY(bT+hHdr),R,TY(bT+hHdr),0.9); // "Entered On:" header underline
+  doc.rule(L,TY(bT+hHdr+hName),c1,TY(bT+hHdr+hName),0.9);
+  doc.rule(L,TY(bT+hHdr+hName+hAddrL),c1,TY(bT+hHdr+hName+hAddrL),0.9);
+  doc.rule(c2,TY(bT+hHdr+56),R,TY(bT+hHdr+56),0.9);   // Entered On / Start+End split
+  doc.text(L+8,TY(bT+14),'Customer:',9,true);
+  doc.textC((c1+c2)/2,TY(bT+14),'Location/Well Name',9,true);
+  doc.textC((c2+R)/2,TY(bT+14),'Entered On:',9,true);
+  cell(L+8,bT+hHdr+15,c1-L-16,hName-10,r.client,9);
+  doc.text(L+8,TY(bT+hHdr+hName+14),'Address:',9,true);
+  cell(L+8,bT+hHdr+hName+hAddrL+15,c1-L-16,hAddrV-10,cust.addr||r.addr,9);
+  const well=[r.loc,r.subloc].filter(Boolean).join(' / ');
+  cell(c1+8,bT+hHdr+30,c2-c1-16,hName+hAddrL+hAddrV-34,well,9,false,true);
+  doc.textC((c2+R)/2,TY(bT+hHdr+34),woDmy(r.createdon||r.date),9);
+  doc.text(c2+10,TY(bT+hHdr+78),'Start Date:',9,true); doc.text(c2+80,TY(bT+hHdr+78),woDmy(r.from),9);
+  doc.text(c2+10,TY(bT+hHdr+96),'End Date:',9,true);   doc.text(c2+80,TY(bT+hHdr+96),woDmy(r.to),9);
+  const hAttn=22;
+  doc.box(L,TY(bB+hAttn),W,hAttn);
+  doc.text(L+8,TY(bB+15),'Attention:',9,true);
+  cell(L+64,bB+15,W-72,14,r.attntype,9);
+
+  /* ---------- description of goods and services ---------- */
+  const wSr=Math.round(W*0.063),wUnit=Math.round(W*0.132),wQty=Math.round(W*0.137);
+  const wDesc=W-wSr-wUnit-wQty;
+  const xD=L+wSr,xU=xD+wDesc,xQ=xU+wUnit,hH=20;
+  let tTop=TY(bB+hAttn+14);                   // PDF y of the table's top edge
+  const head=()=>{
+    doc.rect(L,tTop-hH,W,hH,'0.80 0.81 0.83');
+    doc.textC(L+wSr/2,tTop-14,'Sr.',9,true);
+    doc.textC(xD+wDesc/2,tTop-14,'Description of Goods and Services',9,true);
+    doc.textC(xU+wUnit/2,tTop-14,'Unit',9,true);
+    doc.textC(xQ+wQty/2,tTop-14,'Quantity',9,true);
+    doc.y=tTop-hH-16;
+  };
+  // Outer border + the column rules, drawn once the body height is known —
+  // the form has no horizontal rule between line items, only vertical splits.
+  const close=()=>{
+    const b=doc.y+6;
+    doc.box(L,b,W,tTop-b);
+    doc.rule(L,tTop-hH,R,tTop-hH,0.9);
+    [xD,xU,xQ].forEach(x=>doc.rule(x,b,x,tTop,0.9));
+  };
+  head();
+  if(!lines.length){
+    doc.text(xD+7,doc.y,'No lines entered on this work order.',9,false,'0.35 0.38 0.45');
+    doc.y-=16;
+  }
+  lines.forEach((l,i)=>{
+    const t1=doc.wrap(l.cat||l.equip||'',wDesc-14,9);
+    const t2=doc.wrap(l.eqdesc||'',wDesc-14,8.5);
+    const t3=doc.wrap(l.svc||'',wDesc-14,8.5);
+    if(doc.y-(t1.length*11+(t2.length+t3.length)*10+22)<doc.mB+40){
+      close();doc.newPage();tTop=doc.h-doc.mT;head();
+    }
+    const rowTop=doc.y;
+    doc.textC(L+wSr/2,rowTop,String(i+1),9);
+    doc.textC(xU+wUnit/2,rowTop,l.uom||'',9);
+    doc.textC(xQ+wQty/2,rowTop,woQty(l.qty),9);
+    t1.forEach(t=>{doc.text(xD+7,doc.y,t,9,true);doc.y-=11;});
+    if(t2.length)doc.y-=3;
+    t2.forEach(t=>{doc.text(xD+7,doc.y,t,8.5);doc.y-=10;});
+    if(t3.length)doc.y-=3;
+    t3.forEach(t=>{doc.text(xD+7,doc.y,t,8.5);doc.y-=10;});
+    doc.y-=9;
+  });
+  close();
+  doc.y-=20;
+
+  /* ---------- customer remarks ---------- */
+  const rem=doc.wrap(r.remarks||'',W-18,9);
+  const remH=Math.max(54,30+rem.length*11);
+  if(doc.need(remH+130))doc.y-=8;
+  const remTop=doc.y;
+  doc.box(L,remTop-remH,W,remH);
+  doc.text(L+8,remTop-16,'Customer Remarks:',9,true);
+  let ry2=remTop-32;rem.forEach(t=>{doc.text(L+8,ry2,t,9);ry2-=11;});
+  doc.y=remTop-remH-12;
+
+  /* ---------- acceptance + signatures ---------- */
+  const accH=112,accTop=doc.y,mx=L+Math.round(W*0.55);
+  doc.box(L,accTop-accH,W,accH);
+  doc.text(L+8,accTop-18,'Customer Acceptance:',9,true);
+  doc.uText(mx,accTop-18,'For Premier Tubular Inspection Services:',9,true);
+  let sy=accTop-44;
+  ['By:','Name:','Title:'].forEach(lab=>{
+    doc.text(L+8,sy,lab,9,true);
+    doc.rule(L+70,sy-3,mx-28,sy-3,0.8);
+    sy-=26;
+  });
+  const prep=(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:'';
+  const prepT=(typeof SESSION!=='undefined'&&SESSION)?SESSION.desig:'';
+  doc.text(mx,accTop-44,'Prepared By:',9,true);
+  if(prep)doc.text(mx+90,accTop-44,prep,9);
+  if(prepT)doc.text(mx+90,accTop-57,prepT,9);
+  doc.text(mx,accTop-88,'Approved By:',9,true);
+
+  /* ---------- page furniture ---------- */
+  const now=new Date();
+  const rd=(now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear();
+  const rt=now.toLocaleTimeString('en-US',{hour12:true}).replace(/\s+/g,'');
+  const total=doc.pages.length;
+  doc.pages.forEach((p,i)=>{
+    doc.cur=p;
+    doc.textR(R,TY(30),'Page '+(i+1)+' of '+total,8.5);
+    doc.rule(L,doc.mB-14,R,doc.mB-14,0.9);
+    doc.text(L,doc.mB-26,'Report Date:',8.5,true);doc.text(L+60,doc.mB-26,rd,8.5);
+    doc.textR(R-doc.twx(rt,8.5)-8,doc.mB-26,'Report Time:',8.5,true);doc.textR(R,doc.mB-26,rt,8.5);
+  });
+  const fname='work-order-'+String(r.no||id).replace(/[^A-Za-z0-9_-]+/g,'-');
+  if(mode==='view')pdfPreview(doc.bytes(),fname,'Work Order '+(r.no||'')+(r.client?' — '+r.client:''));
+  else doc.out(fname);
 }
 function quotePdf(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return;}
@@ -4973,6 +5237,8 @@ function quoteEmail(id){
    BUILT-IN PDF ENGINE — generates real .pdf files offline (no libs)
    Helvetica core fonts, multi-page, tables, JPEG photo embedding.
    ================================================================ */
+const PDF_W_N=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+const PDF_W_B=[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
 function PdfDoc(opts){
   opts=opts||{};
   this.land=!!opts.landscape;
@@ -4984,10 +5250,29 @@ PdfDoc.prototype={
  newPage(){this.cur={ops:[],imgs:[]};this.pages.push(this.cur);this.y=this.h-this.mT;},
  esc(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)').replace(/[^\x20-\x7E]/g,c=>{const m={'\u2014':'-','\u2013':'-','\u00D8':'dia.','\u00B7':'.','\u00B0':' deg','\u2019':"'",'\u2018':"'",'\u201C':'"','\u201D':'"','\u2026':'...','\u00AE':'(R)','\u2122':'(TM)','\u00A9':'(c)','\u00B1':'+/-','\u2264':'<=','\u2265':'>=','\u00D7':'x','\u20AC':'EUR','\u00A3':'GBP'};return m[c]||'';});},
  tw(s,size){return String(s==null?'':s).length*size*0.5;},
+ // Real Helvetica / Helvetica-Bold advance widths (per 1000 units, ASCII
+ // 32-126). tw() above assumes every glyph is half an em, which badly
+ // under-measures capitals — "OIL & GAS DEVELOPMENT COMPANY LIMITED" is ~30%
+ // wider than tw() claims, which is how text escaped its box. Anything that
+ // has to stay inside a ruled cell measures with twx().
+ twx(s,size,bold){
+   s=String(s==null?'':s);
+   const w=bold?PDF_W_B:PDF_W_N;let t=0;
+   for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);t+=(c>=32&&c<=126)?w[c-32]:556;}
+   return t*size/1000;
+ },
  text(x,y,s,size,bold,color){size=size||9;
    this.cur.ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
  rect(x,y,w2,h2,fill){this.cur.ops.push((fill||'0.93 0.94 0.96')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re f');},
  line(x1,y1,x2,y2){this.cur.ops.push('0.6 0.6 0.65 RG 0.5 w '+x1.toFixed(1)+' '+y1.toFixed(1)+' m '+x2.toFixed(1)+' '+y2.toFixed(1)+' l S');},
+ // Ruled-form primitives: a stroked (not filled) rectangle and a line whose
+ // weight/colour the caller sets — line() above is the soft grey divider used
+ // by the generic reports, these draw the hard black rules of a company form.
+ rule(x1,y1,x2,y2,lw,col){this.cur.ops.push((col||'0 0 0')+' RG '+(lw||0.9)+' w '+x1.toFixed(1)+' '+y1.toFixed(1)+' m '+x2.toFixed(1)+' '+y2.toFixed(1)+' l S');},
+ box(x,y,w2,h2,lw,col){this.cur.ops.push((col||'0 0 0')+' RG '+(lw||0.9)+' w '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re S');},
+ textC(cx,y,s,size,bold,color){this.text(cx-this.twx(s,size,bold)/2,y,s,size,bold,color);},
+ textR(xr,y,s,size,bold,color){this.text(xr-this.twx(s,size,bold),y,s,size,bold,color);},
+ uText(x,y,s,size,bold,color){this.text(x,y,s,size,bold,color);this.rule(x,y-2.5,x+this.twx(s,size,bold),y-2.5,0.8,color||'0 0 0');},
  need(hpt){if(this.y-hpt<this.mB){this.newPage();return true;}return false;},
  header(title,sub){
    this.rect(this.mL,this.y-6,this.w-this.mL-this.mR,3,'0.10 0.16 0.30');
@@ -5042,6 +5327,29 @@ PdfDoc.prototype={
    this.y-=8;
  },
  fit(s,wpt,size){s=String(s==null?'':s);const maxc=Math.max(3,Math.floor(wpt/(size*0.5)));return s.length>maxc?s.slice(0,maxc-1)+'\u2026':s;},
+ // Word-wrap into as many lines as the text needs (fit() truncates instead) \u2014
+ // used by the printed work-order form, where a long scope line must carry
+ // over rather than lose its tail to an ellipsis.
+ wrap(s,wpt,size,bold){
+   s=String(s==null?'':s);if(!s)return [];
+   const out=[];
+   s.split(/\n/).forEach(para=>{
+     let cur='';
+     para.split(/\s+/).filter(w=>w!=='').forEach(w=>{
+       const test=cur?cur+' '+w:w;
+       if(this.twx(test,size,bold)<=wpt){cur=test;return;}
+       if(cur){out.push(cur);cur='';}
+       let long=w;
+       while(this.twx(long,size,bold)>wpt){       // single word wider than the column
+         let n=1;while(n<long.length&&this.twx(long.slice(0,n+1),size,bold)<=wpt)n++;
+         out.push(long.slice(0,n));long=long.slice(n);
+       }
+       cur=long;
+     });
+     out.push(cur);
+   });
+   return out;
+ },
  parseJpegDims(bin){
    let iw=0,ih=0;
    for(let i=2;i<bin.length-9;){
@@ -5165,6 +5473,24 @@ function pdfFromTable(id,name){
 }
 
 /* ---- universal export: CSV / Excel / PDF ---- */
+/* Show a generated PDF on screen instead of downloading it — the bytes go
+   into a Blob URL an <iframe> renders, with the download still one click
+   away. The URL is revoked on close so the blob doesn't leak. */
+let PDF_PREVIEW_URL='';
+function pdfPreview(bytes,fname,title){
+  const url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
+  if(PDF_PREVIEW_URL)URL.revokeObjectURL(PDF_PREVIEW_URL);
+  PDF_PREVIEW_URL=url;
+  document.getElementById('pdfmodal-title').textContent=title||'Preview';
+  document.getElementById('pdfmodal-frame').src=url;
+  document.getElementById('pdfmodal-dl').onclick=()=>dlBlob(bytes,'application/pdf',fname+'.pdf');
+  openModal('pdfmodal');
+}
+function pdfPreviewClose(){
+  document.getElementById('pdfmodal-frame').src='about:blank';
+  if(PDF_PREVIEW_URL){URL.revokeObjectURL(PDF_PREVIEW_URL);PDF_PREVIEW_URL='';}
+  closeModal('pdfmodal');
+}
 function dlBlob(content,mime,fname){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);}
 /* ---- genuine .xlsx writer (no library — a store-only/uncompressed ZIP of the
    minimal OOXML parts a spreadsheet needs, single sheet, inline strings).
@@ -6060,6 +6386,94 @@ setInterval(updateSyncBar,5000);
 /* ================================================================
    ROUTER
    ================================================================ */
+/* ============ view work orders =================================
+   Read-only screen over the Work Orders module: search by work
+   order no. / record no. / customer, narrow by work-order date
+   range and status, open a record for editing, or print any of
+   them (or every match) as the company work-order form.
+   ============================================================== */
+let WOV={q:'',from:'',to:'',status:''};
+function woViewRows(){
+  const q=(WOV.q||'').trim().toLowerCase();
+  return coll('workorders').filter(r=>{
+    if(WOV.status&&(r.status||'')!==WOV.status)return false;
+    if(WOV.from&&(!r.date||r.date<WOV.from))return false;
+    if(WOV.to&&(!r.date||r.date>WOV.to))return false;
+    if(!q)return true;
+    return [r.recno,r.no,r.client,r.loc,r.subloc,r.contract,r.attntype,r.status]
+      .some(v=>String(v==null?'':v).toLowerCase().includes(q));
+  }).sort((a,b)=>(+b.recno||0)-(+a.recno||0));
+}
+function woViewTable(){
+  const rows=woViewRows();
+  if(!rows.length)return '<div class="empty">No work order matches this search.</div>';
+  return '<table><thead><tr><th>Record No.</th><th>Work Order #</th><th>Work Order Date</th><th>Bill To Customer</th><th>Location</th><th>From</th><th>To</th><th class="num">Lines</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(r=>'<tr>'+
+    '<td>'+esc(r.recno||'')+'</td>'+
+    '<td><b>'+esc(r.no||'')+'</b></td>'+
+    '<td>'+esc(r.date||'')+'</td>'+
+    '<td>'+esc(r.client||'')+'</td>'+
+    '<td>'+esc([r.loc,r.subloc].filter(Boolean).join(' / '))+'</td>'+
+    '<td>'+esc(r.from||'')+'</td>'+
+    '<td>'+esc(r.to||'')+'</td>'+
+    '<td class="num">'+((r.wlines||[]).length)+'</td>'+
+    '<td><span class="pill '+pillCls(r.status)+'">'+esc(r.status||'')+'</span></td>'+
+    '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" onclick="woPdf(\''+r.id+'\',\'view\')">▣ View</button> '+
+     '<button class="btn ghost small" onclick="woPdf(\''+r.id+'\')">↓ PDF</button> '+
+     '<button class="btn ghost small" onclick="woOpen(\''+r.id+'\')">Edit</button> '+
+     '<button class="del" onclick="woDelete(\''+r.id+'\')" title="Delete">✕</button></td>'+
+   '</tr>').join('')+'</tbody></table>';
+}
+function woViewSet(k,v){
+  WOV[k]=v;
+  const z=document.getElementById('wov-table');if(z)z.innerHTML=woViewTable();
+  const c=document.getElementById('wov-count');if(c)c.textContent=woViewRows().length;
+}
+function woViewClear(){WOV={q:'',from:'',to:'',status:''};render();}
+function woOpen(id){
+  route='m_workorders';lsSet('ui_route',route);editId=id;renderModule._lk=false;
+  nav();render();window.scrollTo({top:0,behavior:'smooth'});
+}
+/* The module screen no longer carries a records table (nolist), so deleting
+   a work order happens here. */
+function woDelete(id){
+  const r=coll('workorders').find(x=>x.id===id);if(!r)return;
+  if(!confirm('Delete work order '+(r.no||'')+' (Record No. '+(r.recno||'')+')?\nThis cannot be undone.'))return;
+  collSet('workorders',coll('workorders').filter(x=>x.id!==id));
+  try{localStorage.removeItem(P+'att_'+id);}catch(e){}
+  toast('Work Order deleted.','ok');render();
+}
+function woViewPdfAll(){
+  const rows=woViewRows();
+  if(!rows.length){alert('Nothing to download — no work order matches this search.');return;}
+  if(rows.length>15&&!confirm(rows.length+' work orders will download as '+rows.length+' separate PDF files. Continue?'))return;
+  rows.forEach((r,i)=>setTimeout(()=>woPdf(r.id),i*350)); // staggered — browsers drop simultaneous downloads
+}
+function renderWoView(){
+  const all=coll('workorders'),rows=woViewRows();
+  const statuses=[...new Set(all.map(r=>r.status).filter(Boolean))];
+  document.getElementById('content').innerHTML=
+  '<div class="kpis">'+
+   [{l:'Work orders',n:all.length},
+    {l:'In process',n:all.filter(r=>r.status==='InProcess').length},
+    {l:'Showing',n:rows.length},
+    {l:'Lines (shown)',n:rows.reduce((s,r)=>s+((r.wlines||[]).length),0)}
+   ].map(x=>'<div class="kpi"><span>'+x.l+'</span><b>'+x.n+'</b></div>').join('')+'</div>'+
+  '<div class="card no-print"><div class="card-h">Search work orders</div><div class="card-b">'+
+   '<div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">'+
+    '<div class="field"><label>Work order # / record no. / customer</label><input type="search" value="'+esc(WOV.q)+'" placeholder="8921" oninput="woViewSet(\'q\',this.value)"></div>'+
+    '<div class="field"><label>Work order date from</label><input type="date" value="'+esc(WOV.from)+'" onchange="woViewSet(\'from\',this.value)"></div>'+
+    '<div class="field"><label>Work order date to</label><input type="date" value="'+esc(WOV.to)+'" onchange="woViewSet(\'to\',this.value)"></div>'+
+    '<div class="field"><label>Status</label><select onchange="woViewSet(\'status\',this.value)"><option value="">All</option>'+
+      statuses.map(s=>'<option'+(s===WOV.status?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select></div>'+
+   '</div>'+
+   '<div class="actions"><button class="btn ghost" onclick="woViewClear()">Clear filters</button><span class="sp"></span>'+
+    '<button class="btn ghost" onclick="woViewPdfAll()">↓ PDF of every match</button></div>'+
+  '</div></div>'+
+  '<div class="card"><div class="card-h">Work orders <span class="pill b" id="wov-count">'+rows.length+'</span><span class="sp"></span>'+
+   expBtns('wov-table','work-orders')+'</div>'+
+   '<div class="card-b tblwrap" id="wov-table">'+woViewTable()+'</div></div>';
+}
 /* ============ contract map — client -> contracts -> work orders ============ */
 function renderInspMap(){
   const custs=coll('customers'),ctrs=coll('contracts'),wos=coll('workorders'),lib=lsGet('ir_library',[]);
@@ -6069,7 +6483,7 @@ function renderInspMap(){
     const cc=ctrs.filter(c=>c.client===nm),cw=wos.filter(w=>w.client===nm);
     const rpts=lib.filter(r=>(r.fields&&r.fields.client)===nm).length;
     if(!cc.length&&!cw.length&&!rpts)return;
-    const openWo=cw.filter(w=>['Issued','In progress'].includes(w.status)).length;
+    const openWo=cw.filter(w=>w.status&&!['Closed','Cancelled','Invoiced','Completed'].includes(w.status)).length;
     body+='<tr class="grp-row"><td colspan="7" style="background:var(--bg2);font-weight:700">'+esc(nm)+
       ' <span class="pill b">'+cc.length+' contract(s)</span> <span class="pill '+(openWo?'a':'g')+'">'+openWo+' open WO</span> <span class="pill v">'+rpts+' report(s)</span></td></tr>';
     if(!cc.length)body+='<tr><td colspan="7" class="empty">No contract on file — work orders issued without contract mapping.</td></tr>';
@@ -6085,7 +6499,7 @@ function renderInspMap(){
   '<div class="kpis">'+
    [{l:'Clients mapped',n:names.filter(nm=>ctrs.some(c=>c.client===nm)||wos.some(w=>w.client===nm)).length},
     {l:'Active contracts',n:ctrs.filter(c=>c.status==='Active').length},
-    {l:'Open work orders',n:wos.filter(w=>['Issued','In progress'].includes(w.status)).length},
+    {l:'Open work orders',n:wos.filter(w=>w.status&&!['Closed','Cancelled','Invoiced','Completed'].includes(w.status)).length},
     {l:'Contracts expiring 45d',n:ctrs.filter(c=>c.status==='Active'&&c.end&&(new Date(c.end)-Date.now())<45*864e5).length,warn:ctrs.some(c=>c.status==='Active'&&c.end&&(new Date(c.end)-Date.now())<45*864e5)}
    ].map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>'+
   '<div class="card"><div class="card-h">Client \u2192 contract \u2192 work order map<span class="sp"></span>'+expBtns('xt-map','contract-map')+'</div><div class="card-b tblwrap" id="xt-map">'+
@@ -6093,7 +6507,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],tax_calc:['Accounting','Tax Calculator'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
