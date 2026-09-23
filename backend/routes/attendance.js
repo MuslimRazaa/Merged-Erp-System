@@ -28,6 +28,12 @@ const VERIFY_STATE_LABELS = { 0: 'Check-in', 1: 'Check-out', 2: 'Break-out', 3: 
 // Grace period after shift_end before checkout minutes count as overtime —
 // e.g. shift end 5:30 -> overtime only starts counting after 6:30, not 5:31.
 const OVERTIME_GRACE_MINUTES = 60;
+// Saturday shift start for Permanent employees is later than their normal
+// weekday start (11:00 instead of the usual 9:00) — Probation/Contract etc.
+// employees work Saturday on their normal shift_start (they get none of the
+// month's 2 free Saturdays either — see the quota loop below). Same grace
+// period (emp.grace_minutes) applies on top of whichever start is in effect.
+const SATURDAY_SHIFT_START_PERMANENT = '11:00';
 
 function requireAgentKey(req, res, next) {
   const key = req.headers['x-agent-key'] || '';
@@ -287,7 +293,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
 
   const out = [];
   for (const emp of employees) {
-    const shiftStart = String(emp.shift_start).slice(0, 5); // 'HH:MM:SS' -> 'HH:MM'
+    const weekdayShiftStart = String(emp.shift_start).slice(0, 5); // 'HH:MM:SS' -> 'HH:MM'
     for (let d = new Date(rangeFrom); d <= rangeTo; d.setDate(d.getDate() + 1)) {
       const day = ymd(d);
       const dow = d.getDay();
@@ -295,6 +301,9 @@ async function computeAttendanceRows(from, to, filter = {}) {
       const punches = punchesByEmpDay.get(key) || [];
       const holiday = holidayByDate.get(day);
       const leave = leaveByEmpDate.get(key);
+      // Permanent employees' Saturday shift starts later than their weekday
+      // shift; every other employment type works Saturday on their normal start.
+      const shiftStart = (dow === 6 && emp.employment_type === 'Permanent') ? SATURDAY_SHIFT_START_PERMANENT : weekdayShiftStart;
 
       let checkIn = null, checkOut = null, late = false, lateMinutes = 0, overtimeMinutes = 0;
       if (punches.length) {
