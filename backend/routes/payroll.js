@@ -249,6 +249,7 @@ router.post('/generate', requireHr, async (req, res) => {
     // (same pay treatment — 1 paid day, no deduction) but shown/counted
     // separately: Sunday as "Gazetted Holiday (Sunday)", Saturday as the
     // ordinary "Weekly Off".
+    let fieldDays = 0; // present because a JLR field job covers the day (no machine punch)
     let presentDays = 0, absentDays = 0, sundayDays = 0, saturdayOffDays = 0, holidayDays = 0, paidLeaveDays = 0, unpaidLeaveDays = 0;
     let overtimeMinutesTotal = 0;
     const reviewFlags = [];
@@ -273,7 +274,7 @@ router.post('/generate', requireHr, async (req, res) => {
           if (!d.checkIn) forcedLateCount++;
           else lateIncidents.push({ date: d.date, lateMinutes: d.lateMinutes });
         }
-      } else if (d.dayType === 'Field') presentDays++; // out on a job (JLR) instead of at an office machine — paid the same as Present
+      } else if (d.dayType === 'Field') { presentDays++; fieldDays++; } // out on a job (JLR) instead of at an office machine — paid the same as Present
       else if (d.dayType === 'Absent') absentDays++;
       else if (d.dayType === 'WeeklyOff') { if (d.dayOfWeek === 0) sundayDays++; else saturdayOffDays++; }
       else if (d.dayType === 'Holiday' || d.dayType === 'CompanyOff') holidayDays++;
@@ -329,7 +330,7 @@ router.post('/generate', requireHr, async (req, res) => {
       employeeId: meta.employeeId, employeeCode: meta.employeeCode, employeeName: meta.name, department: meta.department,
       currency: (profile && profile.currency) || 'AED',
       grossSalary, salaryMissing, daysInMonth, totalDaysInRange, perDayRate,
-      presentDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
+      presentDays, fieldDays, officeDays: presentDays - fieldDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
       lateCount, lateArrivals, lateForgivenByOvertime, latePenaltyDays, overtimeMinutesTotal,
       paidDays, netPaidDays, baseDays,
       otherDeductionAmount, lateDeductionAmount, incomeTax, netSalary,
