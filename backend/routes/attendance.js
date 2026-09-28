@@ -347,15 +347,18 @@ async function computeAttendanceRows(from, to, filter = {}) {
 
       const fieldJob = fieldJobByEmpDate.get(key);
       // On a field job that day and no approved leave / leave-without-pay
-      // covering it -> it counts as attendance. That includes a Sunday,
-      // Saturday or holiday in the middle of the job (those are worked days
-      // out in the field, not days off); a real machine punch on an ordinary
-      // weekday still shows as Present as before. A leave on the day wins
+      // covering it -> it counts as attendance, and Field ALWAYS takes
+      // priority over a normal machine punch that same day — an employee out
+      // on a job who also happens to punch in/out (or gets punched by
+      // mistake) is still "Field", not "Present"; that punch's time (and any
+      // lateness on it) plays no part in the day's classification. This also
+      // covers a Sunday/Saturday/holiday in the middle of the job (those are
+      // worked days out in the field, not days off). A leave on the day wins
       // over the field job, and a Sunday/holiday with a leave keeps its usual
       // day-off treatment so the leave isn't consumed by it.
       const fieldWins = !!fieldJob && !leave;
       let dayType;
-      if (fieldWins && (!punches.length || holiday || dow === 0)) dayType = 'Field';
+      if (fieldWins) dayType = 'Field';
       else if (holiday) dayType = holiday.type === 'CompanyOff' ? 'CompanyOff' : 'Holiday';
       else if (dow === 0) dayType = 'WeeklyOff';
       else if (leave && leave.status === 'Approved') dayType = 'Leave';
