@@ -95,7 +95,12 @@ function shapeRow(r) {
     department: r.department, location: r.location,
     createdBy: r.created_by, createdByCode: r.created_by_code, createdByName: r.created_by_name,
     leaveRequestType: r.leave_request_type, leaveType: r.leave_type,
-    fromDate: r.from_date, toDate: r.to_date, requestDate: r.request_date,
+    // toYmd (not the raw Date) — mysql2 hands DATE columns back as a JS Date
+    // at LOCAL midnight, and res.json()'s default toISOString() serializes
+    // that in UTC, which lands on the PREVIOUS calendar day for Pakistan
+    // (UTC+5) — every leave request showed one day earlier than what was
+    // actually saved. Same bug, same fix as JLR's JobLogInspectorChange dates.
+    fromDate: toYmd(r.from_date), toDate: toYmd(r.to_date), requestDate: toYmd(r.request_date),
     purpose: r.purpose, remarks: r.remarks, status: r.status,
     requiresAdminApproval: r.requires_admin_approval === 1,
     // HOD's recommendation — NOT final; see decidedBy/decisionRemarks below for that.
