@@ -25,6 +25,7 @@ const MODULE_GROUP = {
   docs: 'Compliance', audits: 'Compliance', ncrs: 'Compliance', risks: 'Compliance', hse: 'Compliance',
   mgtreviews: 'Compliance', calibrations: 'Compliance', apiq2: 'Compliance',
   invoices: 'Sales & AR', receipts: 'Sales & AR', salesorders: 'CRM',
+  trainings: 'Human Resources',
   items: 'Inventory', stockmoves: 'Inventory',
   purchaseorders: 'Procurement', grns: 'Procurement', vendorbills: 'Procurement', payments: 'Procurement',
   assets: 'Fixed Assets', maintenance: 'Fixed Assets',

@@ -520,6 +520,16 @@ const A2=(k,l)=>({k,l,t:'area',half:1});  // textarea that stays in its column i
 function nextRecNo(mk){return coll(mk).reduce((m2,r)=>Math.max(m2,+r.recno||0),0)+1;}
 const RECNO=(mk)=>({k:'recno',l:'Record Number',t:'computed',auto:1,fn:r=>r.recno||nextRecNo(mk)});
 const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
+function C(k,l,fn){return {k,l,t:'computed',fn};}
+function trainingStatus(r){
+  if(!r.date)return 'Planned'; // not completed yet
+  if(!r.expiry)return 'Valid'; // completed, nothing to expire
+  const days=Math.round((new Date(r.expiry+'T00:00:00')-new Date(today()+'T00:00:00'))/86400000);
+  if(days<0)return 'Expired';
+  if(days<=30)return 'Expiring';
+  return 'Valid';
+}
+function trainingStatusRank(s){return {Expired:0,Expiring:1,Planned:2,Valid:3}[s]??4;}
 
 /* ============ generic collection modules ============ */
 /* Each: key, name, group, icon, fields, list (cols in table), badge, kpi */
@@ -550,7 +560,17 @@ contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fiel
 /* nolist: the saved-records table lives on its own screen (View Work
    Orders — renderWoView), so this one only shows the entry form. */
 workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),REF('loc','Location','shared_locations','name'),REF('client','Bill To Customer','customers','name'),REF('subloc','Sub Location','shared_locations','name'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
-trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Completed'),D('expiry','Expiry'),T('certno','Certificate no.'),S('status','Status',['Valid','Expiring','Expired','Planned'])],list:['emp','course','provider','date','expiry','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Expired').length,l:'Expired certs',warn:1}]},
+trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',cols:2,att:1,list_presorted:true,
+  fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Date completed'),D('expiry','Expiry date (leave blank if it never expires)'),T('certno','Certificate no.'),
+    C('status','Status',trainingStatus)],
+  list:['emp','course','provider','date','expiry','status'],
+  // Newest-relevant first: an expired/expiring cert should be the first thing
+  // HR sees, not buried under whatever was entered first.
+  sort:(a,b)=>trainingStatusRank(trainingStatus(a))-trainingStatusRank(trainingStatus(b))||String(b.date||'').localeCompare(String(a.date||'')),
+  badge:r=>trainingStatus(r),
+  kpi:d=>[{n:d.filter(r=>trainingStatus(r)==='Expired').length,l:'Expired certs',warn:1},
+    {n:d.filter(r=>trainingStatus(r)==='Expiring').length,l:'Expiring within 30 days',warn:1},
+    {n:d.filter(r=>trainingStatus(r)==='Planned').length,l:'Not yet completed'}]},
 /* ---------------- COMPLIANCE ---------------- */
 docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),S('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
 audits:{g:'Compliance',ic:'☑',name:'Audits',fields:[T('no','Audit no.','AUD-2026-01'),S('atype','Type',['Internal','External / CB','Client','Supplier']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Integrated']),D('date','Date'),T('auditor','Auditor(s)'),T('scope','Scope / area'),N('findings','Findings count'),S('status','Status',['Planned','In progress','Report issued','Closed']),A('summary','Summary')],list:['no','atype','std','date','auditor','findings','status'],badge:r=>r.status},
@@ -1149,7 +1169,7 @@ async function rptGenerate(){
     document.getElementById('rpt-result-hint').textContent=' — '+window.__rptFrom+' to '+window.__rptTo+' · '+(RPT_SEL.size?RPT_SEL.size+' employee(s) selected':'all employees');
     const det=rptBuildDetailed();
     document.getElementById('rpt-preview').innerHTML=det.rows.length
-     ?'<table><thead><tr>'+det.headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
+     ?rptSummaryHtml()+'<table><thead><tr>'+det.headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
        det.rows.slice(0,50).map(r=>'<tr>'+r.map(cel=>'<td>'+esc(cel)+'</td>').join('')+'</tr>').join('')+
       '</tbody></table>'+(det.rows.length>50?'<div class="hint" style="padding:8px">Showing first 50 of '+det.rows.length+' rows — the full data is included in every export.</div>':'')
      :'<div class="empty">No attendance found for this range/selection — check the dates and try again.</div>';
@@ -1192,6 +1212,57 @@ function rptBuildDetailed(){
   });
   return {headers,rows};
 }
+// Per-employee totals for the selected range/employees, straight from the same
+// day rows the timesheet lists. Present (Punch) = days with a real machine punch,
+// Field = days covered by a JLR field job, Total Present = the two together.
+// Late = days the first check-in was after shift start + grace (before payroll's
+// overtime offset — Payroll shows the counted figure).
+function rptSummaryRows(){
+  const by=new Map();
+  for(const r of RPT_SUMMARY){
+    if(r.unmapped||!r.employeeId)continue;
+    let s=by.get(r.employeeId);
+    if(!s){s={code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,ot:0};by.set(r.employeeId,s);}
+    switch(r.dayType){
+      case 'Present':s.punch++;if(r.late){s.late++;s.lateMin+=r.lateMinutes||0;}break;
+      case 'Field':s.field++;break;
+      case 'Absent':s.absent++;break;
+      case 'Leave':s.leave+=r.leaveRequestType==='Half Day'?0.5:1;break;
+      case 'LeaveWithoutPay':s.lwp+=r.leaveRequestType==='Half Day'?0.5:1;break;
+      default:s.off++; // WeeklyOff / Holiday / CompanyOff
+    }
+    s.ot+=r.overtimeMinutes||0;
+  }
+  return [...by.values()].sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
+}
+function rptBuildSummary(){
+  const headers=['Emp Code','Name','Department','Present (Punch)','Field Days','Total Present','Absent','Late','Late (min)','Paid Leave','Unpaid Leave','Off / Holidays','OT (min)'];
+  const list=rptSummaryRows();
+  const rows=list.map(s=>[s.code,s.name,s.dept,s.punch,s.field,s.punch+s.field,s.absent,s.late,s.lateMin,s.leave,s.lwp,s.off,s.ot]);
+  if(list.length>1){
+    const t=(i)=>rows.reduce((a,r)=>a+r[i],0);
+    rows.push(['','TOTAL ('+list.length+' employees)','',t(3),t(4),t(5),t(6),t(7),t(8),t(9),t(10),t(11),t(12)]);
+  }
+  return {headers,rows};
+}
+function rptBuild(kind){return kind==='roster'?rptBuildRoster():kind==='summary'?rptBuildSummary():rptBuildDetailed();}
+function rptSummaryHtml(){
+  const {headers,rows}=rptBuildSummary();
+  if(!rows.length)return '';
+  const list=rptSummaryRows();
+  const one=list.length===1?list[0]:null;
+  const tile=(l,v,cls)=>'<div class="kpi"><span>'+l+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+v+'</b></div>';
+  const kpis=one?'<div class="kpis" style="margin-bottom:12px">'+tile('Present (Punch)',one.punch)+tile('Field Days',one.field)+tile('Total Present',one.punch+one.field)+tile('Absent',one.absent,one.absent?'warn':'')+tile('Late',one.late,one.late?'warn':'')+tile('Leave',one.leave+one.lwp)+'</div>':'';
+  return '<div style="margin-bottom:16px"><b style="font-size:12.5px">Summary</b> <span class="hint">— Total Present = Present (Punch) + Field Days'+(one?' · '+esc(one.name):'')+'</span>'+
+    '<div style="margin:6px 0 10px;display:flex;gap:8px;flex-wrap:wrap">'+
+     '<button class="btn ghost small" onclick="rptExportXls(\'summary\')">⬇ Excel</button>'+
+     '<button class="btn ghost small" onclick="rptExportCsv(\'summary\')">⬇ CSV</button>'+
+     '<button class="btn ghost small" onclick="rptExportXlsx(\'summary\')">⬇ Excel Workbook</button>'+
+    '</div>'+kpis+
+    '<div style="overflow:auto"><table><thead><tr>'+headers.map(h=>'<th'+(/Code|Name|Department/.test(h)?'':' class="num"')+'>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map((r,i)=>'<tr'+(i===rows.length-1&&list.length>1?' style="font-weight:700"':'')+'>'+r.map((c,j)=>'<td'+(j>2?' class="num"':'')+'>'+esc(c)+'</td>').join('')+'</tr>').join('')+
+    '</tbody></table></div></div>';
+}
 function rptBuildRoster(){
   // One row per employee — not per day, so a 4-day range doesn't repeat the
   // same name 4 times. Status is always YES: this roster simply lists every
@@ -1208,7 +1279,7 @@ function rptBuildRoster(){
 }
 async function rptExportCsv(kind){
   try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
-  const {headers,rows}=kind==='roster'?rptBuildRoster():rptBuildDetailed();
+  const {headers,rows}=rptBuild(kind);
   if(!rows.length)return alert('No attendance found for this date range/selection.');
   const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const lines=[headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
@@ -1216,15 +1287,15 @@ async function rptExportCsv(kind){
 }
 async function rptExportXls(kind){
   try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
-  const {headers,rows}=kind==='roster'?rptBuildRoster():rptBuildDetailed();
+  const {headers,rows}=rptBuild(kind);
   if(!rows.length)return alert('No attendance found for this date range/selection.');
-  const title=kind==='roster'?'HR Attendance Roster':'Attendance Timesheet';
+  const title=kind==='roster'?'HR Attendance Roster':kind==='summary'?'Attendance Summary':'Attendance Timesheet';
   const html='<html><head><meta charset="utf-8"><title>'+title+'</title><style>body{font-family:Arial,Helvetica,sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 7px;text-align:left}th{background:#EEF1F5}</style></head><body><h2>'+title+'</h2><p>'+window.__rptFrom+' to '+window.__rptTo+'</p><table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(cel=>'<td>'+esc(cel)+'</td>').join('')+'</tr>').join('')+'</tbody></table></body></html>';
   dlBlob(html,'application/vnd.ms-excel','attendance-'+kind+'-'+window.__rptFrom+'_to_'+window.__rptTo+'.xls');
 }
 async function rptExportXlsx(kind){
   try{await rptEnsureData();}catch(e){return alert('Could not load attendance data: '+e.message);}
-  const {headers,rows}=kind==='roster'?rptBuildRoster():rptBuildDetailed();
+  const {headers,rows}=rptBuild(kind);
   if(!rows.length)return alert('No attendance found for this date range/selection.');
   const grid=[headers.map(String)].concat(rows.map(r=>r.map(cel=>cel==null?'':String(cel))));
   dlXlsx(buildXlsxBlob(grid),'attendance-'+kind+'-'+window.__rptFrom+'_to_'+window.__rptTo+'.xlsx');
@@ -1236,6 +1307,8 @@ function rptBuildPdfDoc(){
   if(!rows.length)return null;
   const doc=new PdfDoc({landscape:true});
   doc.header('TMS TIME SHEET',window.__rptFrom+' to '+window.__rptTo);
+  const sm=rptBuildSummary();
+  if(sm.rows.length){doc.need(40);doc.text(doc.mL,doc.y,'SUMMARY  (Total Present = Present (Punch) + Field Days)',9,true);doc.y-=14;doc.table(sm.headers,sm.rows.map(r=>r.map(c=>c==null?'':String(c))));}
   doc.table(headers,rows);
   return doc;
 }
@@ -1503,7 +1576,7 @@ function prRenderReport(){
    '</div>';
   document.getElementById('pr-preview').innerHTML=rep.rows.length
    ?'<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
-     '<th class="num">Present</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
+     '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">OT (min)</th><th class="num">Paid Days</th>'+
      '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th></tr></thead><tbody>'+
     rep.rows.map(r=>'<tr>'+
@@ -1512,7 +1585,7 @@ function prRenderReport(){
      '<td class="num">'+r.daysInMonth+'</td>'+
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
-     '<td class="num">'+r.presentDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
+     '<td class="num">'+r.presentDays+'</td><td class="num">'+r.officeDays+'</td><td class="num">'+r.fieldDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
      '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime (smallest lates forgiven first), '+r.lateCount+' counted (every 3 counted = 1 day deducted). Overtime only counts 1 hour past shift end.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
@@ -1527,8 +1600,8 @@ function prRenderReport(){
   prRenderPdfPreview();
 }
 function prReportGrid(){
-  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','OT (min)','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
-  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.overtimeMinutesTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','OT (min)','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
+  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.overtimeMinutesTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
@@ -4434,7 +4507,7 @@ function collSet(k,v){lsSet(k,v);}
    the source of truth: a save only counts once the server confirmed it.
    Compliance first; Inventory / Procurement / Fixed Assets are enabled the
    same way by adding their keys here. */
-const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance']);
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings']);
 function isSrv(k){return SERVER_MODS.has(k);}
 const REC_AT={},REC_BUSY={};
 /* One-time rescue per browser: records (and attached files) that only ever
@@ -4539,6 +4612,7 @@ function renderModule(){
     ((m.g==='Compliance'||m.att)?attPanel(k,editId):'');
   const q=filterQ.toLowerCase();
   const rows=data.filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
+  if(m.sort)rows.sort(m.sort);
   const list=m.nolist?'':'<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
     expBtns('list-zone',k)+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
@@ -4550,7 +4624,7 @@ function listTable(m,rows){
   const cols=m.list;
   const label=k2=>{const f=m.fields.find(f=>f.k===k2);return f?f.l:({amount:'Amount'}[k2]||k2);};
   return '<table><thead><tr>'+cols.map(c=>'<th>'+esc(label(c))+'</th>').join('')+'<th class="no-print"></th></tr></thead><tbody>'+
-    rows.slice().reverse().map(r=>'<tr class="rowlink" onclick="editRec(\''+r.id+'\')">'+cols.map(c=>{
+    (m.list_presorted?rows.slice():rows.slice().reverse()).map(r=>'<tr class="rowlink" onclick="editRec(\''+r.id+'\')">'+cols.map(c=>{
       const f=m.fields.find(f=>f.k===c);let v=r[c];
       if(f&&f.t==='computed')v=f.fn(r);
       if(m.badge&&v!=null&&v!==''&&String(v)===String(m.badge(r))){
@@ -4571,6 +4645,7 @@ function renderListOnly(){
   const k=modKey(),m=MODULES[k];
   const q=filterQ.toLowerCase();
   const rows=coll(k).filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
+  if(m.sort)rows.sort(m.sort);
   const z=document.getElementById('list-zone');if(z)z.innerHTML=listTable(m,rows);
 }
 async function saveRec(){
