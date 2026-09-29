@@ -85,6 +85,11 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 /* ---------- forms ---------- */
 .fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:11px}
 .field label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:4px}
+/* Inspection report entry: the field names are read constantly while typing a
+   certificate off a rig sheet, so they get full-strength ink, not the faint
+   grey used for incidental forms. */
+.irform .field label{color:var(--ink);font-size:10.5px}
+.irform .hint{color:var(--soft)}
 .field input,.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .field textarea{resize:vertical}
 /* ---------- Employee form (full-page, not a small modal) ---------- */
@@ -5481,7 +5486,28 @@ PdfDoc.prototype={
  // distance in points from the TOP of the page (matches how the template was
  // measured), converted here to the PDF's bottom-left-origin y.
  atText(x,ty,s,size,bold,color){ if(s==null||s==='')return; this.text(x,this.h-ty,String(s),size,bold,color); },
- atCheck(x,ty){ this.text(x-3,this.h-ty-3,'X',9,true); },
+ // Certified forms show a real checkbox — an empty square against every
+ // option, ticked on the one that applies (the FM-IR-07 original uses a
+ // Wingdings box glyph; the core fonts have none, so we stroke it).
+ // x = centre of the box, ty = its TOP edge measured from the top of the page.
+ atBox(x,ty,sz){ sz=sz||8; this.box(x-sz/2,this.h-ty-sz,sz,sz,0.8,'0 0 0'); },
+ atCheck(x,ty,sz){
+   sz=sz||8; this.atBox(x,ty,sz);
+   const y=this.h-ty-sz,l=x-sz/2;
+   this.rule(l+1.5,y+sz*0.55,l+sz*0.42,y+1.8,1,'0 0 0');
+   this.rule(l+sz*0.42,y+1.8,l+sz-1.3,y+sz-1.3,1,'0 0 0');
+ },
+ // Place an image inside x,y,w,h keeping its aspect ratio, centred (contain).
+ imageFitAt(dataUrl,x,y,w2,h2){
+   try{
+     const bin=atob(dataUrl.split(',')[1]);
+     const [iw,ih]=this.parseJpegDims(bin);
+     if(!iw||!ih)return;
+     const sc=Math.min(w2/iw,h2/ih);
+     const dw=iw*sc,dh=ih*sc;
+     this.imageAt(dataUrl,x+(w2-dw)/2,y+(h2-dh)/2,dw,dh);
+   }catch(e){}
+ },
  // Center `s` inside a cell of width `w` centered on `cx` (ty = distance from top,
  // same convention as atText), auto-shrinking the font down to `minSize` if the text
  // would otherwise overflow the cell — used for every dynamic value printed onto a
@@ -5492,9 +5518,9 @@ PdfDoc.prototype={
    sizeMax=sizeMax||9; minSize=minSize||5.5;
    let size=sizeMax;
    const avail=w-4;
-   while(this.tw(s,size)>avail&&size>minSize)size-=0.5;
-   if(this.tw(s,size)>avail){ s=this.fit(s,avail,size); }
-   const x=cx-this.tw(s,size)/2;
+   while(this.twx(s,size,bold)>avail&&size>minSize)size-=0.5;
+   if(this.twx(s,size,bold)>avail){ s=this.fit(s,avail,size); }
+   const x=cx-this.twx(s,size,bold)/2;
    this.atText(x,ty,s,size,bold,color);
  },
  // Builds the actual PDF bytes without triggering a download — used both by
@@ -5975,6 +6001,10 @@ const IR_FIELDS=[['no','Report no.','RPT-2026-0001'],['rev','Revision','0'],['cl
    ================================================================ */
 const DP_TALLY_TYPE='Drill Pipe / PTISCOPE Tally Inspection (FM-IR-7)';
 function dpF(){ if(!IR.dp)IR.dp={}; if(!IR.dp.summary)IR.dp.summary={}; if(!IR.dp.cls)IR.dp.cls={}; return IR.dp; }
+// The certified form writes CONTNUOUS (sic) and the form/PDF both use that
+// spelling; reports saved before that stored CONTINUOUS, so both must tick the
+// same box.
+function dpNorm(v){return String(v==null?'':v).toUpperCase()==='CONTINUOUS'?'CONTNUOUS':(v||'');}
 // Certificate No. is not user-editable — it's PTISDP-<work order no.>-<document no.>,
 // where <document no.> is a global auto-incrementing counter for this form type only
 // (how many FM-IR-07 Drill Pipe documents have ever been created on this install).
@@ -5997,6 +6027,15 @@ function dpCertNo(){
 }
 function dpField(label,key){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><input value="'+esc(v)+'" oninput="dpF().'+key+'=this.value;irSave()"></div>'; }
 function dpSelect2(label,key,optA,optB){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><select onchange="dpF().'+key+'=this.value;irSave()"><option value=""'+(v===''?' selected':'')+'></option><option'+(v===optA?' selected':'')+'>'+optA+'</option><option'+(v===optB?' selected':'')+'>'+optB+'</option></select></div>'; }
+/* The certified sheet ticks a box for these, so the form does too — one of the
+   pair at a time, and un-ticking clears the field. */
+function dpPick(key,opt,on){ dpF()[key]=on?opt:''; irSave(); render(); }
+function dpCheck2(label,key,optA,optB){
+  const v=dpNorm(dpF()[key]);
+  const box=o=>'<label style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer;font-size:12.5px">'+
+    '<input type="checkbox"'+(v===o?' checked':'')+' onchange="dpPick(\''+key+'\',\''+o+'\',this.checked)">'+esc(o)+'</label>';
+  return '<div class="field full"><label>'+label+'</label><div style="padding:5px 0">'+box(optA)+box(optB)+'</div></div>';
+}
 function dpSumField(label,key){ const v=(dpF().summary||{})[key]||''; return '<div class="field"><label>'+label+'</label><input type="number" value="'+esc(v)+'" oninput="dpF().summary.'+key+'=this.value;irSave()"></div>'; }
 function dpClsField(label,key){ const v=(dpF().cls||{})[key]||''; return '<div class="field"><label>'+label+'</label><input value="'+esc(v)+'" oninput="dpF().cls.'+key+'=this.value;irSave()"></div>'; }
 function dpCardHtml(){
@@ -6009,16 +6048,19 @@ function dpCardHtml(){
     dpField('Grade','grade')+dpField('Weight','weight')+
    '</div>'+
    '<div class="hint" style="margin:12px 0 6px">Inspection consumable</div><div class="fgrid">'+
-    dpField('Consumable','consumableName')+dpField('Manufacturer','consumableManufacturer')+dpField('Batch Number','consumableBatch')+dpField('Expiry Date','consumableExpiry')+
+    dpField('INSPECTION CONSUMABLE','consumableName')+dpField('MANUFACTURER','consumableManufacturer')+dpField('BATCH NUMBER','consumableBatch')+dpField('EXPIRY DATE','consumableExpiry')+
    '</div>'+
+   // Laid out to mirror the MAGNETIC PARTICLE INSPECTION block on the printed
+   // sheet: a tick box wherever the sheet has one, a text field where it has a
+   // line to write on.
    '<div class="hint" style="margin:12px 0 6px">Magnetic particle inspection</div><div class="fgrid">'+
-    dpSelect2('Magnetizing Process','mpiProcess','CONTINUOUS','RESIDUAL')+
-    dpSelect2('Magnetizing Equipment','mpiEquipment','DC COIL','AC YOKE')+
-    dpSelect2('MPI Technique (Dry/Wet)','mpiTechDry','DRY','WET')+
-    dpSelect2('MPI Technique (Visible/Fluor.)','mpiTechVis','VISIBLE','FLUORESCENT')+
-    dpSelect2('Demagnetization','demag','YES','NO')+
-    dpField('Field Direction','fieldDirection')+dpField('Lifting Force','liftingForce')+
-    dpField('Field Indicator Type','fieldIndicatorType')+dpField('Field Strength','fieldStrength')+
+    dpCheck2('MAGNETIZING PROCESS','mpiProcess','CONTNUOUS','RESIDUAL')+
+    dpCheck2('MAGNETIZING EQUIPMENT','mpiEquipment','DC COIL','AC YOKE')+
+    dpCheck2('MPI TECHNIQUE','mpiTechDry','DRY','WET')+
+    dpCheck2('MPI TECHNIQUE','mpiTechVis','VISIBLE','FLUORESCENT')+
+    dpCheck2('DEMAGNETIZATION','demag','YES','NO')+
+    dpField('FIELD DIRECTION','fieldDirection')+dpField('LIFTING FORCE','liftingForce')+
+    dpField('FIELD INDICATOR TYPE','fieldIndicatorType')+dpField('FIELD STRENGTH','fieldStrength')+
    '</div>'+
    '<div class="hint" style="margin:12px 0 6px">Summary of drill pipe inspection</div><div class="fgrid">'+
     dpSumField('Total Drill Pipe Inspected','total')+dpSumField('Need To Be Recut','recut')+dpSumField('Need To Be Rechase','rechase')+
@@ -6034,7 +6076,7 @@ function dpCardHtml(){
 function renderInspReport(){
   const sc=irSchema();
   const custOpts=coll('customers').map(c=>'<option value="'+esc(c.name)+'">').join('');
-  document.getElementById('content').innerHTML=
+  document.getElementById('content').innerHTML='<div class="irform">'+
   '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
   '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label><select id="ir-type" onchange="IR.type=this.value;render()">'+irTypeOptions(IR.type)+'</select></div>'+
   '<div class="field"><label>Inspection date</label><input type="date" id="ir-date" value="'+(IR.fields.date||today())+'" onchange="IR.fields.date=this.value;irSave()"></div>'+
@@ -6056,14 +6098,24 @@ function renderInspReport(){
     return '<tr><td class="num">'+(i+1)+'</td>'+cells.map(c=>{const chk=acCheck(c.k,r[c.k]);return '<td><input'+(c.k.startsWith('dim_')||c.k.startsWith('ut_')||c.k.startsWith('emi_wl')?' class="dim'+(chk?' '+chk:'')+'"':(chk?' class="'+chk+'"':''))+' data-ack="'+c.k+'"'+(c.k==='serial'?' list="dl-serial"':'')+' value="'+esc(r[c.k]||'')+'" oninput="IR.items['+i+'].'+c.k+'=this.value;irSave();irPaint()"></td>';}).join('')+
     '<td><select onchange="IR.items['+i+'].result=this.value;irSave()">'+(IR.type===DP_TALLY_TYPE?['','UC','PC','C2']:['','ACCEPT','REJECT','REPAIRABLE','CLASS 2','N/A']).map(o=>'<option'+(o===(r.result||'')?' selected':'')+'>'+o+'</option>').join('')+'</select></td>'+
     '<td><input value="'+esc(r.rem||'')+'" oninput="IR.items['+i+'].rem=this.value;irSave()"></td>'+
-    '<td><button class="del" onclick="IR.items.splice('+i+',1);irSave();render()">✕</button></td></tr>';}).join('')+
+    // Per-row image: it prints directly under this row on the PDF, and the
+    // rows after it move to the next page.
+    '<td class="no-print" style="white-space:nowrap">'+
+     (r.img?'<img src="'+r.img+'" alt="attached" title="Attached image" style="height:22px;border-radius:3px;vertical-align:middle;margin-right:4px">':'')+
+     '<button class="btn ghost small" title="'+(r.img?'Replace image':'Attach image')+'" onclick="document.getElementById(\'ir-img-'+i+'\').click()">▣</button>'+
+     '<input type="file" id="ir-img-'+i+'" accept="image/*" style="display:none" onchange="irRowImage('+i+',this.files)">'+
+     (r.img?'<button class="del" title="Remove image" onclick="delete IR.items['+i+'].img;irSave();render()">⌫</button>':'')+
+     '<button class="del" onclick="IR.items.splice('+i+',1);irSave();render()">✕</button></td></tr>';}).join('')+
   '</tbody></table></div><datalist id="dl-serial"></datalist>'+
   '<div class="kpis" style="margin-top:13px">'+irSummary().map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div></div></div>'+
-  '<div class="card"><div class="card-h">Photographic evidence</div><div class="card-b">'+
-  '<div class="dropzone no-print" id="ir-drop" onclick="document.getElementById(\'ir-photo\').click()"><b>Click to upload photos</b> or drag &amp; drop — compressed and stored inside the report</div>'+
-  '<input type="file" id="ir-photo" accept="image/*" multiple style="display:none" onchange="irPhotos(this.files)">'+
-  '<div class="photos">'+IR.photos.map((p,i)=>'<figure class="photo"><img src="'+p.src+'" alt="photo"><div class="pm"><input placeholder="Caption…" value="'+esc(p.cap||'')+'" oninput="IR.photos['+i+'].cap=this.value;irSave()"><div style="display:flex;justify-content:space-between;margin-top:5px"><span class="pill b">PHOTO '+(i+1)+'</span><button class="del no-print" onclick="IR.photos.splice('+i+',1);irSave();render()">✕</button></div></div></figure>').join('')+'</div></div></div>'+
-  '<div class="actions"><button class="btn" onclick="irStore()">Save to report library</button><button class="btn ghost" onclick="irPdf()">↓ Download PDF report</button><button class="btn ghost" onclick="window.print()">Print view</button>'+expBtns('xt-irit','inspection-results')+'<button class="btn ghost" onclick="if(confirm(\'Start a new blank report?\')){IR={type:IR.type,fields:{},items:[{}],eq:[],photos:[],ac:{},dp:{},id:null};irSave();render()}">New report</button></div>';
+  /* Photographic evidence card removed — images are attached per inspection
+     row now (the ▣ button at the end of each row), which is what the report
+     prints. */
+  // Download / print / export / new all live on Saved Reports now — this
+  // screen is for filling the report in and filing it.
+  '<div class="actions"><button class="btn" onclick="irStore()">Save to report library</button>'+
+   '<span class="hint" style="margin-left:10px">Saved reports are downloaded, printed and exported from <b>Saved Reports</b>.</span></div>'+
+  '</div>';
   irFillSerials();
 }
 const DP_LOGO_IMG='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAFoA+ADASIAAhEBAxEB/8QAFwABAQEBAAAAAAAAAAAAAAAAAAEDAv/EACUQAQEAAQQCAgIDAQEAAAAAAAABEQISMVFBgWFxocEhkbHw0f/EABYBAQEBAAAAAAAAAAAAAAAAAAABAv/EABoRAQEBAQEBAQAAAAAAAAAAAAABETEhQYH/2gAMAwEAAhEDEQA/ANAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEzO451ePbkGmZ3DM7jMBpmdwzO4zAa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';
@@ -6076,9 +6128,54 @@ const DP_STATIC_TEXT=[[15.6,787.3,"Email :",7.15],[15.6,799.3,"Fax Number :",7.1
 const DP_LINES_H=[[701.7,907.7,101.5],[918.7,1049.3,101.8],[1053,1183.7,102.3],[19.3,453.3,105],[703.3,907.7,115.7],[21.3,451.7,122.7],[703.3,907.7,130.5],[463.7,690,133.7],[21.3,451.7,138.5],[701.7,907.7,146.25],[463.7,690,146.8],[21.3,451.7,151.3],[701.7,906,162.5],[463.7,690,162.7],[21.3,450.7,164],[918.7,1049.3,164],[1053,1183.7,164.5],[703,907.7,175.7],[465.7,690,176],[21.3,451.7,179.2],[463.7,690,191.7],[703.3,907.7,191.7],[19.3,450,195],[701.7,907.7,205.7],[463.3,690,205.8],[19.3,451.7,210.8],[463.7,690,222],[701.7,907.7,222],[20.7,451.7,224.3],[701.7,907.7,233.5],[463.7,690,233.7],[19.3,453.3,234],[918.7,1049.3,234],[1053,1183.7,234.7],[13,1212.3,270.3],[13,1212.3,288.7],[13,1212.3,307.3],[13,1212.3,325.7],[13,1212.3,344.3],[13,1212.3,362.7],[13,1212.3,381.3],[13,1212,399.7],[970.7,1070,439.5],[1154,1210,440.2],[481,695.7,458.325],[699.3,969.7,458.9],[1072,1151.7,460],[76,479.7,468.3],[13.3,1210.3,478.075],[14.3,1207.7,508.2],[14,1206,524.3],[14.3,1207.7,541.3],[16,1207.7,558.8],[691.7,1208,576.5],[14,489.3,577.8],[16,1208,596.7],[14.3,1208,615.3],[15.7,1208,633.7],[14.3,1207.7,653.7],[579.7,1206.3,670],[14.3,435,672.7],[434,580.3,679.3],[579.7,1207.7,688.7],[16.7,435,689.2],[434,580.3,697.3],[14.3,435,706],[579.7,1205.3,706.3],[15.7,1208,723.7],[14.3,1207.7,740.3],[14.7,1207.7,748],[14.7,1207.7,762.5],[15.3,161.3,767.7],[15.3,161.3,781.7]];
 const DP_LINES_V=[[13.625,270,478.3],[14.7,507.7,740.7],[15,747.7,763],[15.7,767.3,782],[19.7,104.7,234.3],[39.625,270,478.3],[74,270,478.3],[80,767.3,782],[91.7,462,474.3],[94.95,507.7,615.7],[94.7,633.3,740.7],[108,270,474.3],[138.625,270,459.7],[161,767.3,782],[167,270,459.3],[172.3,507.7,634],[184,104.7,224.7],[187.8,462.3,474.3],[201.625,270,460],[204,633.3,740.7],[232.3,270,460.3],[251.8,507.7,634],[266.65,270,460.3],[280.75,104.7,224.7],[297.65,270,460.3],[302,633.3,740.7],[331.75,507.7,615.7],[334.35,270,460.3],[336.7,104.7,123],[365.7,194.7,224.7],[367.3,104.7,123],[368.075,270,460.3],[374.5,462.3,474.3],[405.8,270,461],[411,507.7,634],[422,104.7,123],[434.7,653.3,741],[441.7,270,461],[453,104.7,234.3],[464,133.3,234],[481.225,270,474.3],[491,507.7,654],[506,441.3,474.3],[530.325,270,474.3],[554.5,441.3,474.3],[578.55,270,474.3],[580,653,740.7],[594.3,442,475],[608.325,270,475],[618.3,133.3,222.3],[622.5,441.7,475],[637.025,270,475],[652.5,441.7,475],[666.925,270,475],[681.7,442,475],[689.5,133.3,234],[692.2,507.7,634],[699.625,270,475],[702,101,234],[715.8,442,475],[732,270,475],[746,653.3,724],[747.7,441.7,475],[763.45,270,475],[788.2,443.7,475],[811,270,475],[816,101,222.3],[825.3,542.3,634],[836.8,443.7,475],[862.625,270,475],[887.7,443.7,475],[890.7,653.3,724],[907.3,101,234],[913,270,475],[919,101.3,234.3],[925,507.7,634],[941,443.7,475],[969.35,270,475],[985,404,475],[1000.3,270,400.3],[1020,404,475],[1039.7,270,400.3],[1049,101.3,234.3],[1053,653.3,724],[1053.3,102,235],[1055.2,404,475],[1072.7,270,289.3],[1072.7,381,400.3],[1077.8,507.7,634],[1100.675,270,475.3],[1100.3,270,400.3],[1127.325,270,475.3],[1139.8,444.7,475.3],[1152.65,270,444.7],[1182,405,475.3],[1183.3,102,235],[1207.3,507.7,740.7],[1207.3,747.7,763],[1211.7,270,478.3]];
 const DP_ROWS_PER_PAGE=7;
-function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo){
-  DP_LINES_H.forEach(([x1,x2,y])=>doc.line(x1,y,x2,y));
-  DP_LINES_V.forEach(([x,y1,y2])=>doc.line(x,y1,x,y2));
+// Grey column-group header bands, lifted from the certified sheet's own fill
+// rectangles (12 of them, 50% grey) — x, y-from-bottom, w, h.
+const DP_FILLS=[[765.9,443.3,203.9,31.9],[269.2,461.9,211.0,12.5],[76.0,461.8,191.5,12.6],
+  [481.1,441.0,97.8,33.5],[581.2,441.6,56.0,33.5],[638.5,441.5,57.7,33.5],[699.2,441.6,64.7,33.5],
+  [970.7,403.6,29.1,71.5],[1001.0,403.6,38.5,71.6],[1040.3,403.6,30.1,71.5],[1071.9,444.3,80.3,31.1],
+  [1154.0,404.5,56.6,71.0]];
+// An image attached to a row prints under it, so a row carrying one needs at
+// least this many empty row slots left on the page.
+const DP_ROW_H=18.5;
+// The rows block's real horizontal rules (distance from the top of the page):
+// eight lines, seven row bands. rowY below holds text baselines, which sit
+// mid-band — using baseline+18.5 as a band edge left a sliver of empty row
+// showing under an image.
+const DP_ROW_BOUNDS=[464.30,482.70,501.30,519.70,538.30,556.70,575.30,593.70];
+// Six rules in the extracted template run through the middle of the grey
+// column-group header cells, striking their labels out. The certified sheet
+// strokes none of them — there the grey band's own bottom edge is what
+// separates a group label from its sub-columns — so they are all skipped.
+const DP_SKIP_H=[[970.7,1070.0,439.5],[1154.0,1210.0,440.2],[481.0,695.7,458.32],
+  [699.3,969.7,458.9],[1072.0,1151.7,460.0],[76.0,479.7,468.3]];
+// The extract kept only the top and bottom slice of the PTI SCOPE | UC column
+// rule, leaving the middle of the rows block open. Put the missing span back.
+const DP_LINES_V_FIX=[[1072.70,289.3,381.0]];
+// An attached image is printed over everything below its row — the empty row
+// slots and, when the report has another page carrying them, the abbreviations
+// / summary / classification / signature blocks too. y=97 keeps the company
+// footer line and FM-IR-07 mark clear.
+const DP_IMG_BOT_SHORT=593.70+22;     // just the rows block + the gap under it
+const DP_IMG_BOT_FULL=864-97;         // down to the page footer
+function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,imgFullBleed){
+  // Fills first, then the ruling on top: the original strokes every line at
+  // 1pt in pure black — the soft grey line() the generic reports use made
+  // this form look washed out.
+  DP_FILLS.forEach(([x,y,w2,h2])=>doc.rect(x,y,w2,h2,'0.5 0.5 0.5'));
+  DP_LINES_H.forEach(([x1,x2,y])=>{
+    if(DP_SKIP_H.some(s=>Math.abs(s[0]-x1)<1&&Math.abs(s[1]-x2)<1&&Math.abs(s[2]-y)<1))return;
+    doc.rule(x1,y,x2,y,1,'0 0 0');
+  });
+  // A grey band is one merged header cell, so no sub-column rule may cross it:
+  // any vertical running inside a band is cut off at the band's lower edge,
+  // exactly where the sub-columns start on the certified sheet.
+  DP_LINES_V.concat(DP_LINES_V_FIX).forEach(([x,y1,y2])=>{
+    let lo=Math.min(y1,y2),hi=Math.max(y1,y2);
+    DP_FILLS.forEach(([fx,fy,fw,fh])=>{
+      if(x>fx+0.6&&x<fx+fw-0.6&&hi>fy&&lo<fy+fh)hi=Math.min(hi,fy);
+    });
+    if(hi-lo>0.5)doc.rule(x,lo,x,hi,1,'0 0 0');
+  });
   DP_STATIC_TEXT.forEach(([x,y,s,sz])=>doc.text(x,y,s,sz,true));
   doc.imageAt(DP_LOGO_IMG,1040.2,789.5,165.4,60);
   doc.imageAt(DP_PIPE_IMG,143,478.75,756.95,27.25);
@@ -6086,8 +6183,14 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo){
   // TC(cx, w, ty, s) = draw s centered on cx within a cell of width w, auto-shrinking
   // to fit — every dynamic value on this template goes through this so nothing ever
   // spills into a neighbouring box, and everything sits centered in its own cell.
-  const TC=(cx,w,ty,s)=>doc.atFit(cx,ty,w,s,9,5.5,false);
-  TC(345,220,112,dpCertNo()+'-('+pageNo+')');
+  // 7.5pt max matches the certified sheet's own Arial 7.2 body text — the old
+  // 9pt default printed noticeably larger than the real form.
+  // Everything the user typed prints bold so it stands out from the form's own
+  // printed labels; it still auto-shrinks to stay inside its cell.
+  const TC=(cx,w,ty,s)=>doc.atFit(cx,ty,w,s,8,5,true);
+  // Certificate no. belongs inside the "Certificate No:" box at top left
+  // (x/baseline measured off the reference sheet), not floating above the title.
+  doc.atText(84.6,92,dpCertNo(),8,true);
   TC(149,105,136,IR.fields.client); TC(368,130,136,IR.fields.loc); TC(660,160,136,dp.grade);
   TC(149,105,154,dp.orderedBy); TC(368,130,154,IR.fields.rig);
   TC(149,105,171,dp.jobCustomer); TC(368,130,171,IR.fields.wo);
@@ -6095,25 +6198,34 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo){
   TC(149,105,205,dp.nominalOd); TC(368,130,205,IR.fields.std);
   TC(149,105,225,dp.typeOfInspection); TC(368,130,225,dp.typeOfConnection);
   TC(663,160,171,dp.consumableName); TC(818,138,171,dp.consumableManufacturer); TC(972,156,171,dp.consumableBatch); TC(1130,148,171,dp.consumableExpiry);
-  const rowYsMte=[258,276,294,312,330,348,366];
+  // M&TE: six rows per block, and the column centres taken off this template's
+  // own ruling (94.95|172.3|251.8|331.75|411|491) — the old 180/410 sat on top
+  // of a column rule, which pushed the serial and calibration date out of their
+  // boxes.
+  const rowYsMte=[261.5,280.5,299.5,317,334,350.2];
   (IR.eq||[]).forEach((e,i)=>{
-    if(i<7){ TC(180,110,rowYsMte[i]+4,e.sn); TC(410,110,rowYsMte[i]+4,e.due); }
-    else if(i<14){ TC(590,110,rowYsMte[i-7]+4,e.sn); TC(740,110,rowYsMte[i-7]+4,e.due); }
+    if(i<6){ TC(133.6,75,rowYsMte[i],e.sn); TC(212,77,rowYsMte[i],e.due); }
+    else if(i<12){ TC(371.4,77,rowYsMte[i-6],e.sn); TC(451,78,rowYsMte[i-6],e.due); }
   });
+  // Checkbox centres/tops measured off the certified sheet — they used to sit a
+  // row too low, half outside their own cell.
   const mpiRows=[
-    ['mpiProcess','CONTINUOUS','RESIDUAL',245],
-    ['mpiEquipment','DC COIL','AC YOKE',263],
-    ['mpiTechDry','DRY','WET',281],
-    ['mpiTechVis','VISIBLE','FLUORESCENT',299],
-    ['demag','YES','NO',317]
+    ['mpiProcess','CONTNUOUS','RESIDUAL',233.8],
+    ['mpiEquipment','DC COIL','AC YOKE',252.4],
+    ['mpiTechDry','DRY','WET',270.9],
+    ['mpiTechVis','VISIBLE','FLUORESCENT',290.7],
+    ['demag','YES','NO',308.9]
   ];
   mpiRows.forEach(([key,a,b,ty])=>{
-    const v=dp[key];
-    if(v===a)doc.atCheck(885,ty);
-    else if(v===b)doc.atCheck(1140,ty);
+    const v=dpNorm(dp[key]);
+    // every option keeps its empty box; only the chosen one is ticked
+    if(v===a)doc.atCheck(882,ty);else doc.atBox(882,ty);
+    if(v===b)doc.atCheck(1142.3,ty);else doc.atBox(1142.3,ty);
   });
-  TC(808,225,339,dp.fieldDirection); TC(1142,122,339,dp.liftingForce);
-  TC(808,225,357,dp.fieldIndicatorType); TC(1142,122,357,dp.fieldStrength);
+  // Baselines 334 / 350.2 put these inside their row band (508.2-524.3 and
+  // 524.3-541.3 on this template); at 339/357 they printed below the rule.
+  TC(808,225,334,dp.fieldDirection); TC(1142.5,127,334,dp.liftingForce);
+  TC(808,225,350.2,dp.fieldIndicatorType); TC(1142.5,127,350.2,dp.fieldStrength);
   const cols=['serial','dim_pin_od','dim_pin_id','dim_pin_necklth','dim_pin_shoulwidth','dim_pin_bevel','dim_pin_tongspace',
     'dim_box_od','dim_box_shoulwidth','dim_box_bevel','dim_box_cboredia','dim_box_cborewidth','dim_box_tongspace',
     'x_mpi_pin','x_mpi_box','x_ut_pin','x_ut_box','x_visual_pin','x_visual_box','x_bl_pin','x_bl_box',
@@ -6127,9 +6239,13 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo){
     const ty=rowY[ri]+4;
     TC(snoX,snoW,ty,String(rowOffset+ri+1));
     cols.forEach((k,ci)=>{ TC(colX[ci],colW[ci],ty,r[k]); });
-    if(r.result==='UC')doc.atCheck(ucX,rowY[ri]);
-    else if(r.result==='PC')doc.atCheck(pcX,rowY[ri]);
-    else if(r.result==='C2')doc.atCheck(c2X,rowY[ri]);
+    // FINAL CLASS on the certified sheet is written, not ticked: OK under the
+    // class that applies, a dash under the other two.
+    if(r.result){
+      TC(ucX,24,ty,r.result==='UC'?'OK':'-');
+      TC(pcX,24,ty,r.result==='PC'?'OK':'-');
+      TC(c2X,24,ty,r.result==='C2'?'OK':'-');
+    }
     TC(remX,remW,ty,r.rem);
   });
   const sum=dp.summary||{};
@@ -6144,18 +6260,59 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo){
   TC(984,120,652,IR.fields.insp);
   doc.text(1056,864-638,'Reviewed / Approved by:',8,true);
   TC(1118,124,652,IR.fields.rev_by);
+
+  // LAST of all: the row's attached image. A row carrying one is alone on its
+  // page, so the image takes everything under it — the empty row slots and,
+  // when another sheet still carries them, the summary / classification /
+  // signature blocks as well. Drawn after those so it covers their values too,
+  // not just their boxes.
+  const lastRow=pageItems[pageItems.length-1];
+  if(lastRow&&lastRow.img){
+    const topTy=DP_ROW_BOUNDS[pageItems.length];          // the rule right under this row
+    const botTy=imgFullBleed?DP_IMG_BOT_FULL:DP_IMG_BOT_SHORT;
+    const x0=13.62,x1=1211.7,h2=botTy-topTy;              // full table width, S.NO to REMARKS
+    if(h2>24){
+      doc.rect(x0+0.6,doc.h-botTy+0.6,x1-x0-1.2,h2-1.2,'1 1 1');   // clear everything underneath
+      doc.box(x0,doc.h-botTy,x1-x0,h2,1,'0 0 0');                  // one merged cell
+      doc.imageFitAt(lastRow.img,x0+2,doc.h-botTy+2,x1-x0-4,h2-4);
+    }
+  }
 }
 function irPdfDrillPipeTally(){
   dpEnsureDocNo();
   const dp=dpF();
   const doc=new PdfDoc({w:1224,h:864});
+  doc.noFooter=true;                       // the certified sheet has its own footer
   const items=(IR.items||[]).filter(r=>Object.keys(r).length);
-  const chunks=[]; for(let i=0;i<items.length;i+=DP_ROWS_PER_PAGE)chunks.push(items.slice(i,i+DP_ROWS_PER_PAGE));
+  // Normally 7 rows to a page. A row carrying an image always gets a page of
+  // its own — the row prints in the first slot and the image fills everything
+  // below it. That rule is absolute, so the layout never depends on the order
+  // the images happened to be attached in.
+  const chunks=[];let cur=[];
+  items.forEach(r=>{
+    if(r.img){                                   // an image row always gets a sheet to itself
+      if(cur.length){chunks.push(cur);cur=[];}
+      chunks.push([r]);
+      return;
+    }
+    cur.push(r);
+    if(cur.length>=DP_ROWS_PER_PAGE){chunks.push(cur);cur=[];}
+  });
+  if(cur.length)chunks.push(cur);
   if(!chunks.length)chunks.push([]);
+  // The image may swallow the abbreviations / summary / signature blocks only
+  // when another sheet still carries them; on a one-page report they stay.
+  const full=chunks.length>1;
+  let rowOffset=0;
   chunks.forEach((chunk,pi)=>{
     if(pi>0)doc.newPage();
-    dpDrawTemplatePage(doc,dp,chunk,pi*DP_ROWS_PER_PAGE,pi+1);
+    dpDrawTemplatePage(doc,dp,chunk,rowOffset,pi+1,full);
+    rowOffset+=chunk.length;
   });
+  // "Page n of m" bottom left, clear of the accreditation badges — the page
+  // count is only known once every sheet exists.
+  const total=doc.pages.length;
+  doc.pages.forEach((p,i)=>{doc.cur=p;doc.atText(70,850,'Page '+(i+1)+' of '+total,7.5,true);});
   doc.out('FM-IR-07-'+((IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-')));
 }
 function irPdf(){
@@ -6175,9 +6332,12 @@ function irPdf(){
     IR.items.map((r,i)=>[i+1].concat(cells.map(c=>r[c.k]||'')).concat([r.result||'',r.rem||''])));
   const s=irSummary();
   doc.text(doc.mL,doc.y,'SUMMARY:  '+s.map(x=>x.l+': '+x.n).join('    '),9,true);doc.y-=18;
-  if(IR.photos.length){
-    doc.text(doc.mL,doc.y,'PHOTOGRAPHIC EVIDENCE',10,true);doc.y-=14;
-    IR.photos.forEach((p,i)=>{doc.jpeg(p.src,300,220,'Photo '+(i+1)+(p.cap?' — '+p.cap:''));});
+  // Images now hang off the inspection rows themselves, captioned with the
+  // item they belong to (the old free-standing photo gallery is gone).
+  const imgRows=(IR.items||[]).map((r,i)=>({r,i})).filter(x=>x.r.img);
+  if(imgRows.length){
+    doc.text(doc.mL,doc.y,'ATTACHED IMAGES',10,true);doc.y-=14;
+    imgRows.forEach(({r,i})=>{doc.jpeg(r.img,300,220,'Item '+(i+1)+(r.serial?' — '+r.serial:''));});
   }
   doc.need(46);doc.y-=16;
   doc.line(doc.mL,doc.y,doc.mL+180,doc.y);doc.line(doc.w-doc.mR-180,doc.y,doc.w-doc.mR,doc.y);
@@ -6260,6 +6420,28 @@ function irImportMte(){
   rows.forEach(r=>{if(r.sn&&have.has(r.sn))return;IR.eq.push({id:r.eqid||'',desc:(r.name||'')+(r.make?' — '+r.make:''),sn:r.sn||'',cert:r.certno||'',due:r.due||''});n++;});
   irSave();render();alert(n+' equipment row(s) imported.');
 }
+/* Attach one image to an inspection row. Re-encoded to JPEG because the
+   built-in PDF engine embeds DCTDecode streams only — and flattened onto
+   white first, so a transparent PNG doesn't come out black. */
+function irRowImage(i,files){
+  const f=files&&files[0];
+  if(!f||!f.type.startsWith('image/'))return;
+  const img=new Image();
+  img.onload=()=>{
+    // Cap the long side at 2600px: an EMI strip printed ~1190pt wide still
+    // resolves at ~160 dpi, while the base64 copy stays small enough for the
+    // browser's storage to hold several of them.
+    const sc2=Math.min(1,2600/Math.max(img.width,img.height));
+    const cv=document.createElement('canvas');
+    cv.width=Math.round(img.width*sc2);cv.height=Math.round(img.height*sc2);
+    const cx=cv.getContext('2d');
+    cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);
+    cx.drawImage(img,0,0,cv.width,cv.height);
+    IR.items[i].img=cv.toDataURL('image/jpeg',0.85);
+    irSave();render();
+  };
+  img.src=URL.createObjectURL(f);
+}
 function irPhotos(files){
   [...files].forEach(f=>{
     if(!f.type.startsWith('image/'))return;
@@ -6283,17 +6465,85 @@ function irStore(){
   rec.savedAt=new Date().toISOString();
   const i=lib.findIndex(r=>r.id===rec.id);
   if(i>=0)lib[i]=rec;else lib.push(rec);
-  lsSet('ir_library',lib);IR.id=rec.id;irSave();
-  alert('Report saved to library ('+(rec.fields.no||'no number')+').');
+  lsSet('ir_library',lib);
+  // Filed — clear the form down to a blank report of the same type so the next
+  // one can be typed straight away. The saved copy lives in the library; open
+  // it from Saved Reports to amend it.
+  const keepType=IR.type;
+  IR={type:keepType,fields:{},items:[{}],eq:[],photos:[],ac:{},dp:{},id:null};
+  irSave();
+  toast('Report '+(rec.fields.no||'(no number)')+' saved to the library — form cleared for the next one.','ok');
+  render();
 }
+/* ---- saved reports: search, open, download, print ---- */
+let IRQ={from:'',to:'',no:'',client:'',loc:'',wo:''};
+function irLibRows(){
+  const q=s=>String(s==null?'':s).toLowerCase();
+  const has=(v,f)=>!f||q(v).includes(q(f));
+  return lsGet('ir_library',[]).filter(r=>{
+    const f=r.fields||{},d=f.date||'';
+    if(IRQ.from&&(!d||d<IRQ.from))return false;
+    if(IRQ.to&&(!d||d>IRQ.to))return false;
+    return has(f.no,IRQ.no)&&has(f.client,IRQ.client)&&has(f.loc,IRQ.loc)&&has(f.wo,IRQ.wo);
+  }).slice().reverse();
+}
+function irLibTable(){
+  const rows=irLibRows();
+  if(!rows.length)return '<div class="empty">'+(lsGet('ir_library',[]).length?'No saved report matches this search.':'No saved reports yet — create one under Detailed Report.')+'</div>';
+  return '<table><thead><tr><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th class="no-print"></th></tr></thead><tbody>'+
+  rows.map(r=>{
+    const f=r.fields||{},imgs=(r.items||[]).filter(x=>x.img).length;
+    return '<tr><td><b>'+esc(f.no||'—')+'</b></td><td>'+esc(r.type)+'</td><td>'+esc(f.client||'')+'</td>'+
+     '<td>'+esc(f.loc||'')+'</td><td>'+esc(f.wo||'')+'</td><td>'+esc(f.date||'')+'</td>'+
+     '<td class="num">'+(r.items||[]).length+'</td><td class="num">'+(imgs||'')+'</td>'+
+     '<td>'+String(r.savedAt||'').slice(0,10)+'</td>'+
+     '<td class="no-print" style="white-space:nowrap">'+
+      '<button class="btn ghost small" onclick="irOpen(\''+r.id+'\')">Open</button> '+
+      '<button class="btn ghost small" onclick="irPdfSaved(\''+r.id+'\')">↓ PDF</button> '+
+      '<button class="btn ghost small" onclick="irPrintSaved(\''+r.id+'\')">Print</button> '+
+      '<button class="del" onclick="irDel(\''+r.id+'\')">✕</button></td></tr>';
+  }).join('')+'</tbody></table>';
+}
+function irqSet(k,v){
+  IRQ[k]=v;
+  const z=document.getElementById('xt-irlib');if(z)z.innerHTML=irLibTable();
+  const c=document.getElementById('irlib-count');if(c)c.textContent=irLibRows().length;
+}
+function irqClear(){IRQ={from:'',to:'',no:'',client:'',loc:'',wo:''};render();}
 function renderInspList(){
-  const lib=lsGet('ir_library',[]);
+  const lib=lsGet('ir_library',[]),rows=irLibRows();
+  const fld=(lab,k,type)=>'<div class="field"><label>'+lab+'</label><input type="'+(type||'search')+'" value="'+esc(IRQ[k])+'" oninput="irqSet(\''+k+'\',this.value)"'+(type==='date'?' onchange="irqSet(\''+k+'\',this.value)"':'')+'></div>';
   document.getElementById('content').innerHTML=
-  '<div class="card"><div class="card-h">Saved inspection reports <span class="pill b">'+lib.length+'</span><span class="sp"></span>'+expBtns('xt-irlib','saved-inspection-reports')+'</div><div class="card-b tblwrap" id="xt-irlib">'+
-  (lib.length?'<table><thead><tr><th>Report no.</th><th>Type</th><th>Client</th><th>Date</th><th class="num">Items</th><th class="num">Photos</th><th>Saved</th><th></th></tr></thead><tbody>'+
-  lib.slice().reverse().map(r=>'<tr class="rowlink" onclick="irOpen(\''+r.id+'\')"><td><b>'+esc(r.fields.no||'—')+'</b></td><td>'+esc(r.type)+'</td><td>'+esc(r.fields.client||'')+'</td><td>'+esc(r.fields.date||'')+'</td><td class="num">'+r.items.length+'</td><td class="num">'+r.photos.length+'</td><td>'+r.savedAt.slice(0,10)+'</td><td><button class="del" onclick="event.stopPropagation();irDel(\''+r.id+'\')">✕</button></td></tr>').join('')+'</tbody></table>'
-  :'<div class="empty">No saved reports yet — create one under Detailed Report.</div>')+'</div></div>';
+  '<div class="card no-print"><div class="card-h">Search saved reports</div><div class="card-b">'+
+   '<div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">'+
+    fld('Date From :','from','date')+fld('Date To :','to','date')+fld('Report No:','no')+
+    fld('Customer:','client')+fld('Location:','loc')+fld('Work Order:','wo')+
+   '</div>'+
+   '<div class="actions"><button class="btn ghost" onclick="irqClear()">Clear search</button><span class="sp"></span>'+
+    '<button class="btn" onclick="irNewReport()">New report</button></div>'+
+  '</div></div>'+
+  '<div class="card"><div class="card-h">Saved inspection reports <span class="pill b" id="irlib-count">'+rows.length+'</span>'+
+   (rows.length!==lib.length?' <span class="hint">of '+lib.length+'</span>':'')+
+   '<span class="sp"></span>'+expBtns('xt-irlib','saved-inspection-reports')+'</div>'+
+   '<div class="card-b tblwrap" id="xt-irlib">'+irLibTable()+'</div></div>';
 }
+function irNewReport(){
+  if(!confirm('Start a new blank report?'))return;
+  IR={type:IR.type,fields:{},items:[{}],eq:[],photos:[],ac:{},dp:{},id:null};
+  irSave();go('insp_report');
+}
+/* Build the PDF for a report in the library without disturbing whatever is
+   open in the editor — including the ir_current draft, which the tally's
+   certificate-number step would otherwise overwrite. */
+function irWith(id,fn){
+  const r=lsGet('ir_library',[]).find(x=>x.id===id);
+  if(!r){alert('That report is no longer in the library.');return;}
+  const keepIR=IR,keepDraft=lsGet('ir_current',null);
+  IR=JSON.parse(JSON.stringify(r));
+  try{fn();}finally{IR=keepIR;if(keepDraft)lsSet('ir_current',keepDraft);}
+}
+function irPdfSaved(id){irWith(id,irPdf);}
+function irPrintSaved(id){irOpen(id);setTimeout(()=>window.print(),500);}
 function irOpen(id){
   const lib=lsGet('ir_library',[]);
   const r=lib.find(x=>x.id===id);if(!r)return;
