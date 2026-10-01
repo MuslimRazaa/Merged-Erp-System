@@ -6171,8 +6171,16 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   // 22% grey: the certified sheet's own 50% band comes out almost black on an
   // office laser printer and swallows the header text with it.
   DP_FILLS.forEach(([x,y,w2,h2])=>doc.rect(x,y,w2,h2,'0.78 0.78 0.78'));
+  // The tally grid is only ruled for the rows this page actually carries —
+  // two items print two boxes, not two boxes and five empty ones. Everything
+  // below the last used row simply isn't drawn.
+  const rowsTop=864-DP_ROW_BOUNDS[0],
+        rowsBot=864-DP_ROW_BOUNDS[DP_ROWS_PER_PAGE],
+        rowCut=864-DP_ROW_BOUNDS[Math.min(DP_ROWS_PER_PAGE,Math.max(1,pageItems.length))];
+  const inRows=y=>y<rowsTop+0.5&&y>rowsBot-0.5;
   DP_LINES_H.forEach(([x1,x2,y])=>{
     if(DP_SKIP_H.some(s=>Math.abs(s[0]-x1)<1&&Math.abs(s[1]-x2)<1&&Math.abs(s[2]-y)<1))return;
+    if(inRows(y)&&y<rowCut-0.5)return;
     doc.rule(x1,y,x2,y,1,'0 0 0');
   });
   // A grey band is one merged header cell, so no sub-column rule may cross it:
@@ -6180,6 +6188,7 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   // exactly where the sub-columns start on the certified sheet.
   DP_LINES_V.concat(DP_LINES_V_FIX).forEach(([x,y1,y2])=>{
     let lo=Math.min(y1,y2),hi=Math.max(y1,y2);
+    if(hi>rowsBot&&lo<rowsTop)lo=Math.max(lo,rowCut);   // column rules stop at the last used row
     DP_FILLS.forEach(([fx,fy,fw,fh])=>{
       if(x>fx+0.6&&x<fx+fw-0.6&&hi>fy&&lo<fy+fh)hi=Math.min(hi,fy);
     });
@@ -6195,16 +6204,30 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   // 7.5pt max matches the certified sheet's own Arial 7.2 body text — the old
   // 9pt default printed noticeably larger than the real form.
   // Everything the user typed prints bold so it stands out from the form's own
-  // printed labels; it still auto-shrinks to stay inside its cell.
-  const TC=(cx,w,ty,s)=>doc.atFit(cx,ty,w,s,8,5,true);
+  // printed labels, and shrinks to stay inside its cell. A value too long to
+  // stay readable on one line (a full company name in the narrow Customer box)
+  // breaks onto a second line centred on the same row, instead of being
+  // squeezed to 5pt and cut off as "HILONG OIL SERVICE & ENGINEERING (PRIVA…".
+  const TC=(cx,w,ty,s)=>{
+    s=String(s==null?'':s);
+    if(!s)return;
+    if(doc.twx(s,6.5,true)<=w-4){doc.atFit(cx,ty,w,s,8,6.5,true);return;}
+    const ls=doc.wrap(s,w-4,6.5,true);
+    if(ls.length<2){doc.atFit(cx,ty,w,s,8,5,true);return;}
+    doc.atFit(cx,ty-3.6,w,ls[0],6.5,5,true);
+    doc.atFit(cx,ty+3.6,w,ls.slice(1).join(' '),6.5,5,true);
+  };
   // Certificate no. belongs inside the "Certificate No:" box at top left
   // (x/baseline measured off the reference sheet), not floating above the title.
-  // No bracket on the first sheet; continuation sheets carry their page number.
-  doc.atText(84.6,92,dpCertNo()+(pageNo>1?' ('+pageNo+')':''),8,true);
-  TC(149,105,136,IR.fields.client); TC(368,130,136,IR.fields.loc); TC(660,160,136,dp.grade);
+  // No bracket on the first sheet; the continuation sheets are numbered from
+  // (1) — so a 3-page report reads bare, (1), (2).
+  doc.atText(84.6,92,dpCertNo()+(pageNo>1?' ('+(pageNo-1)+')':''),8,true);
+  // GRADE / WEIGHT print in the box directly under their own label (column
+  // 434.7-580, centre 507.4) — they used to land at x=660, in the next block.
+  TC(149,105,136,IR.fields.client); TC(368,130,136,IR.fields.loc); TC(507.4,140,155,dp.grade);
   TC(149,105,154,dp.orderedBy); TC(368,130,154,IR.fields.rig);
   TC(149,105,171,dp.jobCustomer); TC(368,130,171,IR.fields.wo);
-  TC(149,105,188,IR.fields.date); TC(368,130,188,IR.fields.no); TC(660,160,188,dp.weight);
+  TC(149,105,188,IR.fields.date); TC(368,130,188,IR.fields.no); TC(507.4,140,197,dp.weight);
   TC(149,105,205,dp.nominalOd); TC(368,130,205,IR.fields.std);
   TC(149,105,225,dp.typeOfInspection); TC(368,130,225,dp.typeOfConnection);
   TC(663,160,171,dp.consumableName); TC(818,138,171,dp.consumableManufacturer); TC(972,156,171,dp.consumableBatch); TC(1130,148,171,dp.consumableExpiry);
@@ -6212,10 +6235,16 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   // own ruling (94.95|172.3|251.8|331.75|411|491) — the old 180/410 sat on top
   // of a column rule, which pushed the serial and calibration date out of their
   // boxes.
+  // Three columns per block, from this template's own ruling
+  // (14.7 | 94.95 | 172.3 | 251.8 | 331.75 | 411 | 491):
+  //   description -> the first box under "MEASURING & TEST EQUIPMENT SN:"
+  //   serial      -> the box beside it
+  //   calib due   -> under "CALIB DUE:"
+  // The description column used to be left blank.
   const rowYsMte=[261.5,280.5,299.5,317,334,350.2];
   (IR.eq||[]).forEach((e,i)=>{
-    if(i<6){ TC(133.6,75,rowYsMte[i],e.sn); TC(212,77,rowYsMte[i],e.due); }
-    else if(i<12){ TC(371.4,77,rowYsMte[i-6],e.sn); TC(451,78,rowYsMte[i-6],e.due); }
+    if(i<6){ TC(54.8,78,rowYsMte[i],e.desc); TC(133.6,75,rowYsMte[i],e.sn); TC(212,77,rowYsMte[i],e.due); }
+    else if(i<12){ TC(291.8,78,rowYsMte[i-6],e.desc); TC(371.4,77,rowYsMte[i-6],e.sn); TC(451,78,rowYsMte[i-6],e.due); }
   });
   // Checkbox centres/tops measured off the certified sheet — they used to sit a
   // row too low, half outside their own cell.
