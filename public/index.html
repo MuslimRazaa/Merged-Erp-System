@@ -5983,9 +5983,18 @@ function irTypeOptions(sel){return Object.entries(SCHEMA_CATS).map(([cat,list])=
 
 let IR={type:'Drill Collar / BHA Inspection',fields:{},items:[],eq:[],photos:[],id:null};
 function irSchema(){return SCHEMAS[IR.type]||SCHEMAS['Drill Collar / BHA Inspection'];}
-/* The next report number: one past the highest already in the library, so
-   filing report 1 leaves 2 waiting on the blank form. Numbers that aren't
-   plain numbers (older reports saved as "RPT-2026-0001") simply don't count. */
+/* The report number stays a plain running count — 1, 2, 3 — because that is
+   what goes on the certificate. The inspector's employee code is recorded on
+   the report too (irStampEmp), but only behind the scenes: it never shows on
+   the form and never prints, it is there so the server can tell two
+   inspectors' offline reports apart when they sync. */
+function irEmpCode(){
+  return (typeof SESSION!=='undefined'&&SESSION&&SESSION.user)?String(SESSION.user).trim():'';
+}
+function irStampEmp(){
+  const c=irEmpCode();
+  if(c&&!IR.fields.empCode)IR.fields.empCode=c;
+}
 function irNextReportNo(){
   return lsGet('ir_library',[]).reduce((m,r)=>Math.max(m,+((r.fields||{}).no)||0),0)+1;
 }
@@ -6008,7 +6017,28 @@ function irStaffField(f){
     (opts.length?'':'<div class="hint">No Operations employees yet — add them under Human Resources.</div>')+
   '</div>';
 }
-const IR_FIELDS=[['no','Report no.',''],['rev','Revision','0'],['client','Client',''],['po','PO / contract',''],['wo','Work order ref',''],['loc','Location / yard',''],['rig','Rig / well',''],['std','Standard','DS-1 Vol 3 Cat 3-5 / API RP 7G-2'],['proc','Procedure ref',''],['acc','Acceptance criteria',''],['insp','Inspector',''],['rev_by','Reviewed by','']];
+/* The shared header carries only what every report type needs. Customer,
+   location, rig, dates and standards differ form to form, so each form's own
+   card owns them (see dpCardHtml / mpiCardHtml) — that keeps the header short
+   and stops the same thing being typed in two places. */
+const IR_FIELDS=[['no','Report no.',''],['rev','Revision','0'],['po','PO / contract',''],['insp','Inspector',''],['rev_by','Reviewed by','']];
+/* Reports written during the short spell when the number carried the
+   inspector's code ("1739-1") are rewritten to the plain number the
+   certificate expects, with the code moved to where it belongs — out of
+   sight, on empCode. */
+function irFixReportNo(f){
+  if(!f)return f;
+  const m=/^(\d+)-(\d+)$/.exec(String(f.no||''));
+  if(m){ if(!f.empCode)f.empCode=m[1]; f.no=+m[2]; }
+  return f;
+}
+function irMigrateReportNos(){
+  irFixReportNo(IR.fields);
+  const lib=lsGet('ir_library',[]);
+  let touched=false;
+  lib.forEach(r=>{const before=(r.fields||{}).no;irFixReportNo(r.fields);if((r.fields||{}).no!==before)touched=true;});
+  if(touched)lsSet('ir_library',lib);
+}
 
 /* ================================================================
    FM-IR-07 — Drill Pipe / PTISCOPE Tally Inspection: pixel-exact
@@ -6026,7 +6056,9 @@ function dpNorm(v){return String(v==null?'':v).toUpperCase()==='CONTINUOUS'?'CON
 // page — see dpDrawTemplatePage.
 function dpCertNo(){
   const f=IR.fields||{};
-  return 'PTISDP-'+(f.wo||'WO')+'-'+(f.no||irNextReportNo());
+  // the work order moved onto this form's own card; older reports still hold it
+  // on the shared header
+  return 'PTISDP-'+(dpF().workOrderNum||f.wo||'WO')+'-'+(f.no||irNextReportNo());
 }
 function dpField(label,key){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><input value="'+esc(v)+'" oninput="dpF().'+key+'=this.value;irSave()"></div>'; }
 function dpSelect2(label,key,optA,optB){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><select onchange="dpF().'+key+'=this.value;irSave()"><option value=""'+(v===''?' selected':'')+'></option><option'+(v===optA?' selected':'')+'>'+optA+'</option><option'+(v===optB?' selected':'')+'>'+optB+'</option></select></div>'; }
@@ -6045,6 +6077,8 @@ function dpCardHtml(){
   if(IR.type!==DP_TALLY_TYPE)return '';
   return '<div class="card"><div class="card-h">FM-IR-07 template fields <span class="hint" style="font-weight:400">— printed exactly onto the certified PDF layout</span></div><div class="card-b">'+
    '<div class="fgrid">'+
+    dpField('Customer','customer')+dpField('Location','location')+dpField('Rig & Well Number','rigWell')+
+    dpField('Work Order Num','workOrderNum')+dpField('Standard Used','standardUsed')+
     dpField('Ordered By','orderedBy')+dpField('Job Customer','jobCustomer')+dpField('Date of Work','dateOfWork')+
     dpField('Nominal OD','nominalOd')+dpField('Type Of Inspection','typeOfInspection')+dpField('Type Of Connection','typeOfConnection')+
     dpField('Grade','grade')+dpField('Weight','weight')+
@@ -6081,7 +6115,6 @@ function renderInspReport(){
   document.getElementById('content').innerHTML='<div class="irform">'+
   '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
   '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label><select id="ir-type" onchange="IR.type=this.value;render()">'+irTypeOptions(IR.type)+'</select></div>'+
-  '<div class="field"><label>Inspection date</label><input type="date" id="ir-date" value="'+(IR.fields.date||today())+'" onchange="IR.fields.date=this.value;irSave()"></div>'+
   IR_FIELDS.map(f=>
     // Report no. runs like the work orders' record number: the next number is
     // shown greyed out, stamped on when the report is filed, and never
@@ -6092,11 +6125,15 @@ function renderInspReport(){
       : '<div class="field"><label>'+f[1]+'</label><input id="ir-'+f[0]+'" value="'+esc(IR.fields[f[0]]!=null?IR.fields[f[0]]:f[2])+'"'+(f[0]==='client'?' list="dl-cust"':f[0]==='wo'?' list="dl-wo"':f[0]==='po'?' list="dl-ctr"':'')+' oninput="IR.fields.'+f[0]+'=this.value;irSave()"></div>').join('')+
   '</div><datalist id="dl-cust">'+custOpts+'</datalist>'+'<datalist id="dl-wo">'+coll('workorders').map(w=>'<option value="'+esc(w.no||'')+'">').join('')+'</datalist>'+'<datalist id="dl-ctr">'+coll('contracts').map(c=>'<option value="'+esc(c.no||'')+'">').join('')+'</datalist></div></div>'+
   dpCardHtml()+
+  mpiCardHtml()+
   '<div class="card"><div class="card-h">M&amp;TE used<span class="sp"></span><button class="btn ghost small" onclick="irImportMte()">↓ Import from M&amp;TE register</button><button class="btn small" onclick="IR.eq.push({});irSave();render()">+ Add</button></div><div class="card-b tblwrap">'+
   '<table><thead><tr><th>Equipment ID</th><th>Description</th><th>Serial</th><th>Cert no.</th><th>Cal due</th><th></th></tr></thead><tbody>'+
   IR.eq.map((e,i)=>'<tr>'+['id','desc','sn','cert','due'].map(k=>'<td><input style="border:1px solid var(--line);border-radius:6px;padding:5px 7px;width:100%" value="'+esc(e[k]||'')+'" oninput="IR.eq['+i+'].'+k+'=this.value;irSave()"></td>').join('')+'<td><button class="del" onclick="IR.eq.splice('+i+',1);irSave();render()">✕</button></td></tr>').join('')+
   '</tbody></table></div></div>'+
   acCard(sc)+
+  // The MPI sheet's results table is its own shape (one row = one certificate
+  // page), so that report type brings its own table instead of the generic one.
+  (IR.type===MPI_TYPE?mpiRowsHtml():
   '<div class="card"><div class="card-h">Inspection results<span class="sp"></span><button class="btn small" onclick="IR.items.push({});irSave();render()">+ Add item</button></div><div class="card-b">'+
   '<div class="hint" style="margin-bottom:8px">'+sc.hint+' Changing the report type re-maps the table; shared columns keep their values.</div>'+
   '<div class="tblwrap" id="xt-irit"><table class="dimtable"><thead>'+
@@ -6116,7 +6153,7 @@ function renderInspReport(){
      (r.img?'<button class="del" title="Remove image" onclick="delete IR.items['+i+'].img;irSave();render()">⌫</button>':'')+
      '<button class="del" onclick="IR.items.splice('+i+',1);irSave();render()">✕</button></td></tr>';}).join('')+
   '</tbody></table></div><datalist id="dl-serial"></datalist>'+
-  '<div class="kpis" style="margin-top:13px">'+irSummary().map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div></div></div>'+
+  '<div class="kpis" style="margin-top:13px">'+irSummary().map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div></div></div>')+
   /* Photographic evidence card removed — images are attached per inspection
      row now (the ▣ button at the end of each row), which is what the report
      prints. */
@@ -6224,11 +6261,13 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   doc.atText(84.6,92,dpCertNo()+(pageNo>1?' ('+(pageNo-1)+')':''),8,true);
   // GRADE / WEIGHT print in the box directly under their own label (column
   // 434.7-580, centre 507.4) — they used to land at x=660, in the next block.
-  TC(149,105,136,IR.fields.client); TC(368,130,136,IR.fields.loc); TC(507.4,140,155,dp.grade);
-  TC(149,105,154,dp.orderedBy); TC(368,130,154,IR.fields.rig);
-  TC(149,105,171,dp.jobCustomer); TC(368,130,171,IR.fields.wo);
-  TC(149,105,188,IR.fields.date); TC(368,130,188,IR.fields.no); TC(507.4,140,197,dp.weight);
-  TC(149,105,205,dp.nominalOd); TC(368,130,205,IR.fields.std);
+  // These five moved onto this form's own card; reports filed before that
+  // still hold them on the shared header, so fall back to it.
+  TC(149,105,136,dp.customer||IR.fields.client); TC(368,130,136,dp.location||IR.fields.loc); TC(507.4,140,155,dp.grade);
+  TC(149,105,154,dp.orderedBy); TC(368,130,154,dp.rigWell||IR.fields.rig);
+  TC(149,105,171,dp.jobCustomer); TC(368,130,171,dp.workOrderNum||IR.fields.wo);
+  TC(149,105,188,dp.dateOfWork||IR.fields.date); TC(368,130,188,IR.fields.no); TC(507.4,140,197,dp.weight);
+  TC(149,105,205,dp.nominalOd); TC(368,130,205,dp.standardUsed||IR.fields.std);
   TC(149,105,225,dp.typeOfInspection); TC(368,130,225,dp.typeOfConnection);
   TC(663,160,171,dp.consumableName); TC(818,138,171,dp.consumableManufacturer); TC(972,156,171,dp.consumableBatch); TC(1130,148,171,dp.consumableExpiry);
   // M&TE: six rows per block, and the column centres taken off this template's
@@ -6323,7 +6362,7 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
 }
 function irPdfDrillPipeTally(){
   // Downloading before filing still needs a number on the certificate.
-  if(!IR.fields.no){IR.fields.no=irNextReportNo();irSave();}
+  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irSave();}
   const dp=dpF();
   const doc=new PdfDoc({w:1224,h:864});
   doc.noFooter=true;                       // the certified sheet has its own footer
@@ -6357,13 +6396,241 @@ function irPdfDrillPipeTally(){
   // String(): the report number is a plain number now, not text.
   doc.out('FM-IR-07-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
 }
+/* ================================================================
+   FM-IR-12 — Magnetic Particle Inspection Report.
+
+   The ruling, the printed labels and the photo cells below were read
+   straight out of the company's own blank sheet (a vector PDF), so no
+   coordinate was measured by hand. MPI_FIELDS / MPI_CHECKS drive the
+   entry card AND the printed sheet from one table — add a row there
+   and it appears in both.
+   ================================================================ */
+const MPI_TYPE='NDT \u2014 MPI';
+const MPI_PAGE=[792,1188];
+const MPI_LINES_H=[[22.9,775.8,9.95],[22.9,775.8,1075.25],[24.05,209.25,1086.35],[24.05,209.25,1101.5],[35.8,764.05,377.55],[35.8,764.05,580.8],[124.8,476.55,1025.25],[124.8,476.55,1003.5],[125.55,475.8,979.5],[597.3,769.05,1024.5],[596.55,769.8,1002.75],[596.55,768.3,981.75],[24.05,776.05,976.25],[160.55,402.05,927.75],[541.55,764.55,927.0],[543.3,766.3,903.0],[544.05,767.05,886.25],[144.3,403.8,885.25],[145.05,404.55,904.5],[22.65,774.65,880.35],[23.55,774.8,873.75],[23.55,774.8,830.5],[22.15,774.55,806.0],[384.55,774.8,786.75],[384.55,775.3,764.5],[23.0,774.55,743.25],[24.05,774.55,722.75],[24.05,774.8,696.25],[23.05,775.05,630.75],[24.05,775.05,607.0],[23.3,775.3,673.25],[24.3,775.05,669.0],[23.55,774.8,586.25],[35.3,764.3,480.55],[26.8,769.8,345.55],[26.8,769.8,326.8],[28.3,772.3,300.8],[26.55,774.3,367.55],[113.9,264.95,275.05],[488.55,639.6,276.25],[272.85,535.6,1054.9],[272.85,535.6,1069.4]];
+const MPI_LINES_V=[[22.9,9.95,1075.25],[775.8,9.95,1075.25],[24.05,1086.35,1101.5],[209.25,1086.35,1101.5],[35.8,377.55,580.8],[764.05,377.55,580.8],[124.05,831.25,876.25],[193.55,806.0,830.0],[292.05,744.75,805.75],[543.3,744.25,830.0],[115.05,672.5,743.75],[265.8,674.5,722.5],[385.05,673.5,830.0],[631.05,673.75,723.25],[198.55,587.0,652.75],[359.05,587.25,653.0],[554.05,587.25,653.0],[92.6,742.0,805.5],[199.8,742.0,806.5],[493.3,672.25,722.5],[98.2,1086.3,1101.0],[216.55,377.55,581.55],[398.3,377.05,581.05],[580.55,376.8,580.8],[272.85,1054.9,1069.4],[535.6,1054.9,1069.4]];
+const MPI_STATIC=[[28.8,1164.68,"Premier Tubular Inspection Services (Pvt.) Ltd",6.6,1],[30.3,1148.83,"69/E Block # 6, P.E.C.H.S., KARACHI PAKISTAN.",7.2,0],[97.05,1135.33,"+92-21-34533739-34559070",7.2,0],[96.8,1123.83,"+92-21-34312712",7.2,0],[97.3,1112.83,"karachi@premiertubular.com",7.2,0],[30.3,1111.88,"Email :",6.6,0],[30.3,1121.88,"Fax Number :",6.6,0],[30.3,1132.63,"Phone Number :",6.6,0],[291.65,1055.82,"MAGNETIC PARTICLE INSPECTION REPORT",10.5,1],[28.05,1030.5,"CUSTOMER :",9.9,1],[494.8,1030.5,"Date of Work:",9.9,1],[28.8,1007.75,"Rig & Well No.",9.9,1],[495.3,1007.5,"W.O. No.",9.9,1],[495.3,984.0,"Cert. No.",9.9,1],[28.3,984.0,"Location",9.9,1],[30.3,954.75,"Material / Item Type and Description",9.9,0],[30.3,931.0,"Material / Item serial No.",9.9,0],[460.5,934.4,"Part No.",9.9,0],[30.3,908.0,"Type of Inspection",9.9,0],[415.55,909.25,"Standard / Specification",9.9,0],[30.3,887.5,"Date of Inspection.",9.9,0],[416.3,888.75,"Validity of Inspection:",9.9,0],[37.05,855.5,"Surface",9.9,0],[36.3,836.0,"Preparation",9.9,0],[160.05,855.5,"Buffing",9.9,0],[160.05,836.0,"As Blasted",9.9,0],[288.55,855.5,"Grinding",9.9,0],[288.55,836.0,"Removed Paint",9.9,0],[417.3,855.5,"Wire Brush",9.9,0],[417.3,836.0,"Part Dismantled",9.9,0],[545.05,855.5,"Machining",9.9,0],[544.55,836.0,"Part Not Dismantled",9.9,0],[686.55,855.5,"Wipe Clean",9.9,0],[59.3,811.0,"MAGNETIZATION UNIT :",9.9,1],[344.65,655.17,"Consumable Traceability",11.4,1],[31.55,770.83,"Technique",9.0,1],[390.8,770.08,"Calibiration Date:",9.0,0],[390.8,748.08,"Calibiration Due Date:",9.0,0],[539.45,704.03,"Application :",9.0,0],[390.8,790.58,"Calibiration Certificate No",9.0,0],[135.3,770.58,"Yoke",9.0,0],[311.55,704.03,"Colour :",9.0,0],[39.05,680.08,"Contrast Medium",9.0,0],[390.8,811.83,"Serial No.",9.0,0],[206.05,788.83,"Lifting Capacity",9.0,0],[206.05,769.58,"Pole Spacing",9.0,0],[206.05,749.08,"Method",9.0,0],[41.45,727.58,"Testing Medium",9.0,0],[47.5,704.03,"Particle Type",9.0,0],[140.55,727.58,"Dry ( Iron Powd",9.0,0],[293.55,727.58,"Wet",9.0,0],[481.8,727.58,"Fluorescent",9.0,0],[310.3,680.08,"Colour :",9.0,0],[538.15,680.08,"Drying Time :",9.0,0],[60.05,634.25,"Inspection Consumable",9.9,1],[251.9,634.25,"Manufacturer",9.9,1],[440.35,634.25,"Batch No.",9.9,1],[640.15,634.25,"Expiry Date",9.9,1],[26.05,1090.0,"Certificate No:",8.8,1],[82.05,349.8,"Area of inspection:",9.9,1],[104.2,329.8,"Results :",9.9,1],[57.9,306.3,"Recommendation/ Comments:",9.9,1],[44.35,277.78,"INSPECTED BY",9.0,1],[31.75,251.43,"This Field report is issued subject to the condition that it is understood and agreed upon that nothing herein shall be deemed to relieve any designer, manufacturer,",8.3,0],[31.75,239.43,"repairer or operator of any warranty, express or implied and Premier Tubular Inspection Services Pte Ltd Liability shall be limited to the acts and commission of its",8.3,0],[31.75,227.43,"employees and subcontractors. Under no Circumstances shall Premier Tubular inspection Services (Pvt.) Ltd. be liable for any injury or damage to any person or",8.3,0],[31.75,215.43,"property occurring by any reason of negligent Operation , misuse, of any defect in material , machinery, equipment or other items other than by defects in items",8.3,0],[31.75,203.43,"actually inspected by Premier Tubular inspection Services (Pvt.) Ltd. and ascertainable by normally accepted testing standards, or defects reflected in documents",8.3,0],[31.75,191.43,"reviewed by Premier Tubular inspection Services (Pvt..) Ltd. and which are covered by this report. This field report and the recommendation contained with it are",8.3,0],[31.75,179.43,"based upon the conditions and practices observed and information available to Premier Tubular Inspection Services (Pvt.) Ltd. personnel. The report does not purport",8.3,0],[31.75,167.43,"to list all hazards or faulty conditions not to indicate that the other hazards or faulty conditions exist. Severity ratings on the criteria shown in this report are intended",8.3,0],[31.75,155.43,"as guideline only. Premier Tubular Inspection Services (Pvt.) Ltd. Does not accept responsibility for the control or correction of conditions.",8.3,0],[31.75,143.43,"FM-IR-12",8.3,1],[422.25,277.78,"REVIEWED BY",9.0,1]];
+const MPI_PHOTOS=[[39.0,484.8,173.2,92.2],[403.0,484.8,173.2,92.2],[221.8,484.0,173.2,92.2],[585.3,484.0,173.2,92.2],[585.1,385.2,173.2,92.2],[39.2,383.5,173.2,92.2],[403.0,383.5,173.2,92.2],[219.7,382.8,173.3,92.2]];
+// key, label, x (left edge of the value), y from the page bottom, size, bold
+const MPI_FIELDS=[
+ ['client','Customer',180.1,1032.4,9.9,1,'customer'],
+ ['dateOfWork','Date of work',659.0,1032.3,9.9,0,'date'],
+ ['rigWell','Rig & well no.',299.1,1008.4,9.9,0],
+ ['wo','W.O. no.',671.3,1007.0,9.9,0],
+ ['location','Location',275.5,983.0,9.9,0],
+ ['itemDesc','Material / item type and description',424.8,958.0,9.9,0],
+ ['itemSerial','Material / item serial no.',252.3,933.4,9.9,1],
+ ['partNo','Part no.',652.9,933.8,9.9,0],
+ ['typeOfInsp','Type of inspection',206.1,907.2,9.9,0],
+ ['standard','Standard / specification',632.0,908.3,9.9,0],
+ ['dateOfInsp','Date of inspection',251.8,886.8,9.9,0,'date'],
+ ['validity','Validity of inspection',632.6,888.0,9.9,0,'date'],
+ ['magUnit','Magnetization unit',262.1,811.0,9.9,0],
+ ['magSerial','Magnetization unit serial no.',643.0,812.8,9.0,0],
+ ['liftCap','Lifting capacity',339.5,788.4,9.0,0],
+
+ ['poleSpacing','Pole spacing',339.1,770.2,9.0,0],
+
+ ['method','Method',319.1,749.7,9.0,0],
+
+ ['particleType','Particle type',179.0,703.7,9.0,0],
+ ['particleColour','Particle colour',427.9,703.7,9.0,0],
+ ['application','Application',688.8,703.7,9.0,0],
+ ['contrastMedium','Contrast medium',178.0,679.5,9.0,0],
+ ['contrastColour','Contrast colour',427.3,679.8,9.0,0],
+ ['dryingTime','Drying time',680.6,679.8,9.0,0],
+ ['area','Area of inspection',213.3,350.6,9.9,0],
+ ['results','Results',213.3,331.1,9.9,0],
+ ['comments','Recommendation / comments',213.3,307.6,9.9,0]
+];
+// Consumable traceability: two rows, four centred columns (22.9|198.6|359.1|554.0|775.8)
+const MPI_CONS_CX=[110.8,278.9,456.6,665.0];
+const MPI_CONS_Y=[614.3,592.3];
+const MPI_CONS_COLS=[['name','Inspection consumable'],['mfr','Manufacturer'],['batch','Batch no.'],['expiry','Expiry date']];
+// key, label, group, centre x, top edge measured from the top of the page
+const MPI_CHECKS=[
+ ['buffing','Buffing','Surface preparation',137.9,321.3],
+ ['grinding','Grinding','Surface preparation',266.9,321.3],
+ ['wireBrush','Wire brush','Surface preparation',396.6,321.3],
+ ['machining','Machining','Surface preparation',521.9,321.3],
+ ['wipeClean','Wipe clean','Surface preparation',666.6,321.3],
+ ['asBlasted','As blasted','Surface preparation',137.9,340.8],
+ ['removedPaint','Removed paint','Surface preparation',266.9,340.8],
+ ['partDismantled','Part dismantled','Surface preparation',396.6,340.8],
+ ['partNotDismantled','Part not dismantled','Surface preparation',521.9,340.8],
+ ['techYoke','Yoke','Technique',104.9,407.8],
+ ['medDry','Dry (iron powder)','Testing medium',125.1,449.8],
+ ['medWet','Wet','Testing medium',273.6,449.8],
+ ['medFluorescent','Fluorescent','Testing medium',461.9,449.8]
+];
+/* Which MPI_FIELDS come from the row being printed rather than the shared
+   card — one row is one inspected item, and one certificate page. */
+const MPI_ROW_COLS=[
+ ['certNo','Certificate.No','text'],
+ ['itemDesc','Material/Item Type and Description','text'],
+ ['itemSerial','Material/Item Serial No','text'],
+ ['typeOfInsp','Type of Inspection','text'],
+ ['partNo','Part No','text'],
+ ['validity','Validity of Inspection(Date)','date'],
+ ['area','Area Of Inspection','text'],
+ ['comments','Comments','text'],
+ ['results','Results','text']
+];
+const MPI_ROW_KEYS=MPI_ROW_COLS.map(c=>c[0]);
+const MPI_MAX_PHOTOS=8;                      // the sheet's photo grid holds eight
+function mpiF(){ if(!IR.mpi)IR.mpi={}; if(!IR.mpi.cons)IR.mpi.cons=[{},{}]; return IR.mpi; }
+function mpiRows(){ if(!IR.items||!IR.items.length)IR.items=[{}]; return IR.items; }
+/* One row is one certificate, so the number is generated the same way the row
+   number is: MPI-<work order>-<report no.>-<row>. Nobody types it. */
+function mpiCertNo(i){
+  const f=IR.fields||{};
+  return 'MPI-'+(mpiF().wo||f.wo||'WO')+'-'+(f.no||irNextReportNo())+'-'+((i|0)+1);
+}
+function mpiSet(k,v){ mpiF()[k]=v; irSave(); }
+function mpiSetCons(i,k,v){ mpiF().cons[i][k]=v; irSave(); }
+function mpiToggle(k,on){ mpiF()[k]=!!on; irSave(); }
+function mpiRowSet(i,k,v){ mpiRows()[i][k]=v; irSave(); }
+function mpiRowAdd(){ mpiRows().push({}); irSave(); render(); }
+function mpiRowDel(i){ mpiRows().splice(i,1); irSave(); render(); }
+function mpiCardHtml(){
+  if(IR.type!==MPI_TYPE)return '';
+  const m=mpiF();
+  const fld=f=>{
+    const t=f[6]||'text';
+    if(t==='customer'){
+      const cur=m[f[0]]||'',opts=coll('customers').map(c=>c.name).filter(Boolean);
+      return '<div class="field"><label>'+f[1]+'</label><select onchange="mpiSet(\'' +f[0]+ '\',this.value)">'+
+        '<option value=""></option>'+opts.map(n=>'<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>').join('')+
+        (cur&&opts.indexOf(cur)<0?'<option selected>'+esc(cur)+'</option>':'')+'</select></div>';
+    }
+    return '<div class="field"><label>'+f[1]+'</label><input'+(t==='date'?' type="date"':'')+
+      ' value="'+esc(m[f[0]]||'')+'" oninput="mpiSet(\'' +f[0]+ '\',this.value)"></div>';
+  };
+  const group=g=>MPI_CHECKS.filter(c=>c[2]===g).map(c=>
+    '<label style="display:inline-flex;align-items:center;gap:6px;margin:0 16px 6px 0;cursor:pointer;font-size:12.5px">'+
+    '<input type="checkbox"'+(m[c[0]]?' checked':'')+' onchange="mpiToggle(\'' +c[0]+ '\',this.checked)">'+esc(c[1])+'</label>').join('');
+  const sec=(t,body)=>'<div class="hint" style="margin:12px 0 6px">'+t+'</div>'+body;
+  const pick=ks=>'<div class="fgrid">'+MPI_FIELDS.filter(f=>ks.indexOf(f[0])>=0).map(fld).join('')+'</div>';
+  return '<div class="card"><div class="card-h">FM-IR-12 template fields <span class="hint" style="font-weight:400">\u2014 printed exactly onto the certified MPI sheet</span></div><div class="card-b">'+
+   sec('Report header',pick(['client','dateOfWork','rigWell','wo','location','standard','dateOfInsp']))+
+   sec('Surface preparation','<div style="padding:4px 0">'+group('Surface preparation')+'</div>')+
+   sec('Magnetization',pick(['magUnit','magSerial','liftCap','poleSpacing','method'])+
+       '<div style="padding:4px 0">'+group('Technique')+'</div>')+
+   sec('Testing medium','<div style="padding:4px 0">'+group('Testing medium')+'</div>'+
+       pick(['particleType','particleColour','application','contrastMedium','contrastColour','dryingTime']))+
+   sec('Consumable traceability','<div class="tblwrap"><table><thead><tr>'+
+       MPI_CONS_COLS.map(c=>'<th>'+c[1]+'</th>').join('')+'</tr></thead><tbody>'+
+       [0,1].map(i=>'<tr>'+MPI_CONS_COLS.map(c=>'<td><input value="'+esc((m.cons[i]||{})[c[0]]||'')+
+         '" oninput="mpiSetCons('+i+',\'' +c[0]+ '\',this.value)"></td>').join('')+'</tr>').join('')+
+       '</tbody></table></div>')+
+  '</div></div>';
+}
+/* One row per inspected item. Each row prints as its own certificate page and
+   carries its own photographs (up to the eight the grid holds). */
+function mpiRowsHtml(){
+  const rows=mpiRows();
+  return '<div class="card"><div class="card-h">Inspection results'+
+   '<span class="sp"></span><button class="btn small" onclick="mpiRowAdd()">+ Add item</button></div><div class="card-b">'+
+   '<div class="hint" style="margin-bottom:8px">Every row becomes one FM-IR-12 certificate page, with its own photographs.</div>'+
+   // No separate "#" column: Certificate.No is the row number — row 1 is
+   // certificate 1, row 2 is certificate 2.
+   '<div class="tblwrap" id="xt-irit"><table><thead><tr>'+
+   MPI_ROW_COLS.map(c=>'<th'+(c[0]==='certNo'?' style="width:80px"':'')+'>'+esc(c[1])+'</th>').join('')+
+   '<th style="width:150px">Add Image</th><th class="no-print" style="width:30px"></th></tr></thead><tbody>'+
+   rows.map((r,i)=>'<tr>'+
+      MPI_ROW_COLS.map(c=>c[0]==='certNo'
+        ? '<td class="num"><input class="num" style="width:100%" value="'+(i+1)+'" disabled></td>'
+        : '<td><input'+(c[2]==='date'?' type="date"':'')+' style="width:100%" value="'+esc(r[c[0]]||'')+
+         '" oninput="mpiRowSet('+i+',\'' +c[0]+ '\',this.value)"></td>').join('')+
+     '<td class="no-print" style="white-space:nowrap">'+
+       ((r.imgs||[]).length?'<span class="pill b">'+(r.imgs||[]).length+'/'+MPI_MAX_PHOTOS+'</span> ':'')+
+       (r.imgs||[]).map((src,k)=>'<img src="'+src+'" alt="" style="height:24px;border-radius:3px;margin-right:3px;vertical-align:middle">'+
+         '<button class="del" title="Remove" onclick="mpiImgDel('+i+','+k+')">\u232b</button>').join('')+
+       '<button class="btn ghost small" onclick="document.getElementById(\'mpi-img-'+i+'\').click()"'+
+         ((r.imgs||[]).length>=MPI_MAX_PHOTOS?' disabled':'')+'>\u25a3 Add</button>'+
+       '<input type="file" id="mpi-img-'+i+'" accept="image/*" multiple style="display:none" onchange="mpiRowImages('+i+',this.files)">'+
+     '</td>'+
+     '<td class="no-print"><button class="del" onclick="mpiRowDel('+i+')">\u2715</button></td></tr>').join('')+
+   '</tbody></table></div></div></div>';
+}
+function mpiImgDel(i,k){ const r=mpiRows()[i]; if(r&&r.imgs){ r.imgs.splice(k,1); irSave(); render(); } }
+/* Photos are resampled to the exact cell they print in, at 300 dpi. */
+function mpiRowImages(i,files){
+  const row=mpiRows()[i];
+  if(!row.imgs)row.imgs=[];
+  const cell=MPI_PHOTOS[0]||[0,0,173.2,92.2];
+  const boxW=cell[2]-2,boxH=cell[3]-2;
+  [].slice.call(files).forEach(f=>{
+    if(!f.type.startsWith('image/')||row.imgs.length>=MPI_MAX_PHOTOS)return;
+    const img=new Image();
+    img.onload=()=>{
+      if(row.imgs.length>=MPI_MAX_PHOTOS)return;
+      const w=Math.max(1,Math.min(img.width,Math.round(boxW/72*IR_IMG_DPI)));
+      const h=Math.max(1,Math.round(w*boxH/boxW));
+      const cv=document.createElement('canvas');
+      cv.width=w;cv.height=h;
+      const cx=cv.getContext('2d');
+      cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
+      cx.fillStyle='#fff';cx.fillRect(0,0,w,h);
+      cx.drawImage(img,0,0,w,h);
+      let out=cv.toDataURL('image/jpeg',0.92);
+      if(out.length>700000)out=cv.toDataURL('image/jpeg',0.84);
+      row.imgs.push(out);
+      irSave();render();
+    };
+    img.src=URL.createObjectURL(f);
+  });
+}
+function mpiDrawPage(doc,m,row,i){
+  MPI_LINES_H.forEach(([x1,x2,y])=>doc.rule(x1,y,x2,y,0.9,'0 0 0'));
+  MPI_LINES_V.forEach(([x,y1,y2])=>doc.rule(x,y1,x,y2,0.9,'0 0 0'));
+  MPI_STATIC.forEach(([x,y,s,sz,b])=>doc.text(x,y,s,sz,!!b));
+  doc.imageAt(DP_LOGO_IMG,607,1115.2,162.2,59.8);
+  doc.imageAt(DP_BADGES_IMG,61.5,15.8,656.8,61.8);
+  const cert=mpiCertNo(i);
+  doc.text(123.8,1089,cert,8.9,true);
+  doc.text(652,983.5,cert,9.9,true);
+  MPI_FIELDS.forEach(([k,,x,y,sz,,type])=>{
+    let v=MPI_ROW_KEYS.indexOf(k)>=0?row[k]:m[k];
+    if(v==null||v==='')return;
+    if(type==='date')v=woDmy(v);
+    doc.text(x,y,doc.fit(String(v),MPI_PAGE[0]-x-26,sz),sz,true);
+  });
+  MPI_CONS_COLS.forEach((c,ci)=>[0,1].forEach(ri=>{
+    const v=(m.cons[ri]||{})[c[0]];
+    if(v)doc.atFit(MPI_CONS_CX[ci],MPI_PAGE[1]-MPI_CONS_Y[ri],160,String(v),9.9,6,false);
+  }));
+  MPI_CHECKS.forEach(([k,,,cx,ty])=>{ if(m[k])doc.atCheck(cx,ty,9); else doc.atBox(cx,ty,9); });
+  (row.imgs||[]).slice(0,MPI_MAX_PHOTOS).forEach((src,i)=>{
+    const c=MPI_PHOTOS[i];
+    if(src&&c)doc.imageAt(src,c[0]+1,c[1]+1,c[2]-2,c[3]-2);
+  });
+  doc.text(155.8,277.7,IR.fields.insp||'',9.9,true);
+  doc.text(528.2,278.8,IR.fields.rev_by||'',9.9,true);
+}
+function irPdfMpi(){
+  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irSave();}
+  const m=mpiF();
+  const rows=(IR.items||[]).filter(r=>Object.keys(r).length);
+  const pages=rows.length?rows:[{}];
+  const doc=new PdfDoc({w:MPI_PAGE[0],h:MPI_PAGE[1]});
+  doc.noFooter=true;
+  pages.forEach((row,i)=>{ if(i>0)doc.newPage(); mpiDrawPage(doc,m,row,i); });
+  doc.out('FM-IR-12-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
+}
 function irPdf(){
   if(IR.type===DP_TALLY_TYPE){ irPdfDrillPipeTally(); return; }
+  if(IR.type===MPI_TYPE){ irPdfMpi(); return; }
 
   const sc=irSchema();
   const doc=new PdfDoc({landscape:true});
   doc.header((IR.type||'INSPECTION REPORT').toUpperCase(),'Report no. '+(IR.fields.no||'—')+'  ·  Rev '+(IR.fields.rev||'0'));
-  doc.kv([['Client',IR.fields.client||''],['Inspection date',IR.fields.date||''],['PO / contract',IR.fields.po||''],['Work order',IR.fields.wo||''],['Location / yard',IR.fields.loc||''],['Rig / well',IR.fields.rig||''],['Standard',IR.fields.std||''],['Procedure',IR.fields.proc||''],['Acceptance criteria',IR.fields.acc||''],['Inspector',IR.fields.insp||''],['Reviewed by',IR.fields.rev_by||'']]);
+  // Only what the report actually carries: several of these left the shared
+  // header, so an empty one would just print a label with nothing after it.
+  doc.kv([['Client',IR.fields.client],['Inspection date',IR.fields.date],['PO / contract',IR.fields.po],
+          ['Work order',IR.fields.wo],['Location / yard',IR.fields.loc],['Rig / well',IR.fields.rig],
+          ['Standard',IR.fields.std],['Procedure',IR.fields.proc],['Acceptance criteria',IR.fields.acc],
+          ['Inspector',IR.fields.insp],['Reviewed by',IR.fields.rev_by]].filter(p=>p[1]));
   if(IR.eq.length){
     doc.text(doc.mL,doc.y,'M&TE USED',10,true);doc.y-=14;
     doc.table(['Equipment ID','Description','Serial','Cert no.','Cal due'],IR.eq.map(e=>[e.id||'',e.desc||'',e.sn||'',e.cert||'',e.due||'']));
@@ -6516,6 +6783,7 @@ function irPhotos(files){
 }
 function irStore(){
   if(!IR.fields.no)IR.fields.no=irNextReportNo();   // stamped once, on the first filing
+  irStampEmp();
   const lib=lsGet('ir_library',[]);
   const rec=JSON.parse(JSON.stringify(IR));
   if(!rec.id){rec.id=uid();}
@@ -6910,6 +7178,7 @@ document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop')
 /* ---- init ---- */
 (async function(){
   IR=lsGet('ir_current',IR);if(!IR.items)IR.items=[];if(!IR.eq)IR.eq=[];if(!IR.photos)IR.photos=[];if(!IR.fields)IR.fields={};
+irMigrateReportNos();
   const cfg=syncCfg();
   if(cfg.url)document.getElementById('sync-url').value=cfg.url;
   if(cfg.token)document.getElementById('sync-token').value=cfg.token;
