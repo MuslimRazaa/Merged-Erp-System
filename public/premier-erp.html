@@ -282,7 +282,7 @@ body.locked #app{display:none}
 
 <div class="modal" id="empimportmodal"><div class="box" style="max-width:640px">
   <h3>Import Employees from CSV</h3>
-  <div class="hint" style="margin-bottom:10px">Expected columns (any order, header names matched automatically): Emp Code, Employee Name, Father Name, Mother Name, Contact Number, CNIC No., Bank Name, Emp A/C No., IBAN No., Account Title, Date Of Birth, Email Address, Nationality, Designation, Joining Date, End Date, Address, Gross Salary, Status. An existing employee is matched by Emp Code (e.g. "9" and "09" are treated as the same code) and updated — its Employee Name is left as-is (Attendance/Payroll/JLR all depend on it staying exactly what it is; rename someone from the Employees form instead); a new Emp Code creates a brand-new employee — no login access is granted by import, that stays a separate step. CNIC and Contact Number are reformatted automatically either way.</div>
+  <div class="hint" style="margin-bottom:10px">Expected columns (any order, header names matched automatically): Emp Code, Employee Name, Father Name, Mother Name, Contact Number, CNIC No., Bank Name, Emp A/C No., IBAN No., Account Title, Date Of Birth, Email Address, Nationality, Designation, Joining Date, End Date, Address, Gross Salary, Shift Start, Shift End, Status. Shift Start/Shift End: 24-hour HH:MM (e.g. 09:00, 17:30) — 12-hour "9:00 AM"/"5:30 PM" also works. An existing employee is matched by Emp Code (e.g. "9" and "09" are treated as the same code) and updated — its Employee Name is left as-is (Attendance/Payroll/JLR all depend on it staying exactly what it is; rename someone from the Employees form instead); a new Emp Code creates a brand-new employee — no login access is granted by import, that stays a separate step. CNIC and Contact Number are reformatted automatically either way.</div>
   <div class="field"><input type="file" id="empimport-file" accept=".csv,text/csv" onchange="empImportFileChosen(event)"></div>
   <div id="empimport-preview" style="margin-top:12px"></div>
   <div class="lerr" id="empimport-err" style="display:none"></div>
@@ -505,7 +505,12 @@ function toast(msg,type){
   setTimeout(()=>{if(el.parentElement)el.remove();},type==='err'?6000:3500);
 }
 function uid(){return 'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
-function today(){return new Date().toISOString().slice(0,10);}
+// LOCAL calendar date, not UTC: toISOString() reads the date in UTC, which
+// for Pakistan (UTC+5) is the PREVIOUS day for roughly the first 5 hours of
+// every local day (00:00–04:59 PKT) — every date picker/default across the
+// app that calls today() would silently be one day behind during that
+// window. Every date-only reading here uses local Y/M/D components instead.
+function today(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function fmt(n){n=+n||0;return (n<0?'-':'')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
@@ -792,7 +797,7 @@ async function pullSharedMaster(){
    since that's the only endpoint that returns dateOfBirth. */
 function checkBirthdayReminders(emps){
   try{
-    const todayKey='erp_bday_seen_'+new Date().toISOString().slice(0,10);
+    const todayKey='erp_bday_seen_'+today();
     if(localStorage.getItem(todayKey))return;
     const now=new Date();
     const todayMid=new Date(now.getFullYear(),now.getMonth(),now.getDate());
@@ -1591,7 +1596,7 @@ function prRenderReport(){
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
      '<td class="num">'+r.presentDays+'</td><td class="num">'+r.officeDays+'</td><td class="num">'+r.fieldDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
-     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime (smallest lates forgiven first), '+r.lateCount+' counted (every 3 counted = 1 day deducted). Overtime only counts 1 hour past shift end.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
+     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime (smallest lates forgiven first), '+r.lateCount+' counted (every 3 counted = 1 day deducted). Overtime needs 60+ min past shift end to count at all — once it does, the whole late-sitting time counts, not just the part past 60.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
@@ -3265,6 +3270,8 @@ const EMP_IMPORT_HEADER_MAP={
   'enddate':'jobEndDate',
   'address':'homeAddress',
   'grosssalary':'grossSalary','salary':'grossSalary','grosssalarypkr':'grossSalary',
+  'shiftstart':'shiftStart','shiftstarttime':'shiftStart','starttime':'shiftStart',
+  'shiftend':'shiftEnd','shiftendtime':'shiftEnd','endtime':'shiftEnd',
   'status':'status',
 };
 let EMP_IMPORT_ROWS=[];
@@ -3277,7 +3284,8 @@ function empOpenImport(){
   openModal('empimportmodal');
 }
 // Minimal CSV line splitter — handles quoted fields containing commas ("a, b").
-function empCsvParseLine(line){
+function empCsvParseLine(line,delim){
+  delim=delim||',';
   const out=[];let cur='';let q=false;
   for(let i=0;i<line.length;i++){
     const c=line[i];
@@ -3286,12 +3294,23 @@ function empCsvParseLine(line){
       else cur+=c;
     }else{
       if(c==='"')q=true;
-      else if(c===','){out.push(cur);cur='';}
+      else if(c===delim){out.push(cur);cur='';}
       else cur+=c;
     }
   }
   out.push(cur);
   return out;
+}
+// Excel's "Save As CSV" gives a true comma-delimited file, but copy-pasting
+// cells straight from Excel into Notepad (and saving THAT as .csv) keeps
+// Excel's clipboard delimiter — a TAB — instead; the header row then never
+// splits into columns at all with a comma-only parser, and NOTHING maps.
+// Picking whichever delimiter actually shows up more in the header line
+// makes the import work either way without the person needing to know why.
+function empCsvDetectDelim(headerLine){
+  const tabs=(headerLine.match(/\t/g)||[]).length;
+  const commas=(headerLine.match(/,/g)||[]).length;
+  return tabs>commas?'\t':',';
 }
 function empImportFileChosen(ev){
   const file=ev.target.files&&ev.target.files[0];
@@ -3304,13 +3323,14 @@ function empImportFileChosen(ev){
       const text=String(reader.result||'').replace(/^﻿/,'');
       const lines=text.split(/\r\n|\n|\r/).filter(l=>l.trim()!=='');
       if(lines.length<2)throw new Error('CSV has no data rows.');
-      const headers=empCsvParseLine(lines[0]).map(h=>h.trim());
+      const delim=empCsvDetectDelim(lines[0]);
+      const headers=empCsvParseLine(lines[0],delim).map(h=>h.trim());
       const keys=headers.map(h=>EMP_IMPORT_HEADER_MAP[h.toLowerCase().replace(/[^a-z0-9]/g,'')]);
       if(!keys.includes('employeeId'))throw new Error('Could not find an "Emp Code" column in the CSV header.');
       if(!keys.includes('name'))throw new Error('Could not find an "Employee Name" column in the CSV header.');
       const rows=[];
       for(let i=1;i<lines.length;i++){
-        const cells=empCsvParseLine(lines[i]);
+        const cells=empCsvParseLine(lines[i],delim);
         const row={};
         keys.forEach((k,idx)=>{ if(k) row[k]=(cells[idx]!==undefined?cells[idx]:'').trim(); });
         if(row.employeeId||row.name) rows.push(row);
@@ -3318,8 +3338,8 @@ function empImportFileChosen(ev){
       EMP_IMPORT_ROWS=rows;
       document.getElementById('empimport-preview').innerHTML=
         '<div class="hint">'+rows.length+' row(s) found. Columns mapped: '+esc(headers.filter((h,idx)=>keys[idx]).join(', '))+'</div>'+
-        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Designation</th><th>CNIC</th><th>Contact</th><th class="num">Gross Salary</th><th>Status</th></tr></thead><tbody>'+
-        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.designation||'')+'</td><td>'+esc(r.nicNumber||'')+'</td><td>'+esc(r.phoneNumber||'')+'</td><td class="num">'+esc(r.grossSalary||'')+'</td><td>'+esc(r.status||'')+'</td></tr>').join('')+
+        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Designation</th><th>CNIC</th><th>Contact</th><th class="num">Gross Salary</th><th>Shift</th><th>Status</th></tr></thead><tbody>'+
+        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.designation||'')+'</td><td>'+esc(r.nicNumber||'')+'</td><td>'+esc(r.phoneNumber||'')+'</td><td class="num">'+esc(r.grossSalary||'')+'</td><td>'+esc([r.shiftStart,r.shiftEnd].filter(Boolean).join(' – '))+'</td><td>'+esc(r.status||'')+'</td></tr>').join('')+
         '</tbody></table></div>'+(rows.length>50?'<div class="hint">…and '+(rows.length-50)+' more.</div>':'');
       document.getElementById('empimport-go').disabled=rows.length===0;
     }catch(e){
@@ -5360,7 +5380,7 @@ PdfDoc.prototype={
  header(title,sub){
    this.rect(this.mL,this.y-6,this.w-this.mL-this.mR,3,'0.10 0.16 0.30');
    this.y-=24;this.text(this.mL,this.y,'PREMIER TUBULAR INSPECTION SERVICES (PVT.) LTD',9,true,'0.10 0.16 0.30');
-   this.text(this.w-this.mR-this.tw(new Date().toISOString().slice(0,10),8),this.y,new Date().toISOString().slice(0,10),8);
+   this.text(this.w-this.mR-this.tw(today(),8),this.y,today(),8);
    this.y-=20;this.text(this.mL,this.y,title,15,true);
    if(sub){this.y-=13;this.text(this.mL,this.y,sub,9,false,'0.35 0.38 0.45');}
    this.y-=16;
@@ -6911,7 +6931,7 @@ function complianceSnapshot(){
     const n=ncrs.filter(r=>r.std===s&&r.status!=='Closed').length;
     const rk=risks.filter(r=>r.status!=='Closed'&&r.status!=='Accepted').length;
     return '<tr><td><b>'+s+'</b></td><td class="num">'+d+'</td><td class="num">'+a+'</td><td class="num'+(n?'" style="color:var(--rose);font-weight:700':'')+'">'+n+'</td><td class="num">'+(s===stds[0]?rk:'')+'</td></tr>';}).join('')+
-  '</tbody></table><div class="hint">Expired training certificates: '+tr.filter(r=>r.status==='Expired').length+' · Docs due for review in 30 days: '+docs.filter(r=>r.review&&r.review<=new Date(Date.now()+30*864e5).toISOString().slice(0,10)&&r.status==='Approved').length+'</div>';
+  '</tbody></table><div class="hint">Expired training certificates: '+tr.filter(r=>r.status==='Expired').length+' · Docs due for review in 30 days: '+docs.filter(r=>r.review&&r.review<=today(new Date(Date.now()+30*864e5))&&r.status==='Approved').length+'</div>';
 }
 
 /* ================================================================
