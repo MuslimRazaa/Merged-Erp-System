@@ -11,6 +11,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAuth, audit } = require('./auth');
 const { canAccess } = require('../roles');
+const { toYmd } = require('../fieldJobs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -31,7 +32,12 @@ router.get('/', async (req, res) => {
   if (from && to) { sql += ' WHERE holiday_date BETWEEN ? AND ?'; params.push(from, to); }
   sql += ' ORDER BY holiday_date ASC';
   const [rows] = await pool.query(sql, params);
-  res.json(rows.map((r) => ({ id: r.id, date: r.holiday_date, type: r.type, name: r.name })));
+  // toYmd (not the raw Date) — mysql2 hands DATE columns back as a JS Date at
+  // LOCAL midnight, and res.json()'s default toISOString() serializes that in
+  // UTC, which lands on the PREVIOUS calendar day for Pakistan (UTC+5) —
+  // every holiday showed one day earlier than what was actually saved. Same
+  // bug, same fix as erp_leave_requests' dates (routes/leave.js).
+  res.json(rows.map((r) => ({ id: r.id, date: toYmd(r.holiday_date), type: r.type, name: r.name })));
 });
 
 // POST /api/holidays  { date, type, name } — HR only.
