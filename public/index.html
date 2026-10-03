@@ -277,7 +277,7 @@ body.locked #app{display:none}
 
 <div class="modal" id="empimportmodal"><div class="box" style="max-width:640px">
   <h3>Import Employees from CSV</h3>
-  <div class="hint" style="margin-bottom:10px">Expected columns (any order, header names matched automatically): Emp Code, Employee Name, Father Name, Mother Name, Contact Number, CNIC No., Bank Name, Emp A/C No., IBAN No., Account Title, Date Of Birth, Email Address, Nationality, Designation, Joining Date, End Date, Address, Status. An existing employee is matched by Emp Code (e.g. "9" and "09" are treated as the same code) and updated; a new Emp Code creates a brand-new employee — no login access is granted by import, that stays a separate step.</div>
+  <div class="hint" style="margin-bottom:10px">Expected columns (any order, header names matched automatically): Emp Code, Employee Name, Father Name, Mother Name, Contact Number, CNIC No., Bank Name, Emp A/C No., IBAN No., Account Title, Date Of Birth, Email Address, Nationality, Designation, Joining Date, End Date, Address, Gross Salary, Status. An existing employee is matched by Emp Code (e.g. "9" and "09" are treated as the same code) and updated — its Employee Name is left as-is (Attendance/Payroll/JLR all depend on it staying exactly what it is; rename someone from the Employees form instead); a new Emp Code creates a brand-new employee — no login access is granted by import, that stays a separate step. CNIC and Contact Number are reformatted automatically either way.</div>
   <div class="field"><input type="file" id="empimport-file" accept=".csv,text/csv" onchange="empImportFileChosen(event)"></div>
   <div id="empimport-preview" style="margin-top:12px"></div>
   <div class="lerr" id="empimport-err" style="display:none"></div>
@@ -3259,6 +3259,7 @@ const EMP_IMPORT_HEADER_MAP={
   'joiningdate':'joinDate','joindate':'joinDate',
   'enddate':'jobEndDate',
   'address':'homeAddress',
+  'grosssalary':'grossSalary','salary':'grossSalary','grosssalarypkr':'grossSalary',
   'status':'status',
 };
 let EMP_IMPORT_ROWS=[];
@@ -3312,8 +3313,8 @@ function empImportFileChosen(ev){
       EMP_IMPORT_ROWS=rows;
       document.getElementById('empimport-preview').innerHTML=
         '<div class="hint">'+rows.length+' row(s) found. Columns mapped: '+esc(headers.filter((h,idx)=>keys[idx]).join(', '))+'</div>'+
-        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Designation</th><th>Status</th></tr></thead><tbody>'+
-        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.designation||'')+'</td><td>'+esc(r.status||'')+'</td></tr>').join('')+
+        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Designation</th><th>CNIC</th><th>Contact</th><th class="num">Gross Salary</th><th>Status</th></tr></thead><tbody>'+
+        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.designation||'')+'</td><td>'+esc(r.nicNumber||'')+'</td><td>'+esc(r.phoneNumber||'')+'</td><td class="num">'+esc(r.grossSalary||'')+'</td><td>'+esc(r.status||'')+'</td></tr>').join('')+
         '</tbody></table></div>'+(rows.length>50?'<div class="hint">…and '+(rows.length-50)+' more.</div>':'');
       document.getElementById('empimport-go').disabled=rows.length===0;
     }catch(e){
