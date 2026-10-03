@@ -332,6 +332,30 @@ function parseCsvNumber(v) {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+// Shift Start / Shift End — "09:00", "9:00", "09:00:00", "9:00 AM", "5:30 PM"
+// all read fine; recommended sheet format is 24-hour HH:MM (e.g. 09:00,
+// 17:30), but 12-hour AM/PM is accepted too since Excel often shows times
+// that way. Returns null for a blank or unreadable cell (left alone — see
+// the shift upsert below, which only touches columns the sheet actually gave
+// a time for).
+function parseCsvTime(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?$/);
+  if (!m) return null;
+  let [, h, mi, se, ap] = m;
+  h = +h; mi = +mi; se = se ? +se : 0;
+  if (ap) {
+    const isPm = ap.toLowerCase() === 'pm';
+    if (h === 12) h = isPm ? 12 : 0;
+    else if (isPm) h += 12;
+  } else if (h > 23) {
+    return null;
+  }
+  if (h > 23 || mi > 59 || se > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}:${String(se).padStart(2, '0')}`;
+}
+
 // Bulk import from CSV (Employees screen -> "Import Employees"). Matches
 // each row to an existing employee by Emp Code (leading-zero tolerant);
 // updates it if found, otherwise creates a brand-new employee record with
@@ -440,6 +464,26 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
           `INSERT INTO erp_employee_profile (employee_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})
            ON DUPLICATE KEY UPDATE ${updateSql}`,
           [empRowId, ...cols.map((c) => profile[c])]
+        );
+      }
+
+      // Shift Start / Shift End (erp_employee_shifts — see routes/attendance.js's
+      // PUT /shift/:employeeId for the same table). Only the columns the sheet
+      // actually gave a readable time for are touched: a brand-new employee
+      // with no Shift Start cell still gets the schema's 09:00 default (the
+      // column is left out of the INSERT entirely), and an existing
+      // employee's grace_minutes / the other of the two times is never
+      // clobbered by a blank or unreadable cell.
+      const shiftCols = {};
+      const shiftStart = parseCsvTime(row.shiftStart); if (shiftStart) shiftCols.shift_start = shiftStart;
+      const shiftEnd = parseCsvTime(row.shiftEnd); if (shiftEnd) shiftCols.shift_end = shiftEnd;
+      const shiftColNames = Object.keys(shiftCols);
+      if (shiftColNames.length) {
+        const shiftUpdateSql = shiftColNames.map((c) => `${c} = VALUES(${c})`).join(', ');
+        await pool.query(
+          `INSERT INTO erp_employee_shifts (employee_id, ${shiftColNames.join(', ')}) VALUES (?, ${shiftColNames.map(() => '?').join(', ')})
+           ON DUPLICATE KEY UPDATE ${shiftUpdateSql}`,
+          [empRowId, ...shiftColNames.map((c) => shiftCols[c])]
         );
       }
 

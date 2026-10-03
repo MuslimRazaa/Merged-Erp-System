@@ -25,9 +25,12 @@ const router = express.Router();
 // attendance-agent/agent.js's getAttendancesRaw) — a real device status,
 // not a guess.
 const VERIFY_STATE_LABELS = { 0: 'Check-in', 1: 'Check-out', 2: 'Break-out', 3: 'Break-in', 4: 'OT-in', 5: 'OT-out' };
-// Grace period after shift_end before checkout minutes count as overtime —
-// e.g. shift end 5:30 -> overtime only starts counting after 6:30, not 5:31.
-const OVERTIME_GRACE_MINUTES = 60;
+// Minimum time sitting past shift_end before ANY of it counts as overtime —
+// a qualifying threshold, not a grace deduction: staying 59 minutes late
+// earns 0 overtime, staying exactly 60 (or more) earns the WHOLE late-sitting
+// duration as overtime, not just the minutes past 60. E.g. shift end 5:30:
+// checkout 6:29 -> 0 OT; checkout 6:30 -> 60 OT; checkout 6:45 -> 75 OT.
+const OVERTIME_MIN_MINUTES = 60;
 // Saturday shift start for Permanent employees is later than their normal
 // weekday start (11:00 instead of the usual 9:00) — Probation/Contract etc.
 // employees work Saturday on their normal shift_start (they get none of the
@@ -330,18 +333,20 @@ async function computeAttendanceRows(from, to, filter = {}) {
           // (there's nothing to compare the missing check-in against).
           late = true;
         }
-        // Overtime: minutes checked out after shift_end + a 1-hour grace
-        // (only computable when a shift_end is actually configured — see PUT
-        // /shift/:employeeId). Shift end 5:30 -> overtime only counts past
-        // 6:30, not from 5:31; staying the odd few minutes late isn't
-        // overtime. Payroll uses the resulting minutes to offset lateMinutes
-        // from elsewhere in the pay cycle (an employee who leaves late having
-        // also arrived late isn't double-penalized if overtime covers it).
+        // Overtime: a QUALIFYING THRESHOLD, not a grace deduction (only
+        // computable when a shift_end is actually configured — see PUT
+        // /shift/:employeeId). Staying less than OVERTIME_MIN_MINUTES past
+        // shift_end earns nothing; staying that long or more earns the WHOLE
+        // late-sitting duration, not just the part past the threshold.
+        // Payroll uses the resulting minutes to offset lateMinutes from
+        // elsewhere in the pay cycle (an employee who leaves late having also
+        // arrived late isn't double-penalized if overtime covers it).
         if (checkOut && emp.shift_end) {
           const [eh, em2] = String(emp.shift_end).slice(0, 5).split(':').map(Number);
-          const otStartsAt = new Date(checkOut);
-          otStartsAt.setHours(eh, em2 + OVERTIME_GRACE_MINUTES, 0, 0);
-          if (checkOut > otStartsAt) overtimeMinutes = Math.round((checkOut - otStartsAt) / 60000);
+          const shiftEndAt = new Date(checkOut);
+          shiftEndAt.setHours(eh, em2, 0, 0);
+          const lateSittingMinutes = Math.round((checkOut - shiftEndAt) / 60000);
+          if (lateSittingMinutes >= OVERTIME_MIN_MINUTES) overtimeMinutes = lateSittingMinutes;
         }
       }
 

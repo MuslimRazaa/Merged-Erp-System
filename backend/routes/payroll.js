@@ -26,10 +26,12 @@
    Half-day pay is driven ONLY by an actual Half-Day leave request
    (leave_request_type) — never inferred from a missing punch.
    Late: every 3 late arrivals (after the overtime offset below) = 1 extra
-   deducted day (latePenaltyDays). Overtime minutes only start counting 1 hour
-   after shift_end (see attendance.js's OVERTIME_GRACE_MINUTES) — shift end
-   5:30 -> overtime begins after 6:30, not from 5:31; staying a few minutes
-   late isn't overtime. Overtime offset is a MONTHLY POOL, not just same-day:
+   deducted day (latePenaltyDays). Overtime is a QUALIFYING THRESHOLD, not a
+   grace deduction (see attendance.js's OVERTIME_MIN_MINUTES): staying less
+   than 60 minutes past shift_end earns 0 overtime, staying 60 minutes or
+   more earns the WHOLE late-sitting duration, not just the part past 60 —
+   shift end 5:30, checkout 6:29 -> 0 OT; checkout 6:30 -> 60 OT; checkout
+   6:45 -> 75 OT. Overtime offset is a MONTHLY POOL, not just same-day:
    total overtime minutes across the whole selected range can forgive
    lateness from ANY day in it, not only the day it was earned on (late 09:45
    today, 30 min overtime tomorrow still forgives today's lateness) —
