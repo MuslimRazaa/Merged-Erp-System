@@ -296,6 +296,42 @@ function detectGenderFromTitle(full) {
   return undefined;
 }
 
+// Pakistani CNIC — strip everything but digits, cap at 13, format 5-7-1.
+// Same rule empFormatNic() applies live in the Add/Edit Employee form, so a
+// badly-formatted CNIC in the CSV ("3520112345671", "35201-1234567 1", …)
+// comes out exactly like typing it into that field by hand would.
+// Returns undefined (leave the column alone) when the cell carried no digits.
+function formatNic(raw) {
+  const digits = String(raw == null ? '' : raw).replace(/\D/g, '').slice(0, 13);
+  if (!digits) return undefined;
+  if (digits.length <= 5) return digits;
+  if (digits.length <= 12) return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+  return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+}
+
+// Local phone number only, no country code (the HR form keeps phone_country/
+// phone_code in their own columns) — strips everything but digits, then a
+// leading national trunk '0' or Pakistan's own dialing code '92' if the CSV
+// cell carried the full number ("0300-1234567", "+92 300 1234567", "923001234567").
+// Returns undefined when the cell carried no digits.
+function formatPhoneNumber(raw) {
+  let digits = String(raw == null ? '' : raw).replace(/\D/g, '');
+  if (!digits) return undefined;
+  if (digits.length > 10 && digits.startsWith('92')) digits = digits.slice(2);
+  else if (digits.length > 10 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
+}
+
+// "150,000", "PKR 150000", " 150000.00 " -> 150000 — Gross Salary cells come
+// out of Excel/CSV in all sorts of dressed-up forms. Returns undefined (leave
+// the column alone) for a blank cell or anything that isn't a real number,
+// rather than silently writing a 0 salary over whatever was already on file.
+function parseCsvNumber(v) {
+  if (v == null || v === '') return undefined;
+  const n = Number(String(v).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 // Bulk import from CSV (Employees screen -> "Import Employees"). Matches
 // each row to an existing employee by Emp Code (leading-zero tolerant);
 // updates it if found, otherwise creates a brand-new employee record with
@@ -305,6 +341,13 @@ function detectGenderFromTitle(full) {
 // any attendance punches already sitting in erp_attendance_logs under a
 // matching (leading-zero tolerant) device code, so "unmapped" punches for
 // that Emp Code disappear the moment the employee exists.
+//
+// An existing employee is matched/UPDATED, never deleted and recreated, so
+// their numeric id — and with it every erp_attendance_logs/erp_leave_requests
+// row, payroll history and JLR field-job presence already keyed to it —
+// stays exactly as it was. Their employees.full_name is also deliberately
+// left untouched (see the comment at the UPDATE below): only the HR profile
+// fields (CNIC, phone, salary, bank, etc.) get refreshed from the sheet.
 router.post('/employees/import', requireGroup('Human Resources'), async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
@@ -331,14 +374,21 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
       let empRowId = byCode.get(code);
       if (empRowId) {
         // Existing employee (already on file, or created earlier in this
-        // same CSV) — update the core row, leave department/location/
-        // status alone unless the CSV actually carries a value for them.
+        // same CSV) — update email/status, but deliberately NEVER touch
+        // full_name here. Attendance, Payroll and JLR's field-job matching
+        // all key off the Employee ID staying put (guaranteed — this is an
+        // UPDATE, never a delete+recreate) AND the employee's exact name
+        // text staying put (JLR matches free-text Inspector/Team names
+        // against employees.full_name character-for-character). A CSV
+        // re-import meant to fix salary/CNIC/phone format must not silently
+        // reword a name and break every past JLR entry that referenced it —
+        // renaming someone is a deliberate edit from the Employees form, not
+        // a side effect of a bulk import.
         const mappedStatus = mapCsvStatus(row.status);
-        const fields = ['full_name = ?']; const values = [name];
+        const fields = []; const values = [];
         if (row.email) { fields.push('email = ?'); values.push(row.email); }
         if (mappedStatus) { fields.push('status = ?'); values.push(mappedStatus); }
-        values.push(empRowId);
-        await pool.query(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values);
+        if (fields.length) { values.push(empRowId); await pool.query(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values); }
         updated++;
       } else {
         const randomPassword = crypto.randomBytes(24).toString('hex');
@@ -355,18 +405,37 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
       // Upsert the HR profile fields the CSV carries (only non-empty ones,
       // so a blank cell never clobbers data already on file).
       const { first: firstName, last: lastName } = splitEmployeeName(name);
+      const phoneNumber = formatPhoneNumber(row.phoneNumber);
+      const grossSalary = parseCsvNumber(row.grossSalary);
       const profile = {
         first_name: firstName, last_name: lastName, gender: detectGenderFromTitle(name),
         father_husband_name: row.fatherHusbandName, mother_name: row.motherName,
-        phone_number: row.phoneNumber, nic_number: row.nicNumber,
+        phone_number: phoneNumber, nic_number: formatNic(row.nicNumber),
         bank_name: row.bankName, account_no: row.accountNo, iban: row.iban, account_title: row.accountTitle,
         date_of_birth: parseCsvDate(row.dateOfBirth), nationality: row.nationality,
         designation: row.designation, join_date: parseCsvDate(row.joinDate), job_end_date: parseCsvDate(row.jobEndDate),
         home_address: row.homeAddress,
+        // Payroll reads ONLY gross_salary (routes/payroll.js) — this is the
+        // field whose absence was paying everyone as "Salary not added".
+        // salary/hra/utility_allowance are split out the same way the
+        // Add/Edit Employee form's own live calculator does (EMP_SALARY_SPLIT
+        // in the front end), purely for the payslip breakdown display.
+        gross_salary: grossSalary,
+        salary: grossSalary != null ? +(grossSalary * 0.6).toFixed(2) : undefined,
+        hra: grossSalary != null ? +(grossSalary * 0.3).toFixed(2) : undefined,
+        utility_allowance: grossSalary != null ? +(grossSalary * 0.1).toFixed(2) : undefined,
+        // A phone number with no country on file yet defaults to Pakistan —
+        // see the COALESCE guard below, which only fills this in when the
+        // employee doesn't already have one set (never overwrites a
+        // deliberately-chosen country, e.g. someone based in the UAE).
+        phone_country: phoneNumber ? 'PK' : undefined,
+        phone_code: phoneNumber ? '+92' : undefined,
       };
       const cols = Object.keys(profile).filter((c) => profile[c] !== undefined && profile[c] !== null && profile[c] !== '');
       if (cols.length) {
-        const updateSql = cols.map((c) => `${c} = VALUES(${c})`).join(', ');
+        const updateSql = cols.map((c) => (
+          (c === 'phone_country' || c === 'phone_code') ? `${c} = COALESCE(${c}, VALUES(${c}))` : `${c} = VALUES(${c})`
+        )).join(', ');
         await pool.query(
           `INSERT INTO erp_employee_profile (employee_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})
            ON DUPLICATE KEY UPDATE ${updateSql}`,
