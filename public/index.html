@@ -1232,9 +1232,18 @@ function rptSummaryRows(){
   for(const r of RPT_SUMMARY){
     if(r.unmapped||!r.employeeId)continue;
     let s=by.get(r.employeeId);
-    if(!s){s={code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,ot:0};by.set(r.employeeId,s);}
+    if(!s){s={empId:r.employeeId,code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,ot:0,lateIncidents:[],forcedLate:0};by.set(r.employeeId,s);}
     switch(r.dayType){
-      case 'Present':s.punch++;if(r.late){s.late++;s.lateMin+=r.lateMinutes||0;}break;
+      case 'Present':
+        s.punch++;
+        if(r.late){
+          s.late++;s.lateMin+=r.lateMinutes||0;
+          // Mirrors payroll's own forgiveness pool (see routes/payroll.js):
+          // only a late with a verified check-in time has minutes to offset
+          // against overtime; a missing-check-in late can never be forgiven.
+          if(r.checkIn)s.lateIncidents.push(r.lateMinutes||0);else s.forcedLate++;
+        }
+        break;
       case 'Field':s.field++;break;
       case 'Absent':s.absent++;break;
       case 'Leave':s.leave+=r.leaveRequestType==='Half Day'?0.5:1;break;
@@ -1244,6 +1253,29 @@ function rptSummaryRows(){
     s.ot+=r.overtimeMinutes||0;
   }
   return [...by.values()].sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
+}
+// Same smallest-forgiven-first rule payroll.js's monthly overtime pool uses —
+// kept here as its own small function so the Attendance Report's "Lates
+// after OT settlement" card always matches what payroll would actually
+// deduct for the same days, without needing a payroll run to see it.
+function rptSettledLates(lateIncidents,forcedLate,otMinutes){
+  let pool=otMinutes||0,unforgiven=0;
+  for(const m of lateIncidents.slice().sort((a,b)=>a-b)){ if(pool>=m)pool-=m;else unforgiven++; }
+  return unforgiven+(forcedLate||0);
+}
+// The OT (min) card's click target — every day in the current report range
+// where this employee actually earned overtime (reuses the same Punches
+// modal the Live Attendance screen's day rows open).
+function rptShowOtDays(empId){
+  const days=RPT_SUMMARY.filter(r=>String(r.employeeId)===String(empId)&&(r.overtimeMinutes||0)>0).sort((a,b)=>a.date.localeCompare(b.date));
+  const name=days.length?days[0].name:'';
+  document.getElementById('attmodal-title').textContent=(name?name+' — ':'')+'Overtime days';
+  document.getElementById('attmodal-body').innerHTML=days.length
+   ?'<table><thead><tr><th>Date</th><th>Check Out</th><th class="num">OT (min)</th></tr></thead><tbody>'+
+     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+'</td><td class="num">'+r.overtimeMinutes+'</td></tr>').join('')+
+     '</tbody></table>'
+   :'<div class="empty">No overtime in this range.</div>';
+  openModal('attmodal');
 }
 function rptBuildSummary(){
   const headers=['Emp Code','Name','Department','Present (Punch)','Field Days','Total Present','Absent','Late','Late (min)','Paid Leave','Unpaid Leave','Off / Holidays','OT (min)'];
@@ -1261,8 +1293,16 @@ function rptSummaryHtml(){
   if(!rows.length)return '';
   const list=rptSummaryRows();
   const one=list.length===1?list[0]:null;
-  const tile=(l,v,cls)=>'<div class="kpi"><span>'+l+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+v+'</b></div>';
-  const kpis=one?'<div class="kpis" style="margin-bottom:12px">'+tile('Present (Punch)',one.punch)+tile('Field Days',one.field)+tile('Total Present',one.punch+one.field)+tile('Absent',one.absent,one.absent?'warn':'')+tile('Late',one.late,one.late?'warn':'')+tile('Leave',one.leave+one.lwp)+'</div>':'';
+  const tile=(l,v,cls,extra)=>'<div class="kpi"'+(extra||'')+'><span>'+l+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+v+'</b></div>';
+  let kpis='';
+  if(one){
+    const settled=rptSettledLates(one.lateIncidents,one.forcedLate,one.ot);
+    kpis='<div class="kpis" style="margin-bottom:12px">'+tile('Present (Punch)',one.punch)+tile('Field Days',one.field)+tile('Total Present',one.punch+one.field)+
+      tile('Absent',one.absent,one.absent?'warn':'')+tile('Late',one.late,one.late?'warn':'')+
+      tile('OT (min)',one.ot,'',one.ot?' style="cursor:pointer" onclick="rptShowOtDays(\''+esc(one.empId)+'\')" title="Click to see which days had overtime"':'')+
+      tile('Lates after OT settlement',settled,settled?'warn':'',' title="Same smallest-lates-forgiven-first rule Payroll uses"')+
+      tile('Leave',one.leave+one.lwp)+'</div>';
+  }
   return '<div style="margin-bottom:16px"><b style="font-size:12.5px">Summary</b> <span class="hint">— Total Present = Present (Punch) + Field Days'+(one?' · '+esc(one.name):'')+'</span>'+
     '<div style="margin:6px 0 10px;display:flex;gap:8px;flex-wrap:wrap">'+
      '<button class="btn ghost small" onclick="rptExportXls(\'summary\')">⬇ Excel</button>'+
@@ -1317,8 +1357,8 @@ function rptBuildPdfDoc(){
   if(!rows.length)return null;
   const doc=new PdfDoc({landscape:true});
   doc.header('TMS TIME SHEET',window.__rptFrom+' to '+window.__rptTo);
-  const sm=rptBuildSummary();
-  if(sm.rows.length){doc.need(40);doc.text(doc.mL,doc.y,'SUMMARY  (Total Present = Present (Punch) + Field Days)',9,true);doc.y-=14;doc.table(sm.headers,sm.rows.map(r=>r.map(c=>c==null?'':String(c))));}
+  // The on-screen Summary (stat cards + per-employee table) stays
+  // screen/Excel/CSV-only — it doesn't belong on the printed timesheet.
   doc.table(headers,rows);
   return doc;
 }
@@ -3067,22 +3107,6 @@ async function evAttInit(e){
   const fromEl=document.getElementById('ev-att-from'),toEl=document.getElementById('ev-att-to');
   if(fromEl)fromEl.value=monthFrom;
   if(toEl)toEl.value=monthTo;
-  const kEl=document.getElementById('ev-att-kpis');
-  try{
-    const rows=await api('/api/attendance/summary?from='+monthFrom+'&to='+monthTo+'&q='+encodeURIComponent(e.employeeId));
-    const lates=rows.filter(r=>r.late).length;
-    const absents=rows.filter(r=>r.dayType==='Absent').length;
-    const presents=rows.filter(r=>r.dayType==='Present'||r.dayType==='Field').length;
-    const leaves=rows.filter(r=>r.dayType==='Leave'||r.dayType==='LeaveWithoutPay').length;
-    if(kEl)kEl.innerHTML=
-     '<div class="hint" style="grid-column:1/-1;margin-bottom:2px">Company month-to-date: '+monthFrom+' → '+monthTo+'</div>'+
-     '<div class="kpi"><span>Lates</span><b'+(lates?' class="warn"':'')+'>'+lates+'</b></div>'+
-     '<div class="kpi"><span>Absents</span><b'+(absents?' class="warn"':'')+'>'+absents+'</b></div>'+
-     '<div class="kpi"><span>Presents</span><b>'+presents+'</b></div>'+
-     '<div class="kpi"><span>Leaves</span><b>'+leaves+'</b></div>';
-  }catch(err){
-    if(kEl)kEl.innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
-  }
   await evAttGenerate();
 }
 let EV_ATT_ROWS=[],EV_ATT_EMP=null,EV_ATT_PDF_URL=null;
@@ -3093,6 +3117,23 @@ function evAttToggleShow(){
   resEl.style.display=showing?'none':'block';
   btn.textContent=showing?'Show Attendance':'Hide Attendance';
 }
+// Stat cards reflect whatever range evAttGenerate() last fetched — rebuilt
+// here from EV_ATT_ROWS (no separate API call) so Generate always refreshes
+// both the cards and the table/PDF from the exact same data.
+function evAttRenderKpis(from,to){
+  const kEl=document.getElementById('ev-att-kpis');if(!kEl)return;
+  const rows=EV_ATT_ROWS;
+  const lates=rows.filter(r=>r.late).length;
+  const absents=rows.filter(r=>r.dayType==='Absent').length;
+  const presents=rows.filter(r=>r.dayType==='Present'||r.dayType==='Field').length;
+  const leaves=rows.filter(r=>r.dayType==='Leave'||r.dayType==='LeaveWithoutPay').length;
+  kEl.innerHTML=
+   '<div class="hint" style="grid-column:1/-1;margin-bottom:2px">'+from+' → '+to+'</div>'+
+   '<div class="kpi"><span>Lates</span><b'+(lates?' class="warn"':'')+'>'+lates+'</b></div>'+
+   '<div class="kpi"><span>Absents</span><b'+(absents?' class="warn"':'')+'>'+absents+'</b></div>'+
+   '<div class="kpi"><span>Presents</span><b>'+presents+'</b></div>'+
+   '<div class="kpi"><span>Leaves</span><b>'+leaves+'</b></div>';
+}
 async function evAttGenerate(){
   const e=EMP_LIST.find(r=>String(r.id)===String(EMP_VIEW_ID));
   if(!e)return;
@@ -3100,11 +3141,13 @@ async function evAttGenerate(){
   const fromEl=document.getElementById('ev-att-from'),toEl=document.getElementById('ev-att-to');
   const from=fromEl?fromEl.value:today(),to=toEl?toEl.value:today();
   const resEl=document.getElementById('ev-att-result');
+  const kEl=document.getElementById('ev-att-kpis');
   if(!resEl)return;
   try{
     const rows=await api('/api/attendance/summary?from='+from+'&to='+to+'&q='+encodeURIComponent(e.employeeId));
     EV_ATT_ROWS=rows.slice().sort((a,b)=>a.date.localeCompare(b.date));
     window.__evAttFrom=from;window.__evAttTo=to;
+    evAttRenderKpis(from,to);
     const{headers,rows:tblRows}=evAttBuildDetailed();
     document.getElementById('ev-att-preview').innerHTML=tblRows.length
      ?'<table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
@@ -3112,6 +3155,7 @@ async function evAttGenerate(){
      :'<div class="empty">No attendance found for this range.</div>';
     evAttRenderPdfPreview();
   }catch(err){
+    if(kEl)kEl.innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
     document.getElementById('ev-att-preview').innerHTML='<div class="empty">Failed to load: '+esc(err.message)+'</div>';
   }
 }

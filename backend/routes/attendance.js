@@ -333,6 +333,12 @@ async function computeAttendanceRows(from, to, filter = {}) {
           // (there's nothing to compare the missing check-in against).
           late = true;
         }
+        // Company policy: Saturday is NEVER late, period — not for a
+        // Permanent employee's later (11:00) Saturday start, not for anyone
+        // else's normal start, whether the day turns out to be a free/
+        // WeeklyOff Saturday or a working one. Overrides whatever was just
+        // computed above, including the missing-check-in case.
+        if (dow === 6) { late = false; lateMinutes = 0; }
         // Overtime: a QUALIFYING THRESHOLD, not a grace deduction (only
         // computable when a shift_end is actually configured — see PUT
         // /shift/:employeeId). Staying less than OVERTIME_MIN_MINUTES past
