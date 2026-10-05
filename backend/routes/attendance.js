@@ -25,12 +25,13 @@ const router = express.Router();
 // attendance-agent/agent.js's getAttendancesRaw) — a real device status,
 // not a guess.
 const VERIFY_STATE_LABELS = { 0: 'Check-in', 1: 'Check-out', 2: 'Break-out', 3: 'Break-in', 4: 'OT-in', 5: 'OT-out' };
-// Minimum time sitting past shift_end before ANY of it counts as overtime —
-// a qualifying threshold, not a grace deduction: staying 59 minutes late
-// earns 0 overtime, staying exactly 60 (or more) earns the WHOLE late-sitting
-// duration as overtime, not just the minutes past 60. E.g. shift end 5:30:
-// checkout 6:29 -> 0 OT; checkout 6:30 -> 60 OT; checkout 6:45 -> 75 OT.
-const OVERTIME_MIN_MINUTES = 60;
+// Minutes sitting past shift_end needed for the day to count as a "late
+// sitting" — a qualifying threshold: staying 59 minutes late earns nothing,
+// staying 60 or more earns ONE late sitting for that day, no matter how much
+// further past 60 it goes (75 min and 3 hours both count as exactly 1 late
+// sitting — this is no longer a minutes/overtime figure, see payroll.js for
+// how a late sitting is then used to offset a late arrival, day for day).
+const LATE_SITTING_MIN_MINUTES = 60;
 // Saturday shift start for Permanent employees is later than their normal
 // weekday start (11:00 instead of the usual 9:00) — Probation/Contract etc.
 // employees work Saturday on their normal shift_start (they get none of the
@@ -181,9 +182,9 @@ router.get('/locations', requireHr, async (req, res) => {
 // check-in/check-out use the REAL status the K70 reports (in_out_mode)
 // whenever any punch that day has one; "late" is computed against the
 // employee's own shift start (see PUT /shift/:employeeId), and
-// lateMinutes/overtimeMinutes (beyond shift_end, when set) ride along too —
-// payroll needs the actual minutes, not just the boolean, for its "3 lates =
-// 1 absent, offset by same-day overtime" rule.
+// lateSitting (beyond shift_end, when set) rides along too — payroll needs
+// the day-by-day flag, not just a monthly total, for its "3 lates = 1
+// absent, offset by a late sitting" rule.
 async function computeAttendanceRows(from, to, filter = {}) {
   const rangeFrom = parseYMD(from), rangeTo = parseYMD(to);
   // The whole calendar months the range touches. The company's payroll cycle
@@ -308,7 +309,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
       // shift; every other employment type works Saturday on their normal start.
       const shiftStart = (dow === 6 && emp.employment_type === 'Permanent') ? SATURDAY_SHIFT_START_PERMANENT : weekdayShiftStart;
 
-      let checkIn = null, checkOut = null, late = false, lateMinutes = 0, overtimeMinutes = 0;
+      let checkIn = null, checkOut = null, late = false, lateMinutes = 0, lateSitting = false, lateSittingMinutes = 0;
       if (punches.length) {
         const hasKnownStatus = punches.some((p) => p.mode !== null && p.mode !== undefined);
         if (hasKnownStatus) {
@@ -339,20 +340,21 @@ async function computeAttendanceRows(from, to, filter = {}) {
         // WeeklyOff Saturday or a working one. Overrides whatever was just
         // computed above, including the missing-check-in case.
         if (dow === 6) { late = false; lateMinutes = 0; }
-        // Overtime: a QUALIFYING THRESHOLD, not a grace deduction (only
-        // computable when a shift_end is actually configured — see PUT
-        // /shift/:employeeId). Staying less than OVERTIME_MIN_MINUTES past
-        // shift_end earns nothing; staying that long or more earns the WHOLE
-        // late-sitting duration, not just the part past the threshold.
-        // Payroll uses the resulting minutes to offset lateMinutes from
-        // elsewhere in the pay cycle (an employee who leaves late having also
-        // arrived late isn't double-penalized if overtime covers it).
+        // Late sitting: a QUALIFYING THRESHOLD (only computable when a
+        // shift_end is actually configured — see PUT /shift/:employeeId).
+        // Staying less than LATE_SITTING_MIN_MINUTES past shift_end earns
+        // nothing; staying that long or more earns exactly ONE late sitting
+        // for the day — not minutes, a flat count. Payroll uses the day's
+        // total late-sitting COUNT to cancel out late ARRIVALS one-for-one
+        // (an employee who leaves late having also arrived late isn't
+        // double-penalized if a late sitting covers it) — no longer a
+        // minutes-for-minutes offset.
         if (checkOut && emp.shift_end) {
           const [eh, em2] = String(emp.shift_end).slice(0, 5).split(':').map(Number);
           const shiftEndAt = new Date(checkOut);
           shiftEndAt.setHours(eh, em2, 0, 0);
-          const lateSittingMinutes = Math.round((checkOut - shiftEndAt) / 60000);
-          if (lateSittingMinutes >= OVERTIME_MIN_MINUTES) overtimeMinutes = lateSittingMinutes;
+          const mins = Math.round((checkOut - shiftEndAt) / 60000);
+          if (mins >= LATE_SITTING_MIN_MINUTES) { lateSitting = true; lateSittingMinutes = mins; }
         }
       }
 
@@ -394,7 +396,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
         fieldBreakEarned: dayType === 'Field' && (dow === 0 || !!holiday),
         unmapped: false, department: emp.department, location: punchLoc || emp.location,
         checkIn, checkOut, punches: punches.length,
-        shiftStart, graceMinutes: emp.grace_minutes, late, lateMinutes, overtimeMinutes,
+        shiftStart, graceMinutes: emp.grace_minutes, late, lateMinutes, lateSitting, lateSittingMinutes,
         dayType, holidayName: holiday ? holiday.name : null,
         onLeave: dayType === 'Leave' || dayType === 'LeaveWithoutPay',
         // dayOfWeek (0=Sunday..6=Saturday) so a WeeklyOff day can be shown/
@@ -437,7 +439,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
       date: r.day, employeeId: null, employeeCode: r.device_user_id, name: r.device_user_name || null,
       unmapped: true, department: null, location: (punches.find((p) => p.location) || {}).location || null,
       checkIn, checkOut, punches: punches.length,
-      shiftStart: null, graceMinutes: null, late: false, lateMinutes: 0, overtimeMinutes: 0,
+      shiftStart: null, graceMinutes: null, late: false, lateMinutes: 0, lateSitting: false, lateSittingMinutes: 0,
       dayType: 'Present', holidayName: null, onLeave: false, dayOfWeek: parseYMD(r.day).getDay(), leaveType: null, leaveRequestType: null, leaveDocNo: null,
     });
   }

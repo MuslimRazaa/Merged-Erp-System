@@ -25,20 +25,18 @@
      LeaveWithoutPay        Half Day request -> 0.5 deducted day, else 1
    Half-day pay is driven ONLY by an actual Half-Day leave request
    (leave_request_type) — never inferred from a missing punch.
-   Late: every 3 late arrivals (after the overtime offset below) = 1 extra
-   deducted day (latePenaltyDays). Overtime is a QUALIFYING THRESHOLD, not a
-   grace deduction (see attendance.js's OVERTIME_MIN_MINUTES): staying less
-   than 60 minutes past shift_end earns 0 overtime, staying 60 minutes or
-   more earns the WHOLE late-sitting duration, not just the part past 60 —
-   shift end 5:30, checkout 6:29 -> 0 OT; checkout 6:30 -> 60 OT; checkout
-   6:45 -> 75 OT. Overtime offset is a MONTHLY POOL, not just same-day:
-   total overtime minutes across the whole selected range can forgive
-   lateness from ANY day in it, not only the day it was earned on (late 09:45
-   today, 30 min overtime tomorrow still forgives today's lateness) —
-   SMALLEST lates are forgiven first, so the pool clears as many incidents as
-   possible before the biggest ones (each incident is fully forgiven or not
-   at all, no partial credit). A missing-check-in Late has no minutes to compare, so
-   it's never forgiven by the pool — it always counts.
+   Late: every 3 late arrivals (after the late-sitting offset below) = 1
+   extra deducted day (latePenaltyDays). A LATE SITTING (attendance.js's
+   LATE_SITTING_MIN_MINUTES — staying 60+ minutes past shift_end) is a flat
+   COUNT, not minutes: one late sitting cancels exactly one late arrival,
+   day for day — not weighted by how late the arrival was or how long the
+   sitting ran. This is a MONTHLY POOL, not just same-day: a late sitting on
+   any day in the selected range can cancel a late arrival on any OTHER day
+   in it (late arrival on the 3rd, late sitting on the 20th still cancels
+   it) — which late arrival gets cancelled doesn't matter since it's a flat
+   1-for-1 swap, so there's no "smallest first" ordering to worry about
+   anymore. A missing-check-in Late can never be cancelled this way — it
+   always counts.
    Per-Day Rate = Gross Salary ÷ (days in the PAYROLL MONTH — 30/31/28/29,
    whichever calendar month the "To" date falls in). This is fixed by the
    month, NOT by how many days happen to be in the selected date range — a
@@ -253,18 +251,17 @@ router.post('/generate', requireHr, async (req, res) => {
     // ordinary "Weekly Off".
     let fieldDays = 0; // present because a JLR field job covers the day (no machine punch)
     let presentDays = 0, absentDays = 0, sundayDays = 0, saturdayOffDays = 0, holidayDays = 0, paidLeaveDays = 0, unpaidLeaveDays = 0;
-    let overtimeMinutesTotal = 0;
+    let lateSittingsTotal = 0; // count of days with a qualifying late sitting, not minutes
     const reviewFlags = [];
-    // Late/overtime offset is a MONTHLY POOL, not just same-day: today's
-    // lateness can be forgiven by overtime worked on ANY other day in this
-    // payroll run (before or after) — e.g. late 09:45 today, then 30 min
-    // overtime tomorrow, forgives today's lateness once the pool covers it.
-    // A missing-check-in Late has no measurable minutes, so it always
-    // counts and never draws from the pool.
-    const lateIncidents = []; // {date, lateMinutes} — only for measurable (check-in present) lates
+    // Late-sitting offset is a MONTHLY POOL, not just same-day: a late
+    // sitting on any day in this payroll run can cancel a late arrival on
+    // ANY other day in it (before or after) — e.g. late arrival on the 3rd,
+    // a late sitting on the 20th still cancels it. A missing-check-in Late
+    // can never be cancelled this way, so it always counts.
+    let forgivableLateCount = 0; // measurable (check-in present) lates
     let forcedLateCount = 0; // missing-check-in lates — always counted
     for (const d of days) {
-      overtimeMinutesTotal += d.overtimeMinutes || 0;
+      if (d.lateSitting) lateSittingsTotal++;
       if (d.dayType === 'Present') {
         // Present is always a full paid day regardless of which punch is
         // missing — half-day pay only ever comes from an actual Half-Day
@@ -274,7 +271,7 @@ router.post('/generate', requireHr, async (req, res) => {
         if (!d.checkIn) reviewFlags.push(`${d.date}: Check-in missing — manual review`);
         if (d.late) {
           if (!d.checkIn) forcedLateCount++;
-          else lateIncidents.push({ date: d.date, lateMinutes: d.lateMinutes });
+          else forgivableLateCount++;
         }
       } else if (d.dayType === 'Field') { presentDays++; fieldDays++; } // out on a job (JLR) instead of at an office machine — paid the same as Present
       else if (d.dayType === 'Absent') absentDays++;
@@ -283,19 +280,13 @@ router.post('/generate', requireHr, async (req, res) => {
       else if (d.dayType === 'Leave') paidLeaveDays += d.leaveRequestType === 'Half Day' ? 0.5 : 1;
       else if (d.dayType === 'LeaveWithoutPay') unpaidLeaveDays += d.leaveRequestType === 'Half Day' ? 0.5 : 1;
     }
-    // Forgive the SMALLEST lates first — maximizes how many incidents the
-    // available overtime pool can clear (each fully forgiven or not at all,
-    // no partial credit) before the "3 lates = 1 absent" count is taken.
-    let otPool = overtimeMinutesTotal;
-    lateIncidents.sort((a, b) => a.lateMinutes - b.lateMinutes);
-    let unforgivenLateCount = 0;
-    for (const inc of lateIncidents) {
-      if (otPool >= inc.lateMinutes) otPool -= inc.lateMinutes;
-      else unforgivenLateCount++;
-    }
+    // Each late sitting cancels exactly one late arrival — a flat count
+    // swap, so which specific arrival gets cancelled doesn't matter and
+    // there's no "smallest first" ordering needed anymore.
+    const lateForgivenByLateSitting = Math.min(forgivableLateCount, lateSittingsTotal);
+    const unforgivenLateCount = forgivableLateCount - lateForgivenByLateSitting;
     const lateCount = unforgivenLateCount + forcedLateCount;
-    const lateArrivals = lateIncidents.length + forcedLateCount;          // every late arrival, before overtime forgiveness
-    const lateForgivenByOvertime = lateIncidents.length - unforgivenLateCount;
+    const lateArrivals = forgivableLateCount + forcedLateCount; // every late arrival, before late-sitting forgiveness
     const weeklyOffDays = sundayDays + saturdayOffDays;
 
     const latePenaltyDays = Math.floor(lateCount / 3);
@@ -333,7 +324,7 @@ router.post('/generate', requireHr, async (req, res) => {
       currency: (profile && profile.currency) || 'AED',
       grossSalary, salaryMissing, daysInMonth, totalDaysInRange, perDayRate,
       presentDays, fieldDays, officeDays: presentDays - fieldDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
-      lateCount, lateArrivals, lateForgivenByOvertime, latePenaltyDays, overtimeMinutesTotal,
+      lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal,
       paidDays, netPaidDays, baseDays,
       otherDeductionAmount, lateDeductionAmount, incomeTax, netSalary,
       fieldAllowancePerDay, fieldShiftDays, fieldAllowanceTotal,
