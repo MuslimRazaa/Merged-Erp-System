@@ -101,6 +101,20 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 #emp-form-page .emp-sec{padding:6px 2px 2px}
 #emp-form-page .card-b{padding:22px 26px}
 .field.full{grid-column:1/-1}
+/* searchable dropdown */
+.selx{position:relative}
+.selx-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;text-align:left}
+.selx-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.selx-btn .cv{opacity:.45;font-size:10px}
+.selx-pan{position:absolute;z-index:70;left:0;right:auto;top:calc(100% + 4px);min-width:100%;width:max-content;max-width:min(560px,92vw);background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px rgba(8,14,25,.22);display:none;overflow:hidden}
+.selx.open .selx-pan{display:block}
+.selx-q{width:100%;padding:11px 13px;font-size:14px;border:0;border-bottom:1px solid var(--line);outline:none}
+.selx-list{max-height:min(420px,60vh);overflow:auto}
+.selx-opt{padding:9px 13px;cursor:pointer;font-size:13.5px;line-height:1.35}
+.selx-opt:hover,.selx-opt.on{background:var(--bg)}
+.selx-grp{padding:9px 13px 5px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);background:var(--bg);position:sticky;top:0}
+.selx-none{padding:12px 13px;color:var(--faint);font-size:13px}
+
 .actions{display:flex;gap:9px;margin-top:13px;flex-wrap:wrap}
 /* ---------- tables ---------- */
 .tblwrap{overflow-x:auto}
@@ -1232,16 +1246,16 @@ function rptSummaryRows(){
   for(const r of RPT_SUMMARY){
     if(r.unmapped||!r.employeeId)continue;
     let s=by.get(r.employeeId);
-    if(!s){s={empId:r.employeeId,code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,ot:0,lateIncidents:[],forcedLate:0};by.set(r.employeeId,s);}
+    if(!s){s={empId:r.employeeId,code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,lateSittings:0,forgivableLate:0,forcedLate:0};by.set(r.employeeId,s);}
     switch(r.dayType){
       case 'Present':
         s.punch++;
         if(r.late){
           s.late++;s.lateMin+=r.lateMinutes||0;
           // Mirrors payroll's own forgiveness pool (see routes/payroll.js):
-          // only a late with a verified check-in time has minutes to offset
-          // against overtime; a missing-check-in late can never be forgiven.
-          if(r.checkIn)s.lateIncidents.push(r.lateMinutes||0);else s.forcedLate++;
+          // only a late with a verified check-in time can be cancelled by a
+          // late sitting; a missing-check-in late can never be forgiven.
+          if(r.checkIn)s.forgivableLate++;else s.forcedLate++;
         }
         break;
       case 'Field':s.field++;break;
@@ -1250,37 +1264,39 @@ function rptSummaryRows(){
       case 'LeaveWithoutPay':s.lwp+=r.leaveRequestType==='Half Day'?0.5:1;break;
       default:s.off++; // WeeklyOff / Holiday / CompanyOff
     }
-    s.ot+=r.overtimeMinutes||0;
+    if(r.lateSitting)s.lateSittings++;
   }
   return [...by.values()].sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
 }
-// Same smallest-forgiven-first rule payroll.js's monthly overtime pool uses —
-// kept here as its own small function so the Attendance Report's "Lates
-// after OT settlement" card always matches what payroll would actually
-// deduct for the same days, without needing a payroll run to see it.
-function rptSettledLates(lateIncidents,forcedLate,otMinutes){
-  let pool=otMinutes||0,unforgiven=0;
-  for(const m of lateIncidents.slice().sort((a,b)=>a-b)){ if(pool>=m)pool-=m;else unforgiven++; }
-  return unforgiven+(forcedLate||0);
+// Same flat count-for-count swap payroll.js's monthly late-sitting pool
+// uses — kept here as its own small function so the Attendance Report's
+// "Lates after Late-Sitting Offset" card always matches what payroll would
+// actually deduct for the same days, without needing a payroll run to see it.
+// One late sitting cancels exactly one forgivable late arrival — a flat
+// count, not weighted by minutes — so which arrival gets cancelled doesn't
+// matter, only the totals do.
+function rptSettledLates(forgivableLate,forcedLate,lateSittings){
+  const forgiven=Math.min(forgivableLate||0,lateSittings||0);
+  return (forgivableLate||0)-forgiven+(forcedLate||0);
 }
-// The OT (min) card's click target — every day in the current report range
-// where this employee actually earned overtime (reuses the same Punches
-// modal the Live Attendance screen's day rows open).
-function rptShowOtDays(empId){
-  const days=RPT_SUMMARY.filter(r=>String(r.employeeId)===String(empId)&&(r.overtimeMinutes||0)>0).sort((a,b)=>a.date.localeCompare(b.date));
+// The Late Sittings card's click target — every day in the current report
+// range where this employee sat 60+ min past shift end (reuses the same
+// Punches modal the Live Attendance screen's day rows open).
+function rptShowLateSittingDays(empId){
+  const days=RPT_SUMMARY.filter(r=>String(r.employeeId)===String(empId)&&r.lateSitting).sort((a,b)=>a.date.localeCompare(b.date));
   const name=days.length?days[0].name:'';
-  document.getElementById('attmodal-title').textContent=(name?name+' — ':'')+'Overtime days';
+  document.getElementById('attmodal-title').textContent=(name?name+' — ':'')+'Late sitting days';
   document.getElementById('attmodal-body').innerHTML=days.length
-   ?'<table><thead><tr><th>Date</th><th>Check Out</th><th class="num">OT (min)</th></tr></thead><tbody>'+
-     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+'</td><td class="num">'+r.overtimeMinutes+'</td></tr>').join('')+
+   ?'<table><thead><tr><th>Date</th><th>Check Out</th><th class="num">Minutes past shift end</th></tr></thead><tbody>'+
+     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+'</td><td class="num">'+(r.lateSittingMinutes||0)+'</td></tr>').join('')+
      '</tbody></table>'
-   :'<div class="empty">No overtime in this range.</div>';
+   :'<div class="empty">No late sittings in this range.</div>';
   openModal('attmodal');
 }
 function rptBuildSummary(){
-  const headers=['Emp Code','Name','Department','Present (Punch)','Field Days','Total Present','Absent','Late','Late (min)','Paid Leave','Unpaid Leave','Off / Holidays','OT (min)'];
+  const headers=['Emp Code','Name','Department','Present (Punch)','Field Days','Total Present','Absent','Late','Late (min)','Paid Leave','Unpaid Leave','Off / Holidays','Late Sittings'];
   const list=rptSummaryRows();
-  const rows=list.map(s=>[s.code,s.name,s.dept,s.punch,s.field,s.punch+s.field,s.absent,s.late,s.lateMin,s.leave,s.lwp,s.off,s.ot]);
+  const rows=list.map(s=>[s.code,s.name,s.dept,s.punch,s.field,s.punch+s.field,s.absent,s.late,s.lateMin,s.leave,s.lwp,s.off,s.lateSittings]);
   if(list.length>1){
     const t=(i)=>rows.reduce((a,r)=>a+r[i],0);
     rows.push(['','TOTAL ('+list.length+' employees)','',t(3),t(4),t(5),t(6),t(7),t(8),t(9),t(10),t(11),t(12)]);
@@ -1296,11 +1312,11 @@ function rptSummaryHtml(){
   const tile=(l,v,cls,extra)=>'<div class="kpi"'+(extra||'')+'><span>'+l+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+v+'</b></div>';
   let kpis='';
   if(one){
-    const settled=rptSettledLates(one.lateIncidents,one.forcedLate,one.ot);
+    const settled=rptSettledLates(one.forgivableLate,one.forcedLate,one.lateSittings);
     kpis='<div class="kpis" style="margin-bottom:12px">'+tile('Present (Punch)',one.punch)+tile('Field Days',one.field)+tile('Total Present',one.punch+one.field)+
       tile('Absent',one.absent,one.absent?'warn':'')+tile('Late',one.late,one.late?'warn':'')+
-      tile('OT (min)',one.ot,'',one.ot?' style="cursor:pointer" onclick="rptShowOtDays(\''+esc(one.empId)+'\')" title="Click to see which days had overtime"':'')+
-      tile('Lates after OT settlement',settled,settled?'warn':'',' title="Same smallest-lates-forgiven-first rule Payroll uses"')+
+      tile('Late Sittings',one.lateSittings,'',one.lateSittings?' style="cursor:pointer" onclick="rptShowLateSittingDays(\''+esc(one.empId)+'\')" title="Click to see which days had a late sitting (60+ min past shift end)"':'')+
+      tile('Lates after Late-Sitting Offset',settled,settled?'warn':'',' title="Each late sitting cancels exactly one late arrival, 1-for-1 — same rule Payroll uses"')+
       tile('Leave',one.leave+one.lwp)+'</div>';
   }
   return '<div style="margin-bottom:16px"><b style="font-size:12.5px">Summary</b> <span class="hint">— Total Present = Present (Punch) + Field Days'+(one?' · '+esc(one.name):'')+'</span>'+
@@ -1627,7 +1643,7 @@ function prRenderReport(){
   document.getElementById('pr-preview').innerHTML=rep.rows.length
    ?'<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
-     '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">OT (min)</th><th class="num">Paid Days</th>'+
+     '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
      '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th></tr></thead><tbody>'+
     rep.rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
@@ -1636,7 +1652,7 @@ function prRenderReport(){
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
      '<td class="num">'+r.presentDays+'</td><td class="num">'+r.officeDays+'</td><td class="num">'+r.fieldDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
-     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime (smallest lates forgiven first), '+r.lateCount+' counted (every 3 counted = 1 day deducted). Overtime needs 60+ min past shift end to count at all — once it does, the whole late-sitting time counts, not just the part past 60.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
+     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByLateSitting+' cancelled by a late sitting (1 sitting = 1 late, no matter the minutes), '+r.lateCount+' counted (every 3 counted = 1 day deducted). A late sitting needs 60+ min past shift end to count at all.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByLateSitting+' cancelled</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.lateSittingsTotal+'</td>'+
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
@@ -1650,8 +1666,8 @@ function prRenderReport(){
   prRenderPdfPreview();
 }
 function prReportGrid(){
-  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','OT (min)','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
-  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.overtimeMinutesTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
+  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
@@ -4577,7 +4593,7 @@ function collSet(k,v){lsSet(k,v);}
    the source of truth: a save only counts once the server confirmed it.
    Compliance first; Inventory / Procurement / Fixed Assets are enabled the
    same way by adding their keys here. */
-const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings']);
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings','workorders']);
 function isSrv(k){return SERVER_MODS.has(k);}
 const REC_AT={},REC_BUSY={};
 /* One-time rescue per browser: records (and attached files) that only ever
@@ -4647,10 +4663,109 @@ function recClearCache(){SERVER_MODS.forEach(k=>{try{localStorage.removeItem(P+k
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
+/* ---- searchable dropdown -------------------------------------------------
+   A plain <select> gives no way to find one customer among hundreds, so every
+   long list is picked through this instead: the control opens a panel with a
+   search box at the top and filters as you type.
+
+   The chosen value also lives in a hidden <input> carrying the same id the
+   old <select> had, so code that reads the field by id (saveRec, for one)
+   needs no change at all. */
+const SELX_CB={};
+function selx(id,value,options,onpick,placeholder){
+  if(onpick)SELX_CB[id]=onpick;
+  const cur=value==null?'':String(value);
+  const opts=(options||[]).map(o=>String(o==null?'':o));
+  if(cur&&opts.indexOf(cur)<0)opts.unshift(cur);          // keep a value that has left the list
+  return '<div class="selx" id="selx-'+id+'">'+
+    '<input type="hidden" id="'+id+'" value="'+esc(cur)+'">'+
+    '<div class="selx-btn" onclick="selxOpen(\''+id+'\',event)"><span>'+
+      (cur?esc(cur):'<span style="opacity:.45">'+esc(placeholder||'')+'</span>')+'</span><span class="cv">\u25be</span></div>'+
+    '<div class="selx-pan">'+
+      '<input class="selx-q" placeholder="Search\u2026" oninput="selxFilter(\''+id+'\')" onkeydown="selxKey(\''+id+'\',event)">'+
+      '<div class="selx-list">'+selxOptsHtml(id,opts,cur)+'</div>'+
+    '</div></div>';
+}
+/* Same control, but the options arrive as [heading, [options]] pairs â€” used
+   for the report-type picker, where 89 formats are grouped by category. A
+   heading disappears while nothing under it matches the search. */
+function selxGroups(id,value,groups,onpick,placeholder,noClear){
+  if(onpick)SELX_CB[id]=onpick;
+  const cur=value==null?'':String(value);
+  let body=noClear?'':'<div class="selx-opt" data-v="" data-g="" onclick="selxPick(\''+id+'\',\'\')"><span style="opacity:.5">\u2014 none \u2014</span></div>';
+  let found=false;
+  (groups||[]).forEach(([g,list])=>{
+    body+='<div class="selx-grp" data-gh="'+esc(g)+'">'+esc(g)+'</div>';
+    (list||[]).forEach(o=>{
+      o=String(o==null?'':o);
+      if(o===cur)found=true;
+      body+='<div class="selx-opt'+(o===cur?' on':'')+'" data-v="'+esc(o)+'" data-g="'+esc(g)+'" onclick="selxPick(\''+id+'\',this.dataset.v)">'+esc(o)+'</div>';
+    });
+  });
+  if(cur&&!found)body='<div class="selx-opt on" data-v="'+esc(cur)+'" data-g="" onclick="selxPick(\''+id+'\',this.dataset.v)">'+esc(cur)+'</div>'+body;
+  return '<div class="selx" id="selx-'+id+'">'+
+    '<input type="hidden" id="'+id+'" value="'+esc(cur)+'">'+
+    '<div class="selx-btn" onclick="selxOpen(\''+id+'\',event)"><span>'+
+      (cur?esc(cur):'<span style="opacity:.45">'+esc(placeholder||'')+'</span>')+'</span><span class="cv">\u25be</span></div>'+
+    '<div class="selx-pan">'+
+      '<input class="selx-q" placeholder="Search\u2026" oninput="selxFilter(\''+id+'\')" onkeydown="selxKey(\''+id+'\',event)">'+
+      '<div class="selx-list">'+body+'</div>'+
+    '</div></div>';
+}
+function selxOptsHtml(id,opts,cur){
+  return '<div class="selx-opt'+(cur===''?' on':'')+'" data-v="" onclick="selxPick(\''+id+'\',\'\')"><span style="opacity:.5">\u2014 none \u2014</span></div>'+
+    opts.map(o=>'<div class="selx-opt'+(o===cur?' on':'')+'" data-v="'+esc(o)+'" onclick="selxPick(\''+id+'\',this.dataset.v)">'+esc(o)+'</div>').join('');
+}
+function selxOpen(id,ev){
+  if(ev)ev.stopPropagation();
+  const w=document.getElementById('selx-'+id);
+  if(!w)return;
+  const wasOpen=w.classList.contains('open');
+  document.querySelectorAll('.selx.open').forEach(e=>e.classList.remove('open'));
+  if(wasOpen)return;
+  w.classList.add('open');
+  const q=w.querySelector('.selx-q');
+  if(q){q.value='';selxFilter(id);q.focus();}
+}
+function selxFilter(id){
+  const w=document.getElementById('selx-'+id);
+  if(!w)return;
+  const q=(w.querySelector('.selx-q').value||'').trim().toLowerCase();
+  let shown=0;
+  w.querySelectorAll('.selx-opt').forEach(o=>{
+    const hit=!q||(o.dataset.v||'').toLowerCase().indexOf(q)>=0;
+    o.hidden=!hit;
+    if(hit)shown++;
+  });
+  w.querySelectorAll('.selx-grp').forEach(h=>{
+    const g=h.dataset.gh;
+    h.hidden=![...w.querySelectorAll('.selx-opt')].some(o=>!o.hidden&&o.dataset.g===g);
+  });
+  const none=w.querySelector('.selx-none');
+  if(none)none.remove();
+  if(!shown)w.querySelector('.selx-list').insertAdjacentHTML('beforeend','<div class="selx-none">Nothing matches that.</div>');
+}
+function selxKey(id,ev){
+  if(ev.key==='Escape'){document.getElementById('selx-'+id).classList.remove('open');return;}
+  if(ev.key!=='Enter')return;
+  ev.preventDefault();
+  const first=[...document.getElementById('selx-'+id).querySelectorAll('.selx-opt')].find(o=>!o.hidden&&o.dataset.v);
+  if(first)selxPick(id,first.dataset.v);
+}
+function selxPick(id,v){
+  const w=document.getElementById('selx-'+id),h=document.getElementById(id);
+  if(!w||!h)return;
+  h.value=v;
+  w.querySelector('.selx-btn span').innerHTML=v?esc(v):'<span style="opacity:.45"></span>';
+  w.querySelectorAll('.selx-opt').forEach(o=>o.classList.toggle('on',(o.dataset.v||'')===v));
+  w.classList.remove('open');
+  if(SELX_CB[id])SELX_CB[id](v);
+}
+document.addEventListener('click',()=>document.querySelectorAll('.selx.open').forEach(e=>e.classList.remove('open')));
 function fieldInput(f,v){
   v=v==null?'':v;
-  if(f.t==='select')return '<select id="f-'+f.k+'">'+f.o.map(o=>'<option'+(o===v?' selected':'')+'>'+o+'</option>').join('')+'</select>';
-  if(f.t==='ref')return '<select id="f-'+f.k+'">'+refOptions(f.coll,f.dk,v)+'</select>';
+  if(f.t==='select')return selx('f-'+f.k,v,f.o.filter(o=>o!==''),null,'\u2014 choose \u2014');
+  if(f.t==='ref')return selx('f-'+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="f-'+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="f-'+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
   return '<input id="f-'+f.k+'" type="'+(f.t==='number'?'number':f.t==='date'?'date':'text')+'"'+(f.t==='number'?' step="0.01"':'')+' value="'+esc(v)+'"'+(f.ph?' placeholder="'+esc(f.ph)+'"':'')+'>';
@@ -5992,25 +6107,6 @@ function renderGlCons(){
    ================================================================ */
 const ID_COLS=[{k:'serial',l:'Serial / ID'},{k:'desc',l:'Description'},{k:'conn',l:'Connection'}];
 const SCHEMAS={
-'Drill Pipe Inspection':{hint:'Dimensional columns per DS-1\u00AE Vol 3 Cat 3-5 / API RP 7G-2 for drill pipe. Record actuals in inches.',groups:[
- {g:'TUBE / BODY',cols:[{k:'dim_od',l:'Tube OD'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_tid',l:'Tube ID'},{k:'dim_tsod',l:'Tool joint OD'},{k:'dim_tjid',l:'Tool joint ID'}]},
- {g:'BOX',cols:[{k:'dim_boxts',l:'Box tong space'},{k:'dim_bevel',l:'Bevel \u00D8'},{k:'dim_boxswl',l:'Box swell'},{k:'dim_srg',l:'SRG width'}]},
- {g:'PIN',cols:[{k:'dim_pints',l:'Pin tong space'},{k:'dim_pinlen',l:'Pin length'},{k:'dim_pinsrg',l:'Pin SRG'}]}]},
-'Drill Collar / BHA Inspection':{hint:'Dimensional columns per DS-1\u00AE Vol 3 Table 3.9 for drill collars / BHA. Record actuals in inches.',groups:[
- {g:'BODY',cols:[{k:'dim_od',l:'OD'},{k:'dim_id',l:'ID (bore)'},{k:'dim_len',l:'Length'}]},
- {g:'BOX CONNECTION',cols:[{k:'dim_boxod',l:'Box OD'},{k:'dim_bevel',l:'Bevel \u00D8'},{k:'dim_boxts',l:'Tong space'},{k:'dim_shldr',l:'Shoulder width'},{k:'dim_cbdia',l:'C.Bore \u00D8'},{k:'dim_cbdep',l:'C.Bore depth'},{k:'dim_boxsrg',l:'Box SRG width'}]},
- {g:'PIN CONNECTION',cols:[{k:'dim_pinid',l:'Pin ID'},{k:'dim_pints',l:'Tong space'},{k:'dim_pinlen',l:'Pin length'},{k:'dim_pinsrg',l:'Pin SRG width'}]},
- {g:'RATIO',cols:[{k:'dim_bsr',l:'BSR'}]}]},
-'HWDP Inspection':{hint:'Dimensional columns per DS-1\u00AE Vol 3 for heavy-weight drill pipe. Record actuals in inches.',groups:[
- {g:'TUBE',cols:[{k:'dim_od',l:'Tube OD'},{k:'dim_id',l:'Tube ID'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_cupod',l:'Center upset OD'}]},
- {g:'BOX',cols:[{k:'dim_boxod',l:'Box OD'},{k:'dim_bevel',l:'Bevel \u00D8'},{k:'dim_boxts',l:'Tong space'},{k:'dim_boxsrg',l:'SRG width'}]},
- {g:'PIN',cols:[{k:'dim_pinid',l:'Pin ID'},{k:'dim_pints',l:'Tong space'},{k:'dim_pinlen',l:'Pin length'},{k:'dim_pinsrg',l:'SRG width'}]}]},
-'Casing Inspection':{hint:'Columns per API 5CT / API RP 5A5 for casing. Actuals in inches; remaining wall as % of specified.',groups:[
- {g:'BODY',cols:[{k:'dim_od',l:'OD'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_drift',l:'Drift'},{k:'dim_rw',l:'Rem. wall %'},{k:'dim_len',l:'Length'}]},
- {g:'CONNECTION',cols:[{k:'dim_thread',l:'Thread cond.'},{k:'dim_cplod',l:'Coupling OD'}]}]},
-'Tubing Inspection':{hint:'Columns per API 5CT / API RP 5A5 for tubing. Actuals in inches; remaining wall as % of specified.',groups:[
- {g:'BODY',cols:[{k:'dim_od',l:'OD'},{k:'dim_wall',l:'Wall (min)'},{k:'dim_drift',l:'Drift'},{k:'dim_rw',l:'Rem. wall %'},{k:'dim_len',l:'Length'}]},
- {g:'CONNECTION',cols:[{k:'dim_thread',l:'Thread cond.'},{k:'dim_cplod',l:'Coupling OD'}]}]},
 'NDT — MPI':{hint:'Magnetic particle inspection findings per ASTM E709 / DS-1\u00AE.',groups:[
  {g:'MPI',cols:[{k:'ndt_area',l:'Area inspected'},{k:'ndt_tech',l:'Technique'},{k:'ndt_ind',l:'Indication / finding'},{k:'ndt_loc',l:'Location'}]}]},
 'NDT — UT':{hint:'Ultrasonic wall thickness survey per ASTM E797.',groups:[
@@ -6046,8 +6142,10 @@ const SCHEMA_CATS=Object.assign({'General (built-in)':Object.keys(SCHEMAS).filte
 function irTypeOptions(sel){return Object.entries(SCHEMA_CATS).map(([cat,list])=>'<optgroup label="'+cat+'">'+list.map(t=>'<option'+(t===sel?' selected':'')+'>'+t.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>').join('')+'</optgroup>').join('');}
 
 
-let IR={type:'Drill Collar / BHA Inspection',fields:{},items:[],eq:[],photos:[],id:null};
-function irSchema(){return SCHEMAS[IR.type]||SCHEMAS['Drill Collar / BHA Inspection'];}
+let IR={type:'NDT \u2014 MPI',fields:{},items:[],eq:[],photos:[],id:null};
+// A report saved under a type that has since been retired still opens: the
+// table falls back to the first schema that does exist.
+function irSchema(){return SCHEMAS[IR.type]||SCHEMAS['NDT \u2014 MPI']||SCHEMAS[Object.keys(SCHEMAS)[0]];}
 /* The report number stays a plain running count — 1, 2, 3 — because that is
    what goes on the certificate. The inspector's employee code is recorded on
    the report too (irStampEmp), but only behind the scenes: it never shows on
@@ -6060,8 +6158,64 @@ function irStampEmp(){
   const c=irEmpCode();
   if(c&&!IR.fields.empCode)IR.fields.empCode=c;
 }
-function irNextReportNo(){
-  return lsGet('ir_library',[]).reduce((m,r)=>Math.max(m,+((r.fields||{}).no)||0),0)+1;
+/* ---- report id ----------------------------------------------------------
+   <work order>-<short form code>-<report no>-<employee code>, e.g.
+   9888-IR12-1-1739. One work order belongs to one inspector, so the work
+   order alone already separates two inspectors' numbering; the employee code
+   is carried as well so the author is readable straight off the id.
+
+   Stamped once (irStampDocId) and then left alone — recomputing it later
+   would change a report's identity every time the work order was corrected. */
+const IR_TYPE_CODES={
+ 'Drilling Tools Crossover PIN \u00d7 PIN':'PINPIN',
+ 'Drilling Tools Crossover PIN \u00d7 BOX':'PINBOX',
+ 'Drilling Tools Crossover BOX \u00d7 BOX':'BOXBOX',
+ 'API RP 4G Annex A \u2014 Cat III/IV Visual Field Inspection (Mast & Substructure)':'API4GA',
+ 'API RP 4G Annex B \u2014 Cat III/IV Visual Field Inspection (Derrick)':'API4GB',
+ 'API RP 4G Annex C \u2014 Cat III/IV Visual Field Inspection (Mast (Cantilever))':'API4GC',
+ 'API RP 4G Annex D \u2014 Cat III/IV Visual Field Inspection (Substructure)':'API4GD',
+ 'Drop Object Survey \u2014 Mast':'DOSMAST',
+ 'Drop Object Survey \u2014 Monkey Board':'DOSMB',
+ 'Handling Tool MPI Report':'HTMPI'          // MPI alone belongs to NDT \u2014 MPI
+};
+function irTypeCode(type){
+  const t=String(type||'');
+  if(IR_TYPE_CODES[t])return IR_TYPE_CODES[t];
+  const fm=/FM-IR-(\d+)/.exec(t);                       // FM-IR-12 -> IR12
+  if(fm)return 'IR'+fm[1];
+  const tail=t.split('—').pop().trim();            // "NDT — MPI" -> MPI, not NDT
+  if(/^[A-Z0-9]{2,6}$/.test(tail))return tail;
+  const words=t.match(/[A-Za-z]+/g)||[];
+  const caps=words.filter(w=>w===w.toUpperCase()&&w.length<=5);   // NDT - MPI -> MPI
+  if(caps.length)return caps[0];
+  return words.filter(w=>w.length>2).map(w=>w[0]).join('').slice(0,4).toUpperCase()||'RPT';
+}
+/* The work order lives on each form's own card now, with the old shared
+   header kept as a fallback for reports filed before that move. */
+function irWorkOrder(){
+  const f=IR.fields||{};
+  return String((IR.dp&&IR.dp.workOrderNum)||(IR.mpi&&IR.mpi.wo)||f.wo||'').trim();
+}
+function irDocId(){
+  const f=IR.fields||{};
+  return [irWorkOrder()||'NOWO',irTypeCode(IR.type),f.no||irNextReportNo(),irEmpCode()||'NA'].join('-');
+}
+function irStampDocId(){
+  if(!IR.fields.docId)IR.fields.docId=irDocId();
+}
+/* Each form type keeps its own series: MPI may be on 4 while UT is still
+   starting at 1. The next number is the lowest one that type isn't using, so
+   deleting a report frees its number for the next one written. */
+function irNextReportNo(type){
+  const t=type||IR.type,used={};
+  lsGet('ir_library',[]).forEach(r=>{
+    if(r.type!==t)return;
+    const n=+((r.fields||{}).no);
+    if(n>0)used[n]=1;
+  });
+  let n=1;
+  while(used[n])n++;
+  return n;
 }
 /* Inspector / Reviewed by are picked from HR, and only from the Operations
    department — nobody else signs an inspection certificate. */
@@ -6071,14 +6225,10 @@ function irOpsStaff(){
     .map(e=>String(e.name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 }
 function irStaffField(f){
-  const cur=IR.fields[f[0]]||'',opts=irOpsStaff();
+  const k=f[0],cur=IR.fields[k]||'',opts=irOpsStaff();
   return '<div class="field"><label>'+f[1]+'</label>'+
-    '<select id="ir-'+f[0]+'" onchange="IR.fields.'+f[0]+'=this.value;irSave()">'+
-     '<option value=""></option>'+
-     opts.map(n=>'<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>').join('')+
-     // a name saved before this list existed (or since moved out of Operations) stays selectable
-     (cur&&opts.indexOf(cur)<0?'<option selected>'+esc(cur)+'</option>':'')+
-    '</select>'+
+    selx('ir-'+k,cur,opts,v=>{IR.fields[k]=v;irSave();},'\u2014 choose \u2014')+
+    (opts.length?'':'<div class="hint">No Operations employees yet \u2014 add them under Human Resources.</div>')+
     (opts.length?'':'<div class="hint">No Operations employees yet — add them under Human Resources.</div>')+
   '</div>';
 }
@@ -6179,18 +6329,22 @@ function renderInspReport(){
   const custOpts=coll('customers').map(c=>'<option value="'+esc(c.name)+'">').join('');
   document.getElementById('content').innerHTML='<div class="irform">'+
   '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
-  '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label><select id="ir-type" onchange="IR.type=this.value;render()">'+irTypeOptions(IR.type)+'</select></div>'+
+  '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label>'+
+    // picking nothing would leave the report without a type, so a blank pick is ignored
+    selxGroups('ir-type',IR.type,Object.entries(SCHEMA_CATS),v=>{if(v){IR.type=v;render();}},'',true)+'</div>'+
   IR_FIELDS.map(f=>
     // Report no. runs like the work orders' record number: the next number is
     // shown greyed out, stamped on when the report is filed, and never
     // re-numbered afterwards — so it can't be typed over by hand.
     f[0]==='no'
-      ? '<div class="field"><label>'+f[1]+' (auto)</label><input id="ir-no" value="'+esc(IR.fields.no||irNextReportNo())+'" disabled></div>'
+      ? '<div class="field"><label>'+f[1]+' (auto)</label><input id="ir-no" value="'+esc(IR.fields.no||irNextReportNo())+'" disabled></div>'+
+        '<div class="field"><label>Report ID (auto)</label><input value="'+esc(IR.fields.docId||irDocId())+'" disabled title="Work order — form — report no. — employee code"></div>'
       : (f[0]==='insp'||f[0]==='rev_by') ? irStaffField(f)
       : '<div class="field"><label>'+f[1]+'</label><input id="ir-'+f[0]+'" value="'+esc(IR.fields[f[0]]!=null?IR.fields[f[0]]:f[2])+'"'+(f[0]==='client'?' list="dl-cust"':f[0]==='wo'?' list="dl-wo"':f[0]==='po'?' list="dl-ctr"':'')+' oninput="IR.fields.'+f[0]+'=this.value;irSave()"></div>').join('')+
   '</div><datalist id="dl-cust">'+custOpts+'</datalist>'+'<datalist id="dl-wo">'+coll('workorders').map(w=>'<option value="'+esc(w.no||'')+'">').join('')+'</datalist>'+'<datalist id="dl-ctr">'+coll('contracts').map(c=>'<option value="'+esc(c.no||'')+'">').join('')+'</datalist></div></div>'+
   dpCardHtml()+
   mpiCardHtml()+
+  utCardHtml()+
   '<div class="card"><div class="card-h">M&amp;TE used<span class="sp"></span><button class="btn ghost small" onclick="irImportMte()">↓ Import from M&amp;TE register</button><button class="btn small" onclick="IR.eq.push({});irSave();render()">+ Add</button></div><div class="card-b tblwrap">'+
   '<table><thead><tr><th>Equipment ID</th><th>Description</th><th>Serial</th><th>Cert no.</th><th>Cal due</th><th></th></tr></thead><tbody>'+
   IR.eq.map((e,i)=>'<tr>'+['id','desc','sn','cert','due'].map(k=>'<td><input style="border:1px solid var(--line);border-radius:6px;padding:5px 7px;width:100%" value="'+esc(e[k]||'')+'" oninput="IR.eq['+i+'].'+k+'=this.value;irSave()"></td>').join('')+'<td><button class="del" onclick="IR.eq.splice('+i+',1);irSave();render()">✕</button></td></tr>').join('')+
@@ -6427,7 +6581,7 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
 }
 function irPdfDrillPipeTally(){
   // Downloading before filing still needs a number on the certificate.
-  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irSave();}
+  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
   const dp=dpF();
   const doc=new PdfDoc({w:1224,h:864});
   doc.noFooter=true;                       // the certified sheet has its own footer
@@ -6563,10 +6717,10 @@ function mpiCardHtml(){
   const fld=f=>{
     const t=f[6]||'text';
     if(t==='customer'){
-      const cur=m[f[0]]||'',opts=coll('customers').map(c=>c.name).filter(Boolean);
-      return '<div class="field"><label>'+f[1]+'</label><select onchange="mpiSet(\'' +f[0]+ '\',this.value)">'+
-        '<option value=""></option>'+opts.map(n=>'<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>').join('')+
-        (cur&&opts.indexOf(cur)<0?'<option selected>'+esc(cur)+'</option>':'')+'</select></div>';
+      const k=f[0];
+      return '<div class="field"><label>'+f[1]+'</label>'+
+        selx('mpi-'+k,m[k]||'',coll('customers').map(c=>c.name).filter(Boolean),
+             v=>{mpiSet(k,v);},'\u2014 choose \u2014')+'</div>';
     }
     return '<div class="field"><label>'+f[1]+'</label><input'+(t==='date'?' type="date"':'')+
       ' value="'+esc(m[f[0]]||'')+'" oninput="mpiSet(\'' +f[0]+ '\',this.value)"></div>';
@@ -6674,7 +6828,7 @@ function mpiDrawPage(doc,m,row,i){
   doc.text(528.2,278.8,IR.fields.rev_by||'',9.9,true);
 }
 function irPdfMpi(){
-  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irSave();}
+  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
   const m=mpiF();
   const rows=(IR.items||[]).filter(r=>Object.keys(r).length);
   const pages=rows.length?rows:[{}];
@@ -6683,9 +6837,201 @@ function irPdfMpi(){
   pages.forEach((row,i)=>{ if(i>0)doc.newPage(); mpiDrawPage(doc,m,row,i); });
   doc.out('FM-IR-12-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
 }
+/* ================================================================
+   FM-IR-15 - Ultrasonic Wall Thickness Measurement Record Sheet.
+
+   Geometry read straight out of the company's blank sheet; the field
+   tables below drive the entry cards and the printed sheet together.
+   ================================================================ */
+const UT_TYPE='NDT \u2014 UT';
+const UT_PAGE=[792,1224];
+const UT_LINES_H=[[25.8,771.3,65.0],[25.8,771.3,1119.5],[33.8,762.05,385.5],[33.8,762.05,588.75],[137.8,486.55,1095.75],[137.05,486.55,1074.0],[135.55,485.8,1052.0],[597.3,769.05,1095.0],[596.55,769.8,1073.25],[596.55,768.3,1052.25],[25.05,772.05,998.75],[201.05,762.8,976.5],[26.55,770.8,879.75],[596.55,768.3,1028.25],[135.55,485.8,1029.0],[26.05,770.3,855.25],[597.3,770.55,1002.5],[193.8,385.8,952.5],[194.3,765.05,929.25],[568.3,760.3,951.75],[26.55,770.55,924.5],[27.3,771.3,902.0],[26.3,771.05,833.75],[26.05,688.3,811.25],[26.05,771.3,788.5],[26.05,772.8,765.5],[27.3,770.55,742.75],[26.3,769.55,717.25],[26.3,770.55,692.75],[26.55,771.3,666.0],[27.3,772.05,640.5],[26.55,771.3,618.0],[25.8,769.8,593.75],[33.3,762.3,488.5],[26.55,770.55,378.0],[155.05,766.8,360.0],[154.3,766.05,342.0],[192.05,765.3,323.75],[143.05,262.8,298.25],[25.8,771.3,293.5],[498.4,622.15,299.45],[27.8,770.8,1124.75],[27.8,770.8,1139.25]];
+const UT_LINES_V=[[25.8,65.0,1119.5],[771.3,65.0,1119.5],[33.8,385.5,588.75],[762.05,385.5,588.75],[647.3,855.75,901.5],[532.05,855.0,900.75],[410.55,855.75,901.5],[290.55,855.0,900.75],[158.55,855.75,901.5],[125.3,594.5,833.0],[688.55,594.5,833.0],[266.05,595.25,833.75],[413.05,595.25,833.75],[558.05,595.25,833.75],[157.8,594.5,809.75],[192.05,594.5,810.25],[227.55,595.25,810.5],[300.8,594.25,809.5],[336.05,595.0,810.25],[372.55,595.0,810.25],[449.3,595.25,810.5],[485.05,594.75,810.0],[520.3,594.75,810.0],[591.8,594.75,810.0],[623.55,594.75,810.0],[654.05,594.75,810.0],[214.55,385.5,589.5],[396.3,385.0,589.0],[578.55,384.75,588.75],[27.8,1124.75,1139.25],[770.8,1124.75,1139.25]];
+const UT_STATIC=[[28.8,1199.49,"Premier Tubular Inspection Services (Pvt.) Ltd",7.4,1],[30.3,1183.64,"69/E Block # 6, P.E.C.H.S., KARACHI PAKISTAN.",8.1,0],[97.05,1170.14,"+92-21-34533739-34559070",8.1,0],[96.8,1158.64,"+92-21-34312712",8.1,0],[97.3,1147.64,"karachi@premiertubular.com",8.1,0],[30.3,1148.16,"Email :",7.4,0],[30.3,1158.16,"Fax Number :",7.4,0],[30.3,1168.91,"Phone Number :",7.4,0],[263.05,1124.6,"ULTRASONIC WALL THICKNESS MEASURMENT RECORD SHEET",10.6,1],[28.05,1101.71,"Customer :",9.9,1],[492.8,1100.71,"Rig / Well No:",9.9,1],[28.8,1078.96,"Location:",9.9,1],[493.3,1054.21,"Work Order No:",9.9,1],[28.3,1054.21,"Inspection Standard:",9.9,1],[31.3,979.19,"Material /Item type & Description:",9.9,0],[493.05,1030.21,"Due Date:",9.9,1],[28.05,1029.46,"Inspection Date:",9.9,1],[493.05,1077.96,"Sub Location:",9.9,1],[493.8,1007.21,"Cert. No :",9.9,1],[31.05,955.19,"Material /Item Type serial No:",9.9,0],[31.55,931.94,"Type Of Inspection:",9.9,0],[405.55,954.44,"Item Location:",9.9,0],[323.4,907.96,"TRACEABILITY OF EQUIPMENT USED",9.9,1],[82.6,886.21,"S.No",9.9,1],[203.3,886.21,"Equipment",9.9,1],[329.3,885.96,"Model No",9.9,1],[452.7,886.21,"Serial No",9.9,1],[556.5,885.46,"Calibration Date",9.9,1],[357.2,838.96,"THICKNESS RECORD",9.9,1],[59.65,817.96,"Section:",9.9,1],[47.35,795.71,"Spot Location:",9.9,1],[706.65,817.21,"Min. Thick.",9.9,1],[176.34,817.75,"A Point's",9.9,0],[321.1,817.5,"B Point's",9.9,0],[466.7,817.75,"C Point's",9.9,0],[603.95,817.0,"D Point's",9.9,0],[131.15,798.1,"Input 1",7.3,1],[164.15,798.85,"Input 2",7.3,1],[199.05,798.85,"Input 3",7.3,1],[236.15,798.1,"Input 4",7.3,1],[272.9,798.1,"Input 1",7.3,1],[308.15,798.1,"Input 2",7.3,1],[344.15,798.85,"Input 3",7.3,1],[381.65,798.1,"Input 4",7.3,1],[420.3,798.1,"Input 1",7.3,1],[457.4,798.1,"Input 2",7.3,1],[493.05,799.6,"Input 3",7.3,1],[529.05,799.6,"Input 4",7.3,1],[565.05,798.85,"Input 1",7.3,1],[596.9,800.35,"Input 2",7.3,1],[628.4,799.6,"Input 3",7.3,1],[662.15,799.6,"Input 4",7.3,1],[667.52,885.46,"Calibration Due Date",9.9,1],[74.9,281.4,"This Field report is issued subject to the condition that it is understood and agreed upon that nothing herein shall be deemed to relieve any designer, manufacturer,",8.9,0],[77.3,270.0,"repairer or operator of any warranty, express or implied and Premier Tubular Inspection Services Pte Ltd Liability shall be limited to the acts and commission of its",8.9,0],[79.3,258.6,"employees and subcontractors. Under no Circumstances shall Premier Tubular inspection Services (Pvt.) Ltd. be liable for any injury or damage to any person or",8.9,0],[65.95,247.2,"property occurring by any reason of negligent Operation , misuse, of any defect in material , machinery, equipment or other items other than by defects in items actually",8.9,0],[69.25,235.8,"inspected by Premier Tubular inspection Services (Pvt.) Ltd. and ascertainable by normally accepted testing standards, or defects reflected in documents reviewed by",8.9,0],[72.8,224.4,"Premier Tubular inspection Services (Pvt..) Ltd. and which are covered by this report. This field report and the recommendation contained with it are based upon the",8.9,0],[66.95,213.0,"conditions and practices observed and information available to Premier Tubular Inspection Services (Pvt.) Ltd. personnel. The report does not purport to list all hazards",8.9,0],[73.1,201.6,"or faulty conditions not to indicate that the other hazards or faulty conditions exist. Severity ratings on the criteria shown in this report are intended as guideline only.",8.9,0],[161.7,190.2,"Premier Tubular Inspection Services (Pvt.) Ltd. Does not accept responsibility for the control or correction of conditions.",8.9,0],[33.2,362.26,"Area of Inspection:",9.9,1],[33.8,342.71,"Results:",9.9,1],[34.3,326.21,"Recommendation / Comments:",9.9,1],[33.3,298.96,"Inspected By:",9.9,1],[31.6,170.94,"FM-IR-15",9.6,1],[420.65,298.96,"Reviewed By:",9.9,1]];
+const UT_PHOTOS=[[37.0,492.8,173.2,92.2],[401.1,492.8,173.3,92.2],[219.8,492.0,173.2,92.2],[583.3,492.0,173.2,92.2],[37.2,391.5,173.2,92.2],[401.1,391.5,173.3,92.2],[583.3,391.5,173.2,92.2],[217.7,390.8,173.3,92.2]];
+// key, label, x (left edge of the value), y from the page bottom, size, type
+const UT_FIELDS=[
+ ['client','Customer',138.1,1099.5,9.9,'customer'],
+ ['rigWell','Rig / Well No',599.8,1100.3,9.9,''],
+ ['location','Location',138.6,1078.6,10.8,''],
+ ['subLocation','Sub Location',601.3,1078.3,9.9,''],
+ ['standard','Inspection Standard',139.8,1055.5,9.9,''],
+ ['wo','Work Order No',600.8,1055.0,9.9,''],
+ ['inspDate','Inspection Date',139.9,1032.9,9.9,'date'],
+ ['dueDate','Due Date',601.0,1034.3,9.9,'date'],
+ ['itemDesc','Material / Item type & Description',204.8,979.5,9.9,''],
+ ['itemSerial','Material / Item Type serial No',198.3,955.8,9.9,''],
+ ['itemLocation','Item Location',569.5,955.5,9.9,''],
+ ['typeOfInsp','Type Of Inspection',198.1,933.3,9.9,''],
+ ['area','Area of Inspection',157.8,362.6,9.9,''],
+ ['results','Results',157.8,343.9,9.9,''],
+ ['recommendation','Recommendation / Comments',194.6,325.9,9.9,'']
+];
+// traceability of equipment used - one row on the sheet
+const UT_EQUIP_COLS=[['equipment','Equipment',224.5],['model','Model No',350.5],
+ ['serial','Serial No',471.2],['calDate','Calibration Date',589.6,'date'],
+ ['calDue','Calibration Due Date',709.3,'date']];
+const UT_EQUIP_Y=860.3, UT_EQUIP_SNO_CX=92.2;
+/* Thickness record: four sections of four readings, with the spot location
+   and the minimum either side. Centres come from the sheet's own column
+   rules, so nothing was measured by hand. */
+const UT_SECTIONS=['A','B','C','D'];
+const UT_THICK_CX=[141.6,174.9,209.8,246.8, 283.4,318.4,354.2,392.8,
+                   431.1,467.1,502.6,539.1, 574.9,607.6,638.8,671.2];
+const UT_SPOT_CX=75.5, UT_MIN_CX=729.9;
+const UT_THICK_Y=[775.2,752.5,726.9,702.5,675.7,650.2,627.7,603.5];
+const UT_MAX_ROWS=UT_THICK_Y.length;
+const UT_MAX_PHOTOS=8;
+function utF(){ if(!IR.ut)IR.ut={}; if(!IR.ut.eq)IR.ut.eq={}; if(!IR.ut.rows)IR.ut.rows=[{}]; if(!IR.ut.photos)IR.ut.photos=[]; return IR.ut; }
+function utCertNo(){
+  const f=IR.fields||{};
+  return 'USWT-'+(utF().wo||f.wo||'WO')+'-'+(f.no||irNextReportNo());
+}
+function utSet(k,v){ utF()[k]=v; irSave(); }
+function utSetEq(k,v){ utF().eq[k]=v; irSave(); }
+function utRowSet(i,k,v){ utF().rows[i][k]=v; irSave(); }
+function utRowAdd(){ const u=utF(); if(u.rows.length<UT_MAX_ROWS){u.rows.push({});irSave();render();} }
+function utRowDel(i){ utF().rows.splice(i,1); irSave(); render(); }
+function utPhotoDel(i){ utF().photos.splice(i,1); irSave(); render(); }
+function utCardHtml(){
+  if(IR.type!==UT_TYPE)return '';
+  const u=utF();
+  const fld=f=>{
+    if(f[5]==='customer'){
+      const k=f[0];
+      return '<div class="field"><label>'+f[1]+'</label>'+
+        selx('ut-'+k,u[k]||'',coll('customers').map(c=>c.name).filter(Boolean),
+             v=>{utSet(k,v);},'\u2014 choose \u2014')+'</div>';
+    }
+    return '<div class="field"><label>'+f[1]+'</label><input'+(f[5]==='date'?' type="date"':'')+
+      ' value="'+esc(u[f[0]]||'')+'" oninput="utSet(\''+f[0]+'\',this.value)"></div>';
+  };
+  const pick=ks=>'<div class="fgrid">'+UT_FIELDS.filter(f=>ks.indexOf(f[0])>=0).map(fld).join('')+'</div>';
+  const sec=(t,body)=>'<div class="hint" style="margin:12px 0 6px">'+t+'</div>'+body;
+  return '<div class="card"><div class="card-h">FM-IR-15 template fields <span class="hint" style="font-weight:400">\u2014 printed onto the certified UT sheet</span></div><div class="card-b">'+
+   '<div class="fgrid"><div class="field"><label>Cert. No (auto)</label><input value="'+esc(utCertNo())+'" disabled></div></div>'+
+   sec('Report header',pick(['client','rigWell','location','subLocation','standard','wo','inspDate','dueDate']))+
+   sec('Item under inspection',pick(['itemDesc','itemSerial','itemLocation','typeOfInsp']))+
+   sec('Traceability of equipment used','<div class="tblwrap"><table><thead><tr><th style="width:40px">S.No</th>'+
+     UT_EQUIP_COLS.map(c=>'<th>'+c[1]+'</th>').join('')+'</tr></thead><tbody><tr><td class="num">1</td>'+
+     UT_EQUIP_COLS.map(c=>'<td><input'+(c[3]==='date'?' type="date"':'')+' value="'+esc(u.eq[c[0]]||'')+
+       '" oninput="utSetEq(\''+c[0]+'\',this.value)"></td>').join('')+'</tr></tbody></table></div>')+
+   sec('Findings',pick(['area','results','recommendation']))+
+  '</div></div>'+utThickHtml()+utPhotoHtml();
+}
+/* The thickness grid: one row per spot, four readings in each of the four
+   sections. Min. Thick is worked out from the readings. */
+function utMinThick(r){
+  const v=[];
+  UT_SECTIONS.forEach((s,si)=>{for(let k=1;k<=4;k++){const n=parseFloat(String(r[s+k]||'').replace(/[^0-9.]/g,''));if(!isNaN(n))v.push(n);}});
+  return v.length?String(Math.min.apply(null,v)):'';
+}
+function utThickHtml(){
+  const rows=utF().rows;
+  return '<div class="card"><div class="card-h">Thickness record'+
+   '<span class="sp"></span><span class="hint" style="font-weight:400;margin-right:8px">'+rows.length+' of '+UT_MAX_ROWS+' spots</span>'+
+   '<button class="btn small"'+(rows.length>=UT_MAX_ROWS?' disabled':'')+' onclick="utRowAdd()">+ Add spot</button></div>'+
+   '<div class="card-b"><div class="tblwrap"><table><thead>'+
+   '<tr><th rowspan="2" style="width:34px">S.No</th><th rowspan="2" style="width:110px">Spot Location</th>'+
+   UT_SECTIONS.map(s=>'<th colspan="4">Section '+s+'</th>').join('')+
+   '<th rowspan="2" style="width:80px">Min. Thick</th><th rowspan="2" class="no-print" style="width:30px"></th></tr>'+
+   '<tr>'+UT_SECTIONS.map(()=>[1,2,3,4].map(k=>'<th style="width:58px">Input '+k+'</th>').join('')).join('')+'</tr>'+
+   '</thead><tbody>'+
+   rows.map((r,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
+     '<td><input style="width:100%" value="'+esc(r.spot||'')+'" oninput="utRowSet('+i+',\'spot\',this.value)" placeholder="TOP"></td>'+
+     UT_SECTIONS.map(s=>[1,2,3,4].map(k=>'<td><input class="num" style="width:100%" value="'+esc(r[s+k]||'')+
+       '" oninput="utRowSet('+i+',\''+s+k+'\',this.value);utRefreshMin('+i+')"></td>').join('')).join('')+
+     '<td class="num" id="ut-min-'+i+'">'+esc(utMinThick(r))+'</td>'+
+     '<td class="no-print"><button class="del" onclick="utRowDel('+i+')">\u2715</button></td></tr>').join('')+
+   '</tbody></table></div><div class="hint" style="margin-top:6px">Min. Thick is the smallest reading in the row \u2014 it is worked out for you.</div></div></div>';
+}
+function utRefreshMin(i){
+  const el=document.getElementById('ut-min-'+i);
+  if(el)el.textContent=utMinThick(utF().rows[i]||{});
+}
+function utPhotoHtml(){
+  const ph=utF().photos;
+  return '<div class="card"><div class="card-h">Photographs<span class="sp"></span>'+
+   '<span class="hint" style="font-weight:400">'+ph.length+' of '+UT_MAX_PHOTOS+'</span></div><div class="card-b">'+
+   '<div class="fgrid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">'+
+   UT_PHOTOS.map((c,i)=>'<div class="field"><label>Photo '+(i+1)+'</label>'+
+     (ph[i]?'<img src="'+ph[i]+'" alt="photo '+(i+1)+'" style="width:100%;border-radius:4px;border:1px solid var(--line)">':'')+
+     '<div style="margin-top:4px;white-space:nowrap">'+
+      '<button class="btn ghost small" onclick="document.getElementById(\'ut-ph-'+i+'\').click()">\u25a3 '+(ph[i]?'Replace':'Add')+'</button>'+
+      '<input type="file" id="ut-ph-'+i+'" accept="image/*" style="display:none" onchange="utPhoto('+i+',this.files)">'+
+      (ph[i]?'<button class="del" title="Remove" onclick="utPhotoDel('+i+')">\u232b</button>':'')+
+     '</div></div>').join('')+'</div></div></div>';
+}
+function utPhoto(i,files){
+  const f=files&&files[0];
+  if(!f||!f.type.startsWith('image/'))return;
+  const img=new Image();
+  img.onload=()=>{
+    const cell=UT_PHOTOS[i]||[0,0,173.2,92.2];
+    const boxW=cell[2]-2,boxH=cell[3]-2;
+    const w=Math.max(1,Math.min(img.width,Math.round(boxW/72*IR_IMG_DPI)));
+    const h=Math.max(1,Math.round(w*boxH/boxW));
+    const cv=document.createElement('canvas');
+    cv.width=w;cv.height=h;
+    const cx=cv.getContext('2d');
+    cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
+    cx.fillStyle='#fff';cx.fillRect(0,0,w,h);
+    cx.drawImage(img,0,0,w,h);
+    let out=cv.toDataURL('image/jpeg',0.92);
+    if(out.length>700000)out=cv.toDataURL('image/jpeg',0.84);
+    utF().photos[i]=out;
+    irSave();render();
+  };
+  img.src=URL.createObjectURL(f);
+}
+function irPdfUt(){
+  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
+  const u=utF();
+  const doc=new PdfDoc({w:UT_PAGE[0],h:UT_PAGE[1]});
+  doc.noFooter=true;
+  UT_LINES_H.forEach(([x1,x2,y])=>doc.rule(x1,y,x2,y,0.9,'0 0 0'));
+  UT_LINES_V.forEach(([x,y1,y2])=>doc.rule(x,y1,x,y2,0.9,'0 0 0'));
+  UT_STATIC.forEach(([x,y,s,sz,b])=>doc.text(x,y,s,sz,!!b));
+  doc.imageAt(DP_LOGO_IMG,607,1151,162.2,59.8);
+  doc.imageAt(DP_BADGES_IMG,61.5,20,656.8,61.8);
+  doc.text(601,1006.3,utCertNo(),9.9,true);
+  UT_FIELDS.forEach(([k,,x,y,sz,type])=>{
+    let v=u[k];
+    if(v==null||v==='')return;
+    if(type==='date')v=woDmy(v);
+    doc.text(x,y,doc.fit(String(v),UT_PAGE[0]-x-26,sz),sz,true);
+  });
+  doc.atFit(UT_EQUIP_SNO_CX,UT_PAGE[1]-UT_EQUIP_Y,60,'1',9.9,6,true);
+  UT_EQUIP_COLS.forEach(c=>{
+    let v=u.eq[c[0]];
+    if(!v)return;
+    if(c[3]==='date')v=woDmy(v);
+    doc.atFit(c[2],UT_PAGE[1]-UT_EQUIP_Y,118,String(v),9.9,6,true);
+  });
+  (u.rows||[]).slice(0,UT_MAX_ROWS).forEach((r,ri)=>{
+    const ty=UT_PAGE[1]-UT_THICK_Y[ri];
+    if(r.spot)doc.atFit(UT_SPOT_CX,ty,96,String(r.spot),6.6,5,false);
+    let ci=0;
+    UT_SECTIONS.forEach(s=>[1,2,3,4].forEach(k=>{
+      const v=r[s+k];
+      if(v)doc.atFit(UT_THICK_CX[ci],ty,30,String(v),6.6,5,false);
+      ci++;
+    }));
+    const mn=utMinThick(r);
+    if(mn)doc.atFit(UT_MIN_CX,ty,78,mn,6.6,5,false);
+  });
+  (u.photos||[]).slice(0,UT_MAX_PHOTOS).forEach((src,i)=>{
+    const c=UT_PHOTOS[i];
+    if(src&&c)doc.imageAt(src,c[0]+1,c[1]+1,c[2]-2,c[3]-2);
+  });
+  doc.text(146.3,302.6,IR.fields.insp||'',9.9,true);
+  doc.text(500.4,301.4,IR.fields.rev_by||'',9.9,true);
+  doc.out('FM-IR-15-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
+}
 function irPdf(){
   if(IR.type===DP_TALLY_TYPE){ irPdfDrillPipeTally(); return; }
   if(IR.type===MPI_TYPE){ irPdfMpi(); return; }
+  if(IR.type===UT_TYPE){ irPdfUt(); return; }
 
   const sc=irSchema();
   const doc=new PdfDoc({landscape:true});
@@ -6848,14 +7194,18 @@ function irPhotos(files){
 }
 function irStore(){
   if(!IR.fields.no)IR.fields.no=irNextReportNo();   // stamped once, on the first filing
-  irStampEmp();
+  irStampEmp();irStampDocId();
   const lib=lsGet('ir_library',[]);
   const rec=JSON.parse(JSON.stringify(IR));
   if(!rec.id){rec.id=uid();}
   rec.savedAt=new Date().toISOString();
   const i=lib.findIndex(r=>r.id===rec.id);
   if(i>=0)lib[i]=rec;else lib.push(rec);
+  rec._dirty=true;                       // cleared once the server has it
   lsSet('ir_library',lib);
+  api('/api/records/'+IR_LIB,{method:'POST',body:JSON.stringify(irLibClean(rec))})
+    .then(()=>{const l=irLibLocal(),x=l.find(r=>r.id===rec.id);if(x){delete x._dirty;irLibSetLocal(l);}})
+    .catch(e=>toast('Saved here, but not sent to the server yet \u2014 '+e.message,'err'));
   // Filed — clear the form down to a blank report of the same type so the next
   // one can be typed straight away. The saved copy lives in the library; open
   // it from Saved Reports to amend it.
@@ -6864,6 +7214,67 @@ function irStore(){
   irSave();
   toast('Report '+(rec.fields.no||'(no number)')+' saved to the library — form cleared for the next one.','ok');
   render();
+}
+/* ---- the report library lives on the server ------------------------------
+   Reports used to sit in localStorage, so a report written on one computer
+   was invisible everywhere else. They now go through the same records API the
+   other shared modules use, under the module name "ir_library".
+
+   Nothing here blocks on the network: if the server can't be reached the
+   report is still saved on this machine and flagged, and the flagged ones are
+   pushed on the next pull that does get through — which is what the field
+   inspectors need. */
+const IR_LIB='ir_library';
+let IR_LIB_AT=0,IR_LIB_BUSY=null;
+function irLibLocal(){return lsGet('ir_library',[]);}
+function irLibSetLocal(v){lsSet('ir_library',v);}
+function irLibClean(r){const c=JSON.parse(JSON.stringify(r));delete c._dirty;return c;}
+/* One-time rescue: reports that only ever existed in this browser are sent up
+   one at a time (a report carries photographs, so a single bulk body would be
+   far too large). INSERT IGNORE on the server, so nothing is overwritten. */
+async function irLibMigrate(){
+  if(lsGet('irlibmig',false))return;
+  for(const r of irLibLocal()){
+    if(!r||!r.id)continue;
+    try{await api('/api/records/'+IR_LIB+'/import',{method:'POST',body:JSON.stringify({records:[irLibClean(r)]})});}
+    catch(e){return;}                       // offline — try again next time
+  }
+  lsSet('irlibmig',true);
+}
+async function irLibPush(){
+  const lib=irLibLocal();
+  let changed=false;
+  for(const r of lib){
+    if(!r||!r._dirty)continue;
+    try{
+      await api('/api/records/'+IR_LIB,{method:'POST',body:JSON.stringify(irLibClean(r))});
+      delete r._dirty;changed=true;
+    }catch(e){return false;}                // still offline; keep the flag
+  }
+  if(changed)irLibSetLocal(lib);
+  return true;
+}
+async function irLibPull(force){
+  if(IR_LIB_BUSY)return IR_LIB_BUSY;
+  if(!force&&IR_LIB_AT&&Date.now()-IR_LIB_AT<15000)return false;
+  IR_LIB_BUSY=(async()=>{
+    try{
+      await irLibMigrate();
+      await irLibPush();
+      const server=await api('/api/records/'+IR_LIB);
+      IR_LIB_AT=Date.now();
+      // anything saved here that hasn't reached the server yet must survive
+      const unsent=irLibLocal().filter(r=>r&&r._dirty&&!server.some(s=>s.id===r.id));
+      const merged=server.concat(unsent);
+      if(JSON.stringify(irLibLocal())===JSON.stringify(merged))return false;
+      irLibSetLocal(merged);return true;
+    }catch(e){console.warn('report library pull failed:',e.message);return false;}
+    finally{IR_LIB_BUSY=null;}
+  })();
+  return IR_LIB_BUSY;
+}
+function irLibEnsure(){
+  irLibPull().then(changed=>{if(changed&&route==='insp_list')render();});
 }
 /* ---- saved reports: search, open, download, print ---- */
 let IRQ={from:'',to:'',no:'',client:'',loc:'',wo:''};
@@ -6880,10 +7291,10 @@ function irLibRows(){
 function irLibTable(){
   const rows=irLibRows();
   if(!rows.length)return '<div class="empty">'+(lsGet('ir_library',[]).length?'No saved report matches this search.':'No saved reports yet — create one under Detailed Report.')+'</div>';
-  return '<table><thead><tr><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th class="no-print"></th></tr></thead><tbody>'+
+  return '<table><thead><tr><th>Report ID</th><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th class="no-print"></th></tr></thead><tbody>'+
   rows.map(r=>{
     const f=r.fields||{},imgs=(r.items||[]).filter(x=>x.img).length;
-    return '<tr><td><b>'+esc(f.no||'—')+'</b></td><td>'+esc(r.type)+'</td><td>'+esc(f.client||'')+'</td>'+
+    return '<tr><td><b>'+esc(f.docId||'—')+'</b></td><td>'+esc(f.no||'—')+'</td><td>'+esc(r.type)+'</td><td>'+esc(f.client||'')+'</td>'+
      '<td>'+esc(f.loc||'')+'</td><td>'+esc(f.wo||'')+'</td><td>'+esc(f.date||'')+'</td>'+
      '<td class="num">'+(r.items||[]).length+'</td><td class="num">'+(imgs||'')+'</td>'+
      '<td>'+String(r.savedAt||'').slice(0,10)+'</td>'+
@@ -6901,6 +7312,7 @@ function irqSet(k,v){
 }
 function irqClear(){IRQ={from:'',to:'',no:'',client:'',loc:'',wo:''};render();}
 function renderInspList(){
+  irLibEnsure();                          // bring in what other people filed
   const lib=lsGet('ir_library',[]),rows=irLibRows();
   const fld=(lab,k,type)=>'<div class="field"><label>'+lab+'</label><input type="'+(type||'search')+'" value="'+esc(IRQ[k])+'" oninput="irqSet(\''+k+'\',this.value)"'+(type==='date'?' onchange="irqSet(\''+k+'\',this.value)"':'')+'></div>';
   document.getElementById('content').innerHTML=
@@ -6909,18 +7321,12 @@ function renderInspList(){
     fld('Date From :','from','date')+fld('Date To :','to','date')+fld('Report No:','no')+
     fld('Customer:','client')+fld('Location:','loc')+fld('Work Order:','wo')+
    '</div>'+
-   '<div class="actions"><button class="btn ghost" onclick="irqClear()">Clear search</button><span class="sp"></span>'+
-    '<button class="btn" onclick="irNewReport()">New report</button></div>'+
+   '<div class="actions"><button class="btn ghost" onclick="irqClear()">Clear search</button></div>'+
   '</div></div>'+
   '<div class="card"><div class="card-h">Saved inspection reports <span class="pill b" id="irlib-count">'+rows.length+'</span>'+
    (rows.length!==lib.length?' <span class="hint">of '+lib.length+'</span>':'')+
    '<span class="sp"></span>'+expBtns('xt-irlib','saved-inspection-reports')+'</div>'+
    '<div class="card-b tblwrap" id="xt-irlib">'+irLibTable()+'</div></div>';
-}
-function irNewReport(){
-  if(!confirm('Start a new blank report?'))return;
-  IR={type:IR.type,fields:{},items:[{}],eq:[],photos:[],ac:{},dp:{},id:null};
-  irSave();go('insp_report');
 }
 /* Build the PDF for a report in the library without disturbing whatever is
    open in the editor — including the ir_current draft, which the tally's
@@ -6942,6 +7348,8 @@ function irOpen(id){
 function irDel(id){
   if(!confirm('Delete this saved report?'))return;
   lsSet('ir_library',lsGet('ir_library',[]).filter(r=>r.id!==id));render();
+  api('/api/records/'+IR_LIB+'/'+encodeURIComponent(id),{method:'DELETE'})
+    .catch(e=>toast('Deleted here, but the server still has it \u2014 '+e.message,'err'));
 }
 
 /* ================================================================
@@ -7157,6 +7565,9 @@ function woDelete(id){
   collSet('workorders',coll('workorders').filter(x=>x.id!==id));
   try{localStorage.removeItem(P+'att_'+id);}catch(e){}
   toast('Work Order deleted.','ok');render();
+  api('/api/records/workorders/'+encodeURIComponent(id),{method:'DELETE'})
+    .then(()=>{REC_AT['workorders']=0;})
+    .catch(e=>toast('Deleted here, but the server still has it \u2014 '+e.message,'err'));
 }
 function woViewPdfAll(){
   const rows=woViewRows();
@@ -7165,6 +7576,9 @@ function woViewPdfAll(){
   rows.forEach((r,i)=>setTimeout(()=>woPdf(r.id),i*350)); // staggered — browsers drop simultaneous downloads
 }
 function renderWoView(){
+  // recEnsure only re-renders the module screen, and this page has a route of
+  // its own, so ask for the refresh here and redraw when something arrives
+  recPull('workorders').then(c=>{if(c&&route==='insp_wo_view')render();});
   const all=coll('workorders'),rows=woViewRows();
   const statuses=[...new Set(all.map(r=>r.status).filter(Boolean))];
   document.getElementById('content').innerHTML=
@@ -7179,8 +7593,8 @@ function renderWoView(){
     '<div class="field"><label>Work order # / record no. / customer</label><input type="search" value="'+esc(WOV.q)+'" placeholder="8921" oninput="woViewSet(\'q\',this.value)"></div>'+
     '<div class="field"><label>Work order date from</label><input type="date" value="'+esc(WOV.from)+'" onchange="woViewSet(\'from\',this.value)"></div>'+
     '<div class="field"><label>Work order date to</label><input type="date" value="'+esc(WOV.to)+'" onchange="woViewSet(\'to\',this.value)"></div>'+
-    '<div class="field"><label>Status</label><select onchange="woViewSet(\'status\',this.value)"><option value="">All</option>'+
-      statuses.map(s=>'<option'+(s===WOV.status?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label>Status</label>'+
+      selx('wov-status',WOV.status,statuses,v=>{woViewSet('status',v);},'All')+'</div>'+
    '</div>'+
    '<div class="actions"><button class="btn ghost" onclick="woViewClear()">Clear filters</button><span class="sp"></span>'+
     '<button class="btn ghost" onclick="woViewPdfAll()">↓ PDF of every match</button></div>'+

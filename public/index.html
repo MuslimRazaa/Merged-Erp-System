@@ -1246,16 +1246,16 @@ function rptSummaryRows(){
   for(const r of RPT_SUMMARY){
     if(r.unmapped||!r.employeeId)continue;
     let s=by.get(r.employeeId);
-    if(!s){s={empId:r.employeeId,code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,ot:0,lateIncidents:[],forcedLate:0};by.set(r.employeeId,s);}
+    if(!s){s={empId:r.employeeId,code:r.employeeCode||'',name:r.name||'',dept:r.department||'',punch:0,field:0,absent:0,late:0,lateMin:0,leave:0,lwp:0,off:0,lateSittings:0,forgivableLate:0,forcedLate:0};by.set(r.employeeId,s);}
     switch(r.dayType){
       case 'Present':
         s.punch++;
         if(r.late){
           s.late++;s.lateMin+=r.lateMinutes||0;
           // Mirrors payroll's own forgiveness pool (see routes/payroll.js):
-          // only a late with a verified check-in time has minutes to offset
-          // against overtime; a missing-check-in late can never be forgiven.
-          if(r.checkIn)s.lateIncidents.push(r.lateMinutes||0);else s.forcedLate++;
+          // only a late with a verified check-in time can be cancelled by a
+          // late sitting; a missing-check-in late can never be forgiven.
+          if(r.checkIn)s.forgivableLate++;else s.forcedLate++;
         }
         break;
       case 'Field':s.field++;break;
@@ -1264,37 +1264,39 @@ function rptSummaryRows(){
       case 'LeaveWithoutPay':s.lwp+=r.leaveRequestType==='Half Day'?0.5:1;break;
       default:s.off++; // WeeklyOff / Holiday / CompanyOff
     }
-    s.ot+=r.overtimeMinutes||0;
+    if(r.lateSitting)s.lateSittings++;
   }
   return [...by.values()].sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
 }
-// Same smallest-forgiven-first rule payroll.js's monthly overtime pool uses —
-// kept here as its own small function so the Attendance Report's "Lates
-// after OT settlement" card always matches what payroll would actually
-// deduct for the same days, without needing a payroll run to see it.
-function rptSettledLates(lateIncidents,forcedLate,otMinutes){
-  let pool=otMinutes||0,unforgiven=0;
-  for(const m of lateIncidents.slice().sort((a,b)=>a-b)){ if(pool>=m)pool-=m;else unforgiven++; }
-  return unforgiven+(forcedLate||0);
+// Same flat count-for-count swap payroll.js's monthly late-sitting pool
+// uses — kept here as its own small function so the Attendance Report's
+// "Lates after Late-Sitting Offset" card always matches what payroll would
+// actually deduct for the same days, without needing a payroll run to see it.
+// One late sitting cancels exactly one forgivable late arrival — a flat
+// count, not weighted by minutes — so which arrival gets cancelled doesn't
+// matter, only the totals do.
+function rptSettledLates(forgivableLate,forcedLate,lateSittings){
+  const forgiven=Math.min(forgivableLate||0,lateSittings||0);
+  return (forgivableLate||0)-forgiven+(forcedLate||0);
 }
-// The OT (min) card's click target — every day in the current report range
-// where this employee actually earned overtime (reuses the same Punches
-// modal the Live Attendance screen's day rows open).
-function rptShowOtDays(empId){
-  const days=RPT_SUMMARY.filter(r=>String(r.employeeId)===String(empId)&&(r.overtimeMinutes||0)>0).sort((a,b)=>a.date.localeCompare(b.date));
+// The Late Sittings card's click target — every day in the current report
+// range where this employee sat 60+ min past shift end (reuses the same
+// Punches modal the Live Attendance screen's day rows open).
+function rptShowLateSittingDays(empId){
+  const days=RPT_SUMMARY.filter(r=>String(r.employeeId)===String(empId)&&r.lateSitting).sort((a,b)=>a.date.localeCompare(b.date));
   const name=days.length?days[0].name:'';
-  document.getElementById('attmodal-title').textContent=(name?name+' — ':'')+'Overtime days';
+  document.getElementById('attmodal-title').textContent=(name?name+' — ':'')+'Late sitting days';
   document.getElementById('attmodal-body').innerHTML=days.length
-   ?'<table><thead><tr><th>Date</th><th>Check Out</th><th class="num">OT (min)</th></tr></thead><tbody>'+
-     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+'</td><td class="num">'+r.overtimeMinutes+'</td></tr>').join('')+
+   ?'<table><thead><tr><th>Date</th><th>Check Out</th><th class="num">Minutes past shift end</th></tr></thead><tbody>'+
+     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+'</td><td class="num">'+(r.lateSittingMinutes||0)+'</td></tr>').join('')+
      '</tbody></table>'
-   :'<div class="empty">No overtime in this range.</div>';
+   :'<div class="empty">No late sittings in this range.</div>';
   openModal('attmodal');
 }
 function rptBuildSummary(){
-  const headers=['Emp Code','Name','Department','Present (Punch)','Field Days','Total Present','Absent','Late','Late (min)','Paid Leave','Unpaid Leave','Off / Holidays','OT (min)'];
+  const headers=['Emp Code','Name','Department','Present (Punch)','Field Days','Total Present','Absent','Late','Late (min)','Paid Leave','Unpaid Leave','Off / Holidays','Late Sittings'];
   const list=rptSummaryRows();
-  const rows=list.map(s=>[s.code,s.name,s.dept,s.punch,s.field,s.punch+s.field,s.absent,s.late,s.lateMin,s.leave,s.lwp,s.off,s.ot]);
+  const rows=list.map(s=>[s.code,s.name,s.dept,s.punch,s.field,s.punch+s.field,s.absent,s.late,s.lateMin,s.leave,s.lwp,s.off,s.lateSittings]);
   if(list.length>1){
     const t=(i)=>rows.reduce((a,r)=>a+r[i],0);
     rows.push(['','TOTAL ('+list.length+' employees)','',t(3),t(4),t(5),t(6),t(7),t(8),t(9),t(10),t(11),t(12)]);
@@ -1310,11 +1312,11 @@ function rptSummaryHtml(){
   const tile=(l,v,cls,extra)=>'<div class="kpi"'+(extra||'')+'><span>'+l+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+v+'</b></div>';
   let kpis='';
   if(one){
-    const settled=rptSettledLates(one.lateIncidents,one.forcedLate,one.ot);
+    const settled=rptSettledLates(one.forgivableLate,one.forcedLate,one.lateSittings);
     kpis='<div class="kpis" style="margin-bottom:12px">'+tile('Present (Punch)',one.punch)+tile('Field Days',one.field)+tile('Total Present',one.punch+one.field)+
       tile('Absent',one.absent,one.absent?'warn':'')+tile('Late',one.late,one.late?'warn':'')+
-      tile('OT (min)',one.ot,'',one.ot?' style="cursor:pointer" onclick="rptShowOtDays(\''+esc(one.empId)+'\')" title="Click to see which days had overtime"':'')+
-      tile('Lates after OT settlement',settled,settled?'warn':'',' title="Same smallest-lates-forgiven-first rule Payroll uses"')+
+      tile('Late Sittings',one.lateSittings,'',one.lateSittings?' style="cursor:pointer" onclick="rptShowLateSittingDays(\''+esc(one.empId)+'\')" title="Click to see which days had a late sitting (60+ min past shift end)"':'')+
+      tile('Lates after Late-Sitting Offset',settled,settled?'warn':'',' title="Each late sitting cancels exactly one late arrival, 1-for-1 — same rule Payroll uses"')+
       tile('Leave',one.leave+one.lwp)+'</div>';
   }
   return '<div style="margin-bottom:16px"><b style="font-size:12.5px">Summary</b> <span class="hint">— Total Present = Present (Punch) + Field Days'+(one?' · '+esc(one.name):'')+'</span>'+
@@ -1641,7 +1643,7 @@ function prRenderReport(){
   document.getElementById('pr-preview').innerHTML=rep.rows.length
    ?'<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
-     '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">OT (min)</th><th class="num">Paid Days</th>'+
+     '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
      '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th></tr></thead><tbody>'+
     rep.rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
@@ -1650,7 +1652,7 @@ function prRenderReport(){
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
      '<td class="num">'+r.presentDays+'</td><td class="num">'+r.officeDays+'</td><td class="num">'+r.fieldDays+'</td><td class="num">'+r.absentDays+'</td><td class="num">'+r.sundayDays+'</td><td class="num">'+r.saturdayOffDays+'</td><td class="num">'+r.holidayDays+'</td><td class="num">'+r.paidLeaveDays+'</td><td class="num">'+r.unpaidLeaveDays+'</td>'+
-     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByOvertime+' forgiven by overtime (smallest lates forgiven first), '+r.lateCount+' counted (every 3 counted = 1 day deducted). Overtime needs 60+ min past shift end to count at all — once it does, the whole late-sitting time counts, not just the part past 60.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByOvertime+' forgiven by OT</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.overtimeMinutesTotal+'</td>'+
+     '<td class="num" title="'+(r.lateArrivals!=null?r.lateArrivals+' late arrival(s), '+r.lateForgivenByLateSitting+' cancelled by a late sitting (1 sitting = 1 late, no matter the minutes), '+r.lateCount+' counted (every 3 counted = 1 day deducted). A late sitting needs 60+ min past shift end to count at all.':'')+'">'+r.lateCount+(r.lateArrivals!=null&&r.lateArrivals!==r.lateCount?'<div class="hint" style="font-size:10.5px;white-space:nowrap">'+r.lateArrivals+' late · '+r.lateForgivenByLateSitting+' cancelled</div>':'')+'</td><td class="num">'+r.latePenaltyDays+'</td><td class="num">'+r.lateSittingsTotal+'</td>'+
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
@@ -1664,8 +1666,8 @@ function prRenderReport(){
   prRenderPdfPreview();
 }
 function prReportGrid(){
-  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','OT (min)','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
-  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.overtimeMinutesTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
+  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
