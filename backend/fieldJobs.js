@@ -18,11 +18,27 @@
          keep marking people present for years — its End Date needs filling).
    - Mid-job changes, applied in the order they were recorded (id):
        add     -> the person is on the job for [start,end] of the change
-       replace -> old person is OFF for [start,end], new person is ON
+       replace -> PERMANENT handover, same as remove below: old person is
+                  OFF from the change's start date through the rest of the
+                  job (not just inside [start,end]), new person is ON from
+                  that same start date onward. A replace's own end_date is
+                  informational only (the UI's "ongoing vs ended" display) —
+                  it does NOT make the old person come back on its own. Used
+                  to revert after end_date like a temporary swap, which
+                  silently brought the old person back and dropped the new
+                  one for the rest of the job the moment an open-ended
+                  replacement's guessed end date passed — exactly the kind of
+                  "permanent swap that was never actually temporary" this is
+                  almost always used for. If someone really does come back
+                  later, record that explicitly as its own change (another
+                  replace the other way, or an add) rather than relying on
+                  this one to revert by itself.
        remove  -> the person is OFF every day outside [start,end]
                   (start = when they joined the job, end = last day they
                   were on it)
      Nobody is ever on a job outside the job's own start..end window.
+     Later changes (higher id) always win over earlier ones for the same day,
+     since they're applied in chronological order.
    - People are matched to ERP employees by EXACT (case / punctuation /
      spacing-insensitive) full name. A name shared by two employees is
      ambiguous and is skipped rather than guessed; a name with no employee
@@ -79,15 +95,18 @@ function onJobOn(m, d, range, baseTokens, changes) {
   for (const c of changes) {
     const cs = toYmd(c.start_date), ce = toYmd(c.end_date);
     if (!cs || !ce) continue;
-    const inRange = d >= cs && d <= ce;
     const oldN = normName(c.old_value), newN = normName(c.new_value);
     if (c.change_type === 'add') {
-      if (newN === m && inRange) on = true;
+      // Bounded: an extra/temporary hand on the job for just these days,
+      // nothing before or after.
+      if (newN === m && d >= cs && d <= ce) on = true;
     } else if (c.change_type === 'replace') {
-      if (oldN === m && inRange) on = false;
-      if (newN === m && inRange) on = true;
+      // Permanent from the change's start date onward — see the header
+      // comment above for why this doesn't revert at end_date.
+      if (oldN === m && d >= cs) on = false;
+      if (newN === m && d >= cs) on = true;
     } else if (c.change_type === 'remove') {
-      if (oldN === m && !inRange) on = false;
+      if (oldN === m && !(d >= cs && d <= ce)) on = false;
     }
   }
   return on;
