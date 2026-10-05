@@ -4947,7 +4947,7 @@ function attRowsSrv(k,id){
   if(!files.length)return '<div class="empty">No documents attached yet.</div>';
   return '<table><thead><tr><th>File</th><th>Type</th><th class="num">Size</th><th>Attached</th><th class="no-print"></th></tr></thead><tbody>'+
     files.map(f=>'<tr><td><b>'+esc(f.name)+'</b></td><td>'+esc((f.type||'').split('/').pop()||'file')+'</td><td class="num">'+attSize(f.size)+'</td><td>'+esc(String(f.at||'').slice(0,10))+'</td>'+
-    '<td class="no-print"><button class="btn ghost small" onclick="attDlSrv(\''+k+'\',\''+id+'\','+f.id+')">↓ Download</button> <button class="del" onclick="attDelSrv(\''+k+'\',\''+id+'\','+f.id+')">✕</button></td></tr>').join('')+'</tbody></table>';
+    '<td class="no-print"><button class="btn ghost small" onclick="attViewSrv(\''+k+'\',\''+id+'\','+f.id+')">⬈ View</button> <button class="btn ghost small" onclick="attDlSrv(\''+k+'\',\''+id+'\','+f.id+')">↓ Download</button> <button class="del" onclick="attDelSrv(\''+k+'\',\''+id+'\','+f.id+')">✕</button></td></tr>').join('')+'</tbody></table>';
 }
 function attRefreshSrv(k,id){
   const z=document.getElementById('att-zone'),c=document.getElementById('att-count');
@@ -4979,6 +4979,27 @@ async function attUploadSrv(k,id,list){
   }catch(e){toast('NOT attached — '+e.message,'err');}
   attRefreshSrv(k,id);
   const inp=document.getElementById('att-file');if(inp)inp.value='';
+}
+// Opens a new tab SYNCHRONOUSLY (before the fetch) and navigates it once the
+// file is ready, rather than calling window.open() after an await — most
+// browsers only allow window.open() without it being flagged/blocked as a
+// popup when it happens directly inside the click's own call stack, and an
+// async fetch in between breaks that for some of them (Safari in particular).
+// A PDF opens and renders right there in the new tab; other file types fall
+// back to however the browser normally handles that blob (usually a download).
+async function attViewSrv(k,id,fid){
+  const win=window.open('','_blank');
+  if(win)win.document.write('Loading…');
+  try{
+    const res=await fetch('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+fid+'/download',{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+    if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+    const url=URL.createObjectURL(await res.blob());
+    if(win)win.location.href=url;else window.open(url,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(url),300000);
+  }catch(e){
+    if(win)win.close();
+    toast('Could not open — '+e.message,'err');
+  }
 }
 async function attDlSrv(k,id,fid){
   try{
