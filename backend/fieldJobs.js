@@ -17,22 +17,19 @@
          end -> only the start day (a stale, never-finished entry must not
          keep marking people present for years — its End Date needs filling).
    - Mid-job changes, applied in the order they were recorded (id):
-       add     -> the person is on the job for [start,end] of the change
-       replace -> PERMANENT handover, same as remove below: old person is
-                  OFF from the change's start date through the rest of the
-                  job (not just inside [start,end]), new person is ON from
-                  that same start date onward. A replace's own end_date is
-                  informational only (the UI's "ongoing vs ended" display) —
-                  it does NOT make the old person come back on its own. Used
-                  to revert after end_date like a temporary swap, which
-                  silently brought the old person back and dropped the new
-                  one for the rest of the job the moment an open-ended
-                  replacement's guessed end date passed — exactly the kind of
-                  "permanent swap that was never actually temporary" this is
-                  almost always used for. If someone really does come back
-                  later, record that explicitly as its own change (another
-                  replace the other way, or an add) rather than relying on
-                  this one to revert by itself.
+       add     -> the person is on the job for [start,end] of the change —
+                  bounded: a short-term extra hand, nothing before or after.
+       replace -> ASYMMETRIC, by design (confirmed with HR): the OLD person
+                  is OFF from the change's start date through the rest of the
+                  job — permanently, same as remove below, they do not come
+                  back on their own. The NEW person is ON for EXACTLY
+                  [start,end] of the change and no further — if the handover
+                  needs to keep going past that date, or someone else takes
+                  over next, that is its own separate change record. A day
+                  after the replace's end_date with no further record
+                  covering it genuinely has nobody credited for it on this
+                  job — that's expected, not a bug; it means the job's
+                  coverage past that point hasn't been recorded yet.
        remove  -> the person is OFF every day outside [start,end]
                   (start = when they joined the job, end = last day they
                   were on it)
@@ -101,10 +98,11 @@ function onJobOn(m, d, range, baseTokens, changes) {
       // nothing before or after.
       if (newN === m && d >= cs && d <= ce) on = true;
     } else if (c.change_type === 'replace') {
-      // Permanent from the change's start date onward — see the header
-      // comment above for why this doesn't revert at end_date.
+      // Asymmetric — see the header comment above. Old person: off from
+      // start onward, permanently. New person: on for exactly [start,end],
+      // not a day more.
       if (oldN === m && d >= cs) on = false;
-      if (newN === m && d >= cs) on = true;
+      if (newN === m && d >= cs && d <= ce) on = true;
     } else if (c.change_type === 'remove') {
       if (oldN === m && !(d >= cs && d <= ce)) on = false;
     }
