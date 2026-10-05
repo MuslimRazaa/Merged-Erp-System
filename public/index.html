@@ -4591,7 +4591,7 @@ function collSet(k,v){lsSet(k,v);}
    the source of truth: a save only counts once the server confirmed it.
    Compliance first; Inventory / Procurement / Fixed Assets are enabled the
    same way by adding their keys here. */
-const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings']);
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings','workorders']);
 function isSrv(k){return SERVER_MODS.has(k);}
 const REC_AT={},REC_BUSY={};
 /* One-time rescue per browser: records (and attached files) that only ever
@@ -7199,7 +7199,11 @@ function irStore(){
   rec.savedAt=new Date().toISOString();
   const i=lib.findIndex(r=>r.id===rec.id);
   if(i>=0)lib[i]=rec;else lib.push(rec);
+  rec._dirty=true;                       // cleared once the server has it
   lsSet('ir_library',lib);
+  api('/api/records/'+IR_LIB,{method:'POST',body:JSON.stringify(irLibClean(rec))})
+    .then(()=>{const l=irLibLocal(),x=l.find(r=>r.id===rec.id);if(x){delete x._dirty;irLibSetLocal(l);}})
+    .catch(e=>toast('Saved here, but not sent to the server yet \u2014 '+e.message,'err'));
   // Filed — clear the form down to a blank report of the same type so the next
   // one can be typed straight away. The saved copy lives in the library; open
   // it from Saved Reports to amend it.
@@ -7208,6 +7212,67 @@ function irStore(){
   irSave();
   toast('Report '+(rec.fields.no||'(no number)')+' saved to the library — form cleared for the next one.','ok');
   render();
+}
+/* ---- the report library lives on the server ------------------------------
+   Reports used to sit in localStorage, so a report written on one computer
+   was invisible everywhere else. They now go through the same records API the
+   other shared modules use, under the module name "ir_library".
+
+   Nothing here blocks on the network: if the server can't be reached the
+   report is still saved on this machine and flagged, and the flagged ones are
+   pushed on the next pull that does get through — which is what the field
+   inspectors need. */
+const IR_LIB='ir_library';
+let IR_LIB_AT=0,IR_LIB_BUSY=null;
+function irLibLocal(){return lsGet('ir_library',[]);}
+function irLibSetLocal(v){lsSet('ir_library',v);}
+function irLibClean(r){const c=JSON.parse(JSON.stringify(r));delete c._dirty;return c;}
+/* One-time rescue: reports that only ever existed in this browser are sent up
+   one at a time (a report carries photographs, so a single bulk body would be
+   far too large). INSERT IGNORE on the server, so nothing is overwritten. */
+async function irLibMigrate(){
+  if(lsGet('irlibmig',false))return;
+  for(const r of irLibLocal()){
+    if(!r||!r.id)continue;
+    try{await api('/api/records/'+IR_LIB+'/import',{method:'POST',body:JSON.stringify({records:[irLibClean(r)]})});}
+    catch(e){return;}                       // offline — try again next time
+  }
+  lsSet('irlibmig',true);
+}
+async function irLibPush(){
+  const lib=irLibLocal();
+  let changed=false;
+  for(const r of lib){
+    if(!r||!r._dirty)continue;
+    try{
+      await api('/api/records/'+IR_LIB,{method:'POST',body:JSON.stringify(irLibClean(r))});
+      delete r._dirty;changed=true;
+    }catch(e){return false;}                // still offline; keep the flag
+  }
+  if(changed)irLibSetLocal(lib);
+  return true;
+}
+async function irLibPull(force){
+  if(IR_LIB_BUSY)return IR_LIB_BUSY;
+  if(!force&&IR_LIB_AT&&Date.now()-IR_LIB_AT<15000)return false;
+  IR_LIB_BUSY=(async()=>{
+    try{
+      await irLibMigrate();
+      await irLibPush();
+      const server=await api('/api/records/'+IR_LIB);
+      IR_LIB_AT=Date.now();
+      // anything saved here that hasn't reached the server yet must survive
+      const unsent=irLibLocal().filter(r=>r&&r._dirty&&!server.some(s=>s.id===r.id));
+      const merged=server.concat(unsent);
+      if(JSON.stringify(irLibLocal())===JSON.stringify(merged))return false;
+      irLibSetLocal(merged);return true;
+    }catch(e){console.warn('report library pull failed:',e.message);return false;}
+    finally{IR_LIB_BUSY=null;}
+  })();
+  return IR_LIB_BUSY;
+}
+function irLibEnsure(){
+  irLibPull().then(changed=>{if(changed&&route==='insp_list')render();});
 }
 /* ---- saved reports: search, open, download, print ---- */
 let IRQ={from:'',to:'',no:'',client:'',loc:'',wo:''};
@@ -7245,6 +7310,7 @@ function irqSet(k,v){
 }
 function irqClear(){IRQ={from:'',to:'',no:'',client:'',loc:'',wo:''};render();}
 function renderInspList(){
+  irLibEnsure();                          // bring in what other people filed
   const lib=lsGet('ir_library',[]),rows=irLibRows();
   const fld=(lab,k,type)=>'<div class="field"><label>'+lab+'</label><input type="'+(type||'search')+'" value="'+esc(IRQ[k])+'" oninput="irqSet(\''+k+'\',this.value)"'+(type==='date'?' onchange="irqSet(\''+k+'\',this.value)"':'')+'></div>';
   document.getElementById('content').innerHTML=
@@ -7280,6 +7346,8 @@ function irOpen(id){
 function irDel(id){
   if(!confirm('Delete this saved report?'))return;
   lsSet('ir_library',lsGet('ir_library',[]).filter(r=>r.id!==id));render();
+  api('/api/records/'+IR_LIB+'/'+encodeURIComponent(id),{method:'DELETE'})
+    .catch(e=>toast('Deleted here, but the server still has it \u2014 '+e.message,'err'));
 }
 
 /* ================================================================
@@ -7495,6 +7563,9 @@ function woDelete(id){
   collSet('workorders',coll('workorders').filter(x=>x.id!==id));
   try{localStorage.removeItem(P+'att_'+id);}catch(e){}
   toast('Work Order deleted.','ok');render();
+  api('/api/records/workorders/'+encodeURIComponent(id),{method:'DELETE'})
+    .then(()=>{REC_AT['workorders']=0;})
+    .catch(e=>toast('Deleted here, but the server still has it \u2014 '+e.message,'err'));
 }
 function woViewPdfAll(){
   const rows=woViewRows();
@@ -7503,6 +7574,9 @@ function woViewPdfAll(){
   rows.forEach((r,i)=>setTimeout(()=>woPdf(r.id),i*350)); // staggered — browsers drop simultaneous downloads
 }
 function renderWoView(){
+  // recEnsure only re-renders the module screen, and this page has a route of
+  // its own, so ask for the refresh here and redraw when something arrives
+  recPull('workorders').then(c=>{if(c&&route==='insp_wo_view')render();});
   const all=coll('workorders'),rows=woViewRows();
   const statuses=[...new Set(all.map(r=>r.status).filter(Boolean))];
   document.getElementById('content').innerHTML=

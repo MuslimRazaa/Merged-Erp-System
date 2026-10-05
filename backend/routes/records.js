@@ -29,6 +29,10 @@ const MODULE_GROUP = {
   items: 'Inventory', stockmoves: 'Inventory',
   purchaseorders: 'Procurement', grns: 'Procurement', vendorbills: 'Procurement', payments: 'Procurement',
   assets: 'Fixed Assets', maintenance: 'Fixed Assets',
+  // Inspection: work orders and the saved inspection-report library. These
+  // used to live only in the browser that wrote them, so a report filed at
+  // one site was invisible to everyone else.
+  workorders: 'Inspection', ir_library: 'Inspection',
 };
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
