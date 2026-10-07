@@ -90,10 +90,19 @@ const CUSTOMER_FIELD_MAP = {
   bankAccountNumber: 'bank_account_number', accountType: 'account_type', branchCode: 'branch_code',
 };
 
+// Prefix for an auto-generated code, by business-partner type — lets the two
+// lists (Customers vs Vendors) be told apart by code at a glance even before
+// the Type column is visible (an exported CSV, a reference typed into
+// another screen, …). 'Both' gets its own prefix rather than picking one of
+// the other two, since it's neither exclusively.
+const CODE_PREFIX_BY_TYPE = { Customer: 'CUST', Vendor: 'VEN', Both: 'BP' };
 router.post('/customers', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Business Partner Name is required.' });
+  if (req.body.customerType !== undefined && !CODE_PREFIX_BY_TYPE[req.body.customerType]) {
+    return res.status(400).json({ error: 'customerType must be Customer, Vendor or Both.' });
+  }
   let code = String(req.body.code || '').trim();
   const cols = ['code', 'created_by']; const values = [code || `TEMP-${Date.now()}`, req.erpUser.id];
   for (const [k, col] of Object.entries(CUSTOMER_FIELD_MAP)) {
@@ -107,7 +116,8 @@ router.post('/customers', async (req, res) => {
     values
   );
   if (!code) {
-    code = `CUST-${String(result.insertId).padStart(4, '0')}`;
+    const prefix = CODE_PREFIX_BY_TYPE[req.body.customerType] || 'CUST';
+    code = `${prefix}-${String(result.insertId).padStart(4, '0')}`;
     await pool.query('UPDATE erp_crm_customers SET code = ? WHERE id = ?', [code, result.insertId]);
   }
   const [rows] = await pool.query('SELECT * FROM erp_crm_customers WHERE id = ?', [result.insertId]);
@@ -117,6 +127,9 @@ router.post('/customers', async (req, res) => {
 
 router.put('/customers/:id', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  if (req.body.customerType !== undefined && !CODE_PREFIX_BY_TYPE[req.body.customerType]) {
+    return res.status(400).json({ error: 'customerType must be Customer, Vendor or Both.' });
+  }
   const fields = []; const values = [];
   for (const [k, col] of Object.entries(CUSTOMER_FIELD_MAP)) {
     if (req.body[k] !== undefined) { fields.push(`${col} = ?`); values.push(req.body[k] || null); }

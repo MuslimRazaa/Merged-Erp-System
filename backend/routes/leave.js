@@ -263,6 +263,40 @@ router.put('/:id/status', async (req, res) => {
   res.json(shapeRow(out[0]));
 });
 
+// PUT /api/leave/:id/override — HR/Admin correction tool, used from the
+// Leave Records page (not the normal Inbox decide flow): directly set the
+// status and decision remarks on ANY leave request, regardless of its
+// current workflow stage. PUT /:id/status above only allows specific
+// stage-to-stage transitions (ReleasedForApproval -> PendingHRApproval ->
+// decided) — this exists for fixing a mistake AFTER that, e.g. an
+// already-Approved/Rejected request that was decided wrong, or its remarks
+// need correcting. Always recorded as the FINAL decision (decided_by/
+// decided_at/decision_remarks — the same columns the normal final decision
+// uses), so nothing else that reads those needs to know this came from a
+// correction. The HOD's own recommendation (hod_status/hod_remarks) is left
+// exactly as it was — this only overrides HR's final call, not history.
+router.put('/:id/override', async (req, res) => {
+  const hasHr = canAccess(req.erpUser.role, 'Human Resources');
+  if (!hasHr) return res.status(403).json({ error: 'HR or Administrator access required.' });
+  const id = +req.params.id;
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const status = String(req.body.status || '');
+  if (!DECISION_STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of: ${DECISION_STATUSES.join(', ')}` });
+  const [rows] = await pool.query('SELECT id, doc_no, requires_admin_approval FROM erp_leave_requests WHERE id = ?', [id]);
+  if (!rows.length) return res.status(404).json({ error: 'Leave request not found.' });
+  if (rows[0].requires_admin_approval === 1 && !isAdminTier(req.erpUser.role)) {
+    return res.status(403).json({ error: 'This request was filed by an HR-tier employee for themselves — only an Administrator or Sub Admin can change it.' });
+  }
+  const remarks = req.body.decisionRemarks != null ? String(req.body.decisionRemarks).trim() || null : null;
+  await pool.query(
+    'UPDATE erp_leave_requests SET status = ?, decided_by = ?, decided_at = NOW(), decision_remarks = ? WHERE id = ?',
+    [status, req.erpUser.id, remarks, id]
+  );
+  await audit(req.erpUser.employeeId, 'leave-decision-corrected', `${rows[0].doc_no || id} -> ${status}`);
+  const [out] = await pool.query(ROW_SELECT + ' WHERE lr.id = ?', [id]);
+  res.json(shapeRow(out[0]));
+});
+
 // GET /api/leave/mine — the caller's own leave history (any role).
 router.get('/mine', async (req, res) => {
   const [rows] = await pool.query(ROW_SELECT + ' WHERE lr.employee_id = ? ORDER BY lr.created_at DESC', [req.erpUser.id]);
