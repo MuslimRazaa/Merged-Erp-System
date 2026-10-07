@@ -294,6 +294,16 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('lvdecidemodal')">Cancel</button><button class="btn" onclick="lvConfirmDecide()">Confirm decision</button></div>
 </div></div>
 
+<div class="modal" id="lvoverridemodal"><div class="box" style="max-width:480px">
+  <h3>Edit Leave Decision</h3>
+  <div class="hint" style="margin-bottom:10px">For correcting a request that's already been decided (or its remarks) — HR/Admin only.</div>
+  <div id="lvoverride-summary" style="font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px"></div>
+  <div class="field"><label>Status</label><select id="lvoverride-status"></select></div>
+  <div class="field" style="margin-top:9px"><label>Remarks / Message</label><textarea id="lvoverride-remarks" rows="3" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
+  <div class="lerr" id="lvoverride-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('lvoverridemodal')">Cancel</button><button class="btn" onclick="lvConfirmOverride()">Save</button></div>
+</div></div>
+
 <div class="modal" id="empimportmodal"><div class="box" style="max-width:640px">
   <h3>Import Employees from CSV</h3>
   <div class="hint" style="margin-bottom:10px">Expected columns (any order, header names matched automatically): Emp Code, Employee Name, Father Name, Mother Name, Contact Number, CNIC No., Bank Name, Emp A/C No., IBAN No., Account Title, Date Of Birth, Email Address, Nationality, Designation, Joining Date, End Date, Address, Gross Salary, Shift Start, Shift End, Status. Shift Start/Shift End: 24-hour HH:MM (e.g. 09:00, 17:30) — 12-hour "9:00 AM"/"5:30 PM" also works. An existing employee is matched by Emp Code (e.g. "9" and "09" are treated as the same code) and updated — its Employee Name is left as-is (Attendance/Payroll/JLR all depend on it staying exactly what it is; rename someone from the Employees form instead); a new Emp Code creates a brand-new employee — no login access is granted by import, that stays a separate step. CNIC and Contact Number are reformatted automatically either way.</div>
@@ -303,45 +313,6 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end">
     <button class="btn ghost" onclick="closeModal('empimportmodal')">Cancel</button>
     <button class="btn" id="empimport-go" onclick="empImportRun()" disabled>Import</button>
-  </div>
-</div></div>
-
-<div class="modal" id="crmcustmodal"><div class="box" style="max-width:640px">
-  <h3 id="crmcust-modal-title">Add Customer</h3>
-  <div class="field"><label>Business Partner Name *</label><input id="cc-name"></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
-    <div class="field"><label>Mobile Number</label><input id="cc-phone"></div>
-    <div class="field"><label>Telephone Number</label><input id="cc-telephone"></div>
-    <div class="field"><label>Email</label><input id="cc-email" type="email"></div>
-    <div class="field"><label>Preferred Currency</label><input id="cc-currency" placeholder="AED"></div>
-    <div class="field"><label>Country</label><input id="cc-country"></div>
-    <div class="field"><label>District</label><input id="cc-district"></div>
-    <div class="field"><label>City</label><input id="cc-city"></div>
-    <div class="field"><label>Payment Terms</label><input id="cc-terms" placeholder="Net 30"></div>
-    <div class="field"><label>CNIC#</label><input id="cc-cnic"></div>
-    <div class="field"><label>NTN#</label><input id="cc-ntn"></div>
-    <div class="field"><label>STRN</label><input id="cc-strn"></div>
-    <div class="field"><label>Status</label><select id="cc-status"><option>Active</option><option>Inactive</option></select></div>
-  </div>
-  <div class="field" style="margin-top:9px"><label>Address</label><textarea id="cc-addr" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
-
-  <h3 style="margin-top:18px;font-size:14px">Bank Details</h3>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="field"><label>Bank Name</label><input id="cc-bankname"></div>
-    <div class="field"><label>Branch Code</label><input id="cc-branchcode"></div>
-    <div class="field"><label>Bank Account Number</label><input id="cc-bankacc"></div>
-    <div class="field"><label>Account Type</label><input id="cc-accttype"></div>
-    <div class="field"><label>IBAN Number</label><input id="cc-iban"></div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">
-    <div class="field"><label>Bank Address</label><input id="cc-bankaddr"></div>
-    <div class="field"><label>Address 1</label><input id="cc-bankaddr2"></div>
-  </div>
-
-  <div class="lerr" id="crmcust-err" style="display:none"></div>
-  <div class="actions" style="justify-content:space-between">
-    <button class="btn ghost" id="crmcust-delete-btn" style="color:#b42318" onclick="crmDeleteCustomer()">Delete</button>
-    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmcustmodal')">Cancel</button><button class="btn" onclick="crmSaveCustomer()">Save</button></span>
   </div>
 </div></div>
 
@@ -623,7 +594,7 @@ const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets'
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
-  'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'}],
+  'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
@@ -1932,6 +1903,83 @@ async function lvOpen(id){
   try{lvFillForm(await api('/api/leave/'+id));}catch(e){alert(e.message);}
   window.scrollTo(0,0);
 }
+
+/* ---- Leave Records (HR/Admin): every employee's current & previous leave
+   requests in one table, with a correction tool to edit a decision after
+   the fact — separate from the Inbox's normal Recommend/Final Decide flow,
+   which only moves a request FORWARD through the workflow. Reachable from
+   the sidebar any time (HR shouldn't need a pending request to see it), and
+   from the Inbox's "Open" button, pre-filtered to that employee. ---- */
+let LV_RECORDS=[],LV_RECORDS_FILTER_EMP='';
+// Every status a leave request can actually be in — mirrors
+// EMPLOYEE_STATUSES + DECISION_STATUSES + the in-between HOD stage in
+// routes/leave.js, kept in one place so the status filter dropdown never
+// silently drifts from what the backend can actually set.
+const LV_ALL_STATUSES=['InProcess','ReleasedForApproval','PendingHRApproval','Approved','Rejected','Leave Without Pay','Cancelled','No Order','Valid for Reporting'];
+// Status choices the correction tool can set — final/decided states only;
+// InProcess/ReleasedForApproval/PendingHRApproval are workflow STAGES, not
+// something a correction should drop a request back into.
+const LV_DECISION_STATUSES=['Approved','Rejected','Leave Without Pay','Cancelled','No Order','Valid for Reporting'];
+// Called from the Leave Inbox's "Open" button, BEFORE navigating — sets the
+// filter so Leave Records opens already scoped to that one employee.
+function lvRecordsOpenFor(employeeCode){LV_RECORDS_FILTER_EMP=employeeCode||'';}
+async function renderLeaveRecords(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">Leave Records<span class="hint" style="font-weight:400"> — every employee\'s current & previous leave requests</span>'+
+   '<span style="margin-left:auto;display:flex;gap:8px">'+
+    '<input id="lvrec-search" placeholder="Search Doc No., Emp Code or Name" value="'+esc(LV_RECORDS_FILTER_EMP)+'" oninput="lvRecordsFilter()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:240px">'+
+    '<select id="lvrec-status" onchange="lvRecordsFilter()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+     '<option value="">All statuses</option>'+LV_ALL_STATUSES.map(s=>'<option>'+esc(s)+'</option>').join('')+
+    '</select>'+
+   '</span></div>'+
+   '<div class="card-b"><div id="lvrec-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+  await lvRecordsReload();
+}
+async function lvRecordsReload(){
+  try{LV_RECORDS=await api('/api/leave');lvRecordsFilter();}
+  catch(e){const el=document.getElementById('lvrec-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function lvRecordsFilter(){
+  const qEl=document.getElementById('lvrec-search');const q=(qEl?qEl.value:LV_RECORDS_FILTER_EMP).trim().toLowerCase();
+  const sEl=document.getElementById('lvrec-status');const s=sEl?sEl.value:'';
+  const rows=LV_RECORDS.filter(r=>(!q||r.docNo.toLowerCase().includes(q)||String(r.employeeCode).toLowerCase().includes(q)||r.employeeName.toLowerCase().includes(q))&&(!s||r.status===s));
+  const body=rows.length
+   ?'<table><thead><tr><th>Doc No.</th><th>Employee</th><th>Department</th><th>Type of Leave</th><th>From</th><th>To</th><th>Status</th><th>HOD</th><th>Final Decision</th><th class="no-print"></th></tr></thead><tbody>'+
+     rows.map(r=>'<tr><td><b>'+esc(r.docNo)+'</b></td><td>'+esc(r.employeeCode)+' — '+esc(r.employeeName)+'</td><td>'+esc(r.department||'')+'</td><td>'+esc(r.leaveType)+' <span class="hint">('+esc(r.leaveRequestType)+')</span></td><td>'+String(r.fromDate).slice(0,10)+'</td><td>'+String(r.toDate).slice(0,10)+'</td>'+
+      '<td>'+lvStatusPill(r.status,r)+'</td>'+
+      '<td>'+(r.hodDecidedByName?'<b>'+esc(r.hodDecidedByName)+'</b>: '+esc(r.hodStatus||'')+(r.hodRemarks?' — "'+esc(r.hodRemarks)+'"':''):'—')+'</td>'+
+      '<td>'+(r.decidedByName?'<b>'+esc(r.decidedByName)+'</b>: '+esc(r.decisionRemarks||''):'—')+'</td>'+
+      '<td class="no-print"><button class="btn ghost small" onclick="lvOpenOverride('+r.id+')">✎ Edit</button></td></tr>').join('')+
+     '</tbody></table>'
+   :'<div class="empty">No matching leave requests.</div>';
+  const el=document.getElementById('lvrec-list');if(el)el.innerHTML=body;
+}
+let LV_OVERRIDE_ID=null;
+function lvOpenOverride(id){
+  const r=LV_RECORDS.find(x=>x.id===id);if(!r)return;
+  LV_OVERRIDE_ID=id;
+  document.getElementById('lvoverride-summary').innerHTML=
+   '<b>'+esc(r.docNo)+'</b> — '+esc(r.employeeCode)+' — '+esc(r.employeeName)+'<br>'+
+   esc(r.leaveType)+' ('+esc(r.leaveRequestType)+') · '+String(r.fromDate).slice(0,10)+' → '+String(r.toDate).slice(0,10)+' · currently '+lvStatusPill(r.status,r);
+  document.getElementById('lvoverride-status').innerHTML=LV_DECISION_STATUSES.map(s=>'<option'+(s===r.status?' selected':'')+'>'+esc(s)+'</option>').join('');
+  document.getElementById('lvoverride-remarks').value=r.decisionRemarks||'';
+  document.getElementById('lvoverride-err').style.display='none';
+  openModal('lvoverridemodal');
+}
+async function lvConfirmOverride(){
+  if(!LV_OVERRIDE_ID)return;
+  const err=document.getElementById('lvoverride-err');err.style.display='none';
+  try{
+    await api('/api/leave/'+LV_OVERRIDE_ID+'/override',{method:'PUT',body:JSON.stringify({
+      status:document.getElementById('lvoverride-status').value,
+      decisionRemarks:document.getElementById('lvoverride-remarks').value.trim(),
+    })});
+    closeModal('lvoverridemodal');
+    toast('Leave decision updated.','ok');
+    LV_OVERRIDE_ID=null;
+    await lvRecordsReload();
+  }catch(e){showErrEl(err,e.message);}
+}
 async function lvLoadQueue(){
   const body=document.getElementById('lv-queue-body');if(!body)return;
   try{
@@ -2018,7 +2066,7 @@ async function lvLoadInboxPanel(){
           (canDecide
            ?'<button class="btn small" style="flex:1" onclick="lvOpenDecide('+r.id+')">'+(r.status==='ReleasedForApproval'?'Recommend…':'Final Decide…')+'</button>'
            :lvDecideHint(r,hasHr))+
-          '<button class="btn ghost small" onclick="go(\'leave_requests\');lvOpen('+r.id+');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
+          '<button class="btn ghost small" onclick="lvRecordsOpenFor(\''+esc(r.employeeCode)+'\');go(\'hr_leave_records\');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
          '</div></div>';
       }).join('')
      :'<div class="empty">Nothing waiting on you right now.</div>';
@@ -3466,32 +3514,45 @@ function crmQuoteRefEnsure(){
   crmLoadQuotationRefs().then(()=>{if(route.startsWith('m_'))recRefreshRefs('quotes');}).catch(()=>{});
 }
 let CRM_CUST_SELECTED=new Set();
+// What a stored customer_type ('Customer'/'Vendor'/'Both') shows as, and how
+// its pill is coloured on the list — kept in one place so the list, the
+// type-choice page and the form's own Type field never drift from each other.
+const CRM_CUST_TYPE_LABEL={Customer:'Customer',Vendor:'Vendor',Both:'Customer & Vendor'};
+const CRM_CUST_TYPE_PILL={Customer:'b',Vendor:'a',Both:'g'};
 async function renderCrmCustomers(){
   CRM_CUST_SELECTED=new Set();
   const c=document.getElementById('content');
-  c.innerHTML='<div class="card"><div class="card-h">Customers<span class="hint" style="font-weight:400"> — CRM master list</span>'+
+  c.innerHTML='<div class="card"><div class="card-h">Customers & Vendors<span class="hint" style="font-weight:400"> — CRM master list</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmcust-search" placeholder="Search code or name" oninput="crmFilterCustomers()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+   '<select id="crmcust-typefilter" onchange="crmFilterCustomers()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+    '<option value="">All types</option><option value="Customer">Customers only</option><option value="Vendor">Vendors only</option><option value="Both">Both only</option></select>'+
    '<button class="btn ghost" onclick="crmOpenCustomerImport()">⇪ Import Customers</button>'+
-   '<button class="btn" onclick="crmOpenCustomerForm(null)">+ Add Customer</button></span></div>'+
+   '<button class="btn" onclick="crmOpenCustomerForm(null)">+ Add Customer / Vendor</button></span></div>'+
    '<div class="card-b">'+
    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+
     '<button class="btn ghost small" id="crmcust-delsel-btn" disabled onclick="crmDeleteSelectedCustomers()">🗑 Delete Selected (0)</button>'+
-    '<button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="crmDeleteAllCustomers()">🗑 Delete All Customers</button>'+
+    '<button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="crmDeleteAllCustomers()">🗑 Delete All</button>'+
    '</div>'+
    '<div id="crmcust-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{await crmLoadCustomers();crmFilterCustomers();}
   catch(e){const el=document.getElementById('crmcust-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
-function crmFilterCustomers(){
+function crmCustFilteredRows(){
   const qEl=document.getElementById('crmcust-search');const q=qEl?qEl.value.trim().toLowerCase():'';
-  const rows=CRM_CUSTOMERS.filter(c=>!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q));
+  const tEl=document.getElementById('crmcust-typefilter');const t=tEl?tEl.value:'';
+  return CRM_CUSTOMERS.filter(c=>(!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q))&&(!t||(c.customerType||'Customer')===t));
+}
+function crmFilterCustomers(){
+  const rows=crmCustFilteredRows();
   const allChecked=rows.length>0&&rows.every(c=>CRM_CUST_SELECTED.has(c.id));
-  const body='<table><thead><tr><th style="width:28px"><input type="checkbox" '+(allChecked?'checked':'')+' onclick="crmToggleSelectAllCustomers(this.checked)"></th><th>Code</th><th>Business Partner Name</th><th>Mobile</th><th>Email</th><th>City</th><th>Country</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
-   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td onclick="event.stopPropagation()"><input type="checkbox" '+(CRM_CUST_SELECTED.has(c.id)?'checked':'')+' onchange="crmToggleSelectCustomer('+c.id+',this.checked)"></td><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td><td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.city||'')+'</td><td>'+esc(c.country||'')+'</td>'+
+  const body='<table><thead><tr><th style="width:28px"><input type="checkbox" '+(allChecked?'checked':'')+' onclick="crmToggleSelectAllCustomers(this.checked)"></th><th>Code</th><th>Business Partner Name</th><th>Type</th><th>Mobile</th><th>Email</th><th>City</th><th>Country</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
+   rows.map(c=>'<tr style="cursor:pointer" onclick="crmOpenCustomerForm('+c.id+')"><td onclick="event.stopPropagation()"><input type="checkbox" '+(CRM_CUST_SELECTED.has(c.id)?'checked':'')+' onchange="crmToggleSelectCustomer('+c.id+',this.checked)"></td><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.name)+'</td>'+
+    '<td><span class="pill '+(CRM_CUST_TYPE_PILL[c.customerType]||'b')+'">'+esc(CRM_CUST_TYPE_LABEL[c.customerType]||'Customer')+'</span></td>'+
+    '<td>'+esc(c.phone||'')+'</td><td>'+esc(c.email||'')+'</td><td>'+esc(c.city||'')+'</td><td>'+esc(c.country||'')+'</td>'+
     '<td><span class="pill '+(c.status==='Active'?'g':'r')+'">'+esc(c.status||'')+'</span></td>'+
     '<td class="no-print"><button class="btn ghost small" onclick="event.stopPropagation();crmOpenCustomerForm('+c.id+')">Edit</button></td></tr>').join('')+
    '</tbody></table>';
-  const el=document.getElementById('crmcust-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No customers yet.</div>';
+  const el=document.getElementById('crmcust-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No matching records.</div>';
   crmUpdateCustSelBar();
 }
 function crmToggleSelectCustomer(id,checked){
@@ -3499,8 +3560,7 @@ function crmToggleSelectCustomer(id,checked){
   crmUpdateCustSelBar();
 }
 function crmToggleSelectAllCustomers(checked){
-  const qEl=document.getElementById('crmcust-search');const q=qEl?qEl.value.trim().toLowerCase():'';
-  const rows=CRM_CUSTOMERS.filter(c=>!q||c.code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q));
+  const rows=crmCustFilteredRows();
   rows.forEach(c=>{if(checked)CRM_CUST_SELECTED.add(c.id);else CRM_CUST_SELECTED.delete(c.id);});
   crmFilterCustomers();
 }
@@ -3613,41 +3673,89 @@ async function crmCustImportRun(){
   }
 }
 
+// 'choose' = the "what are you adding?" page a brand-new record starts on;
+// 'form' = the actual Business Partner form. Editing an existing record skips
+// straight to 'form' — its type is already on file, just shown/changeable
+// there via the Type field instead of asked again as a separate step.
+let CRM_CUST_STEP='choose', CRM_CUST_TYPE=null;
 function crmOpenCustomerForm(id){
   CRM_CUST_EDIT=id?CRM_CUSTOMERS.find(c=>c.id===id):null;
-  const c=CRM_CUST_EDIT||{};
-  document.getElementById('crmcust-modal-title').textContent=CRM_CUST_EDIT?'Edit Customer':'Add Customer';
-  document.getElementById('cc-name').value=c.name||'';
-  document.getElementById('cc-phone').value=c.phone||'';
-  document.getElementById('cc-telephone').value=c.telephoneNumber||'';
-  document.getElementById('cc-email').value=c.email||'';
-  document.getElementById('cc-currency').value=c.preferredCurrency||'';
-  document.getElementById('cc-country').value=c.country||'';
-  document.getElementById('cc-district').value=c.district||'';
-  document.getElementById('cc-city').value=c.city||'';
-  document.getElementById('cc-terms').value=c.paymentTerms||'';
-  document.getElementById('cc-cnic').value=c.cnic||'';
-  document.getElementById('cc-ntn').value=c.ntn||'';
-  document.getElementById('cc-strn').value=c.strn||'';
-  document.getElementById('cc-status').value=c.status||'Active';
-  document.getElementById('cc-addr').value=c.address||'';
-  document.getElementById('cc-bankname').value=c.bankName||'';
-  document.getElementById('cc-branchcode').value=c.branchCode||'';
-  document.getElementById('cc-bankacc').value=c.bankAccountNumber||'';
-  document.getElementById('cc-accttype').value=c.accountType||'';
-  document.getElementById('cc-iban').value=c.iban||'';
-  document.getElementById('cc-bankaddr').value=c.bankAddress||'';
-  document.getElementById('cc-bankaddr2').value=c.bankAddress2||'';
-  document.getElementById('crmcust-delete-btn').style.display=CRM_CUST_EDIT?'':'none';
-  document.getElementById('crmcust-err').style.display='none';
-  openModal('crmcustmodal');
+  CRM_CUST_TYPE=CRM_CUST_EDIT?(CRM_CUST_EDIT.customerType||'Customer'):null;
+  CRM_CUST_STEP=CRM_CUST_EDIT?'form':'choose';
+  route='crm_customer_form';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);
+}
+function crmChooseCustType(type){
+  CRM_CUST_TYPE=type;CRM_CUST_STEP='form';render();window.scrollTo(0,0);
+}
+function crmCustFormCancel(){
+  route='crm_customers';lsSet('ui_route',route);nav();render();
+}
+function renderCrmCustomerForm(){
+  const c=document.getElementById('content');
+  if(CRM_CUST_STEP==='choose'){
+    const choice=(type,icon,desc)=>'<div class="card" style="cursor:pointer;text-align:center;padding:28px 16px" onclick="crmChooseCustType(\''+type+'\')">'+
+      '<div style="font-size:30px;margin-bottom:8px">'+icon+'</div><div style="font-weight:700;font-size:15px">'+esc(CRM_CUST_TYPE_LABEL[type])+'</div>'+
+      '<div class="hint" style="margin-top:4px">'+esc(desc)+'</div></div>';
+    c.innerHTML='<div class="card"><div class="card-h">Add Customer / Vendor<span style="margin-left:auto"><button class="btn ghost small" onclick="crmCustFormCancel()">‹ Back to list</button></span></div>'+
+      '<div class="card-b">'+
+      '<div style="font-size:15px;font-weight:700;margin-bottom:4px">What are you adding?</div>'+
+      '<div class="hint" style="margin-bottom:18px">This decides how it\'s labelled and filtered on the list — the form itself is the same either way, and the type can still be changed later from Edit.</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:760px">'+
+       choice('Customer','◆','Someone PTIS sells to / invoices')+
+       choice('Vendor','▣','Someone PTIS buys from / pays')+
+       choice('Both','⇄','Acts as both a customer and a vendor')+
+      '</div></div></div>';
+    return;
+  }
+  const cEdit=CRM_CUST_EDIT||{};
+  c.innerHTML='<div class="card"><div class="card-h">'+(CRM_CUST_EDIT?'Edit':'Add')+' '+esc(CRM_CUST_TYPE_LABEL[CRM_CUST_TYPE]||'Customer')+
+    '<span class="hint" style="font-weight:400"> — CRM Business Partner</span>'+
+    '<span style="margin-left:auto"><button class="btn ghost small" onclick="crmCustFormCancel()">‹ Back to list</button></span></div>'+
+   '<div class="card-b">'+
+   '<div class="field"><label>Business Partner Name *</label><input id="cc-name" value="'+esc(cEdit.name||'')+'"></div>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>Type</label><select id="cc-type"><option'+(CRM_CUST_TYPE==='Customer'?' selected':'')+'>Customer</option><option'+(CRM_CUST_TYPE==='Vendor'?' selected':'')+'>Vendor</option><option'+(CRM_CUST_TYPE==='Both'?' selected':'')+'>Both</option></select></div>'+
+    '<div class="field"><label>Mobile Number</label><input id="cc-phone" value="'+esc(cEdit.phone||'')+'"></div>'+
+    '<div class="field"><label>Telephone Number</label><input id="cc-telephone" value="'+esc(cEdit.telephoneNumber||'')+'"></div>'+
+    '<div class="field"><label>Email</label><input id="cc-email" type="email" value="'+esc(cEdit.email||'')+'"></div>'+
+    '<div class="field"><label>Preferred Currency</label><input id="cc-currency" placeholder="AED" value="'+esc(cEdit.preferredCurrency||'')+'"></div>'+
+    '<div class="field"><label>Country</label><input id="cc-country" value="'+esc(cEdit.country||'')+'"></div>'+
+    '<div class="field"><label>District</label><input id="cc-district" value="'+esc(cEdit.district||'')+'"></div>'+
+    '<div class="field"><label>City</label><input id="cc-city" value="'+esc(cEdit.city||'')+'"></div>'+
+    '<div class="field"><label>Payment Terms</label><input id="cc-terms" placeholder="Net 30" value="'+esc(cEdit.paymentTerms||'')+'"></div>'+
+    '<div class="field"><label>CNIC#</label><input id="cc-cnic" value="'+esc(cEdit.cnic||'')+'"></div>'+
+    '<div class="field"><label>NTN#</label><input id="cc-ntn" value="'+esc(cEdit.ntn||'')+'"></div>'+
+    '<div class="field"><label>STRN</label><input id="cc-strn" value="'+esc(cEdit.strn||'')+'"></div>'+
+    '<div class="field"><label>Status</label><select id="cc-status"><option'+(cEdit.status!=='Inactive'?' selected':'')+'>Active</option><option'+(cEdit.status==='Inactive'?' selected':'')+'>Inactive</option></select></div>'+
+   '</div>'+
+   '<div class="field" style="margin-top:9px"><label>Address</label><textarea id="cc-addr" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit">'+esc(cEdit.address||'')+'</textarea></div>'+
+
+   '<h3 style="margin-top:18px;font-size:14px">Bank Details</h3>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'+
+    '<div class="field"><label>Bank Name</label><input id="cc-bankname" value="'+esc(cEdit.bankName||'')+'"></div>'+
+    '<div class="field"><label>Branch Code</label><input id="cc-branchcode" value="'+esc(cEdit.branchCode||'')+'"></div>'+
+    '<div class="field"><label>Bank Account Number</label><input id="cc-bankacc" value="'+esc(cEdit.bankAccountNumber||'')+'"></div>'+
+    '<div class="field"><label>Account Type</label><input id="cc-accttype" value="'+esc(cEdit.accountType||'')+'"></div>'+
+    '<div class="field"><label>IBAN Number</label><input id="cc-iban" value="'+esc(cEdit.iban||'')+'"></div>'+
+   '</div>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>Bank Address</label><input id="cc-bankaddr" value="'+esc(cEdit.bankAddress||'')+'"></div>'+
+    '<div class="field"><label>Address 1</label><input id="cc-bankaddr2" value="'+esc(cEdit.bankAddress2||'')+'"></div>'+
+   '</div>'+
+
+   '<div class="lerr" id="crmcust-err" style="display:none"></div>'+
+   '<div class="actions" style="justify-content:space-between">'+
+    (CRM_CUST_EDIT?'<button class="btn ghost" style="color:#b42318" onclick="crmDeleteCustomer()">Delete</button>':'<span></span>')+
+    '<span style="display:flex;gap:8px"><button class="btn ghost" onclick="crmCustFormCancel()">Cancel</button><button class="btn" onclick="crmSaveCustomer()">Save</button></span>'+
+   '</div></div></div>';
 }
 async function crmSaveCustomer(){
   const err=document.getElementById('crmcust-err');err.style.display='none';
   const name=document.getElementById('cc-name').value.trim();
   if(!name)return showErrEl(err,'Business Partner Name is required.');
   const body={
-    name,phone:document.getElementById('cc-phone').value.trim(),telephoneNumber:document.getElementById('cc-telephone').value.trim(),
+    name,customerType:document.getElementById('cc-type').value,
+    phone:document.getElementById('cc-phone').value.trim(),telephoneNumber:document.getElementById('cc-telephone').value.trim(),
     email:document.getElementById('cc-email').value.trim(),preferredCurrency:document.getElementById('cc-currency').value.trim(),
     country:document.getElementById('cc-country').value.trim(),district:document.getElementById('cc-district').value.trim(),
     city:document.getElementById('cc-city').value.trim(),paymentTerms:document.getElementById('cc-terms').value.trim(),
@@ -3662,17 +3770,17 @@ async function crmSaveCustomer(){
   try{
     if(CRM_CUST_EDIT)await api('/api/crm/customers/'+CRM_CUST_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
     else await api('/api/crm/customers',{method:'POST',body:JSON.stringify(body)});
-    closeModal('crmcustmodal');toast('Customer saved.','ok');
-    await renderCrmCustomers();
+    toast((CRM_CUST_TYPE_LABEL[body.customerType]||'Customer')+' saved.','ok');
+    crmCustFormCancel();
   }catch(e){showErrEl(err,e.message);}
 }
 async function crmDeleteCustomer(){
   if(!CRM_CUST_EDIT)return;
-  if(!confirm('Delete customer "'+CRM_CUST_EDIT.name+'"?'))return;
+  if(!confirm('Delete "'+CRM_CUST_EDIT.name+'"?'))return;
   try{
     await api('/api/crm/customers/'+CRM_CUST_EDIT.id,{method:'DELETE'});
-    closeModal('crmcustmodal');toast('Customer deleted.','ok');
-    await renderCrmCustomers();
+    toast('Deleted.','ok');
+    crmCustFormCancel();
   }catch(e){toast(e.message,'err');}
 }
 
@@ -8286,7 +8394,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -8295,7 +8403,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;

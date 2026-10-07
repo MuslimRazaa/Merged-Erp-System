@@ -64,6 +64,17 @@ if (!BACKEND_URL || !AGENT_KEY) {
   process.exit(1);
 }
 
+// Safety net: node-zklib (unmaintained, last touched years ago) has had real
+// bugs that throw outside pollOnce's own try/catch — e.g. readWithBuffer()
+// used to dereference a null reply after a device timeout, crashing this
+// whole process over ONE flaky device (patches/fix-node-zklib.js fixes that
+// specific case, reapplied on every `npm install` via postinstall). This is
+// the net underneath: whatever throws, log it and keep polling every other
+// device instead of silently going dark until someone notices and restarts
+// the service by hand.
+process.on('uncaughtException', (err) => log('AGENT', `Uncaught exception (ignored, staying up): ${err.stack || err.message}`));
+process.on('unhandledRejection', (err) => log('AGENT', `Unhandled rejection (ignored, staying up): ${(err && err.stack) || err}`));
+
 // One agent process can poll several K70s (one per office) — each gets its
 // own IP/port and its own state.json-equivalent so their "last synced"
 // marks never collide. Device 1 keeps using the original, unnumbered
@@ -74,27 +85,39 @@ if (!BACKEND_URL || !AGENT_KEY) {
 function slugify(name, fallback) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || fallback;
 }
+// Warns loudly (instead of silently falling back to a generic "Device N")
+// when a configured device has no explicit _NAME — that generic name is
+// exactly what ends up stamped onto every punch's `location` field and
+// shown in the ERP, so a missing _NAME here means real punches recorded
+// under a meaningless label. envVar is the exact line to add to this
+// device's .env, e.g. "DEVICE_1_NAME" or "DEVICE_NAME".
+function resolveName(explicit, fallback, envVar) {
+  if (explicit) return explicit;
+  console.warn(`[WARN] ${envVar} is not set — this device will be labeled "${fallback}" everywhere (agent logs, and the "location" on every punch pushed to the ERP). Set ${envVar}=<the real site name, e.g. Karachi or Islamabad> in .env and restart.`);
+  return fallback;
+}
 function parseDevices() {
   const devices = [];
   if (process.env.DEVICE_IP || !process.env.DEVICE_1_IP) {
     devices.push({
-      name: process.env.DEVICE_NAME || 'Device 1',
+      name: resolveName(process.env.DEVICE_NAME, 'Karachi', 'DEVICE_NAME'),
       ip: process.env.DEVICE_IP || '192.168.30.64',
       port: +(process.env.DEVICE_PORT || 4370),
       stateFile: path.join(__dirname, 'state.json'),
     });
   }
   if (process.env.DEVICE_1_IP && !process.env.DEVICE_IP) {
+    const name = resolveName(process.env.DEVICE_1_NAME, 'Device 1', 'DEVICE_1_NAME');
     devices.push({
-      name: process.env.DEVICE_1_NAME || 'Device 1',
+      name,
       ip: process.env.DEVICE_1_IP,
       port: +(process.env.DEVICE_1_PORT || 4370),
-      stateFile: path.join(__dirname, `state-${slugify(process.env.DEVICE_1_NAME || 'device-1', 'device-1')}.json`),
+      stateFile: path.join(__dirname, `state-${slugify(name, 'device-1')}.json`),
     });
   }
   let i = 2; // device 1 (whichever form it took) is always already pushed above
   while (process.env[`DEVICE_${i}_IP`]) {
-    const name = process.env[`DEVICE_${i}_NAME`] || `Device ${i}`;
+    const name = resolveName(process.env[`DEVICE_${i}_NAME`], `Device ${i}`, `DEVICE_${i}_NAME`);
     devices.push({
       name,
       ip: process.env[`DEVICE_${i}_IP`],

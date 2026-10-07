@@ -4,7 +4,8 @@
   "description": "Polls a ZKTeco K70 attendance machine over the office LAN and pushes new punches to the Premier ERP backend. Runs on the office VM, NOT on cPanel — see README-SETUP.md.",
   "main": "agent.js",
   "scripts": {
-    "start": "node agent.js"
+    "start": "node agent.js",
+    "postinstall": "node patches/fix-node-zklib.js"
   },
   "engines": { "node": ">=18" },
   "dependencies": {
