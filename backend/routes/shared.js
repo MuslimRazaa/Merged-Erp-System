@@ -322,6 +322,38 @@ function formatPhoneNumber(raw) {
   return digits;
 }
 
+// Explicit "Gender" column from a CSV — the sheet almost always already
+// spells it exactly like the ERP's own dropdown ('Male'/'Female'/'Other'),
+// but normalize case/whitespace so "male"/"FEMALE " etc. still land on a
+// real dropdown option instead of silently failing to match one later.
+// Returns undefined for a blank cell (caller then falls back to guessing
+// from the name's title, same as before this column existed).
+function normalizeGender(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return undefined;
+  const low = s.toLowerCase();
+  if (low === 'male' || low === 'm') return 'Male';
+  if (low === 'female' || low === 'f') return 'Female';
+  return s; // some other spelling (e.g. "Other") — pass it through as typed
+}
+
+// "Permenant" is the almost-universal misspelling this company's own HR
+// sheets use for "Permanent" — normalize known variants onto the ERP
+// Employment Type dropdown's real option spelling so the saved value
+// actually shows as selected next time the form opens, instead of landing
+// on a string no <option> matches. Anything else passes through unchanged
+// (Probation/Contractual/Part-time already match as typed).
+function normalizeEmploymentType(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return undefined;
+  const low = s.toLowerCase();
+  if (low === 'permenant' || low === 'permanant' || low === 'permanent') return 'Permanent';
+  if (low === 'probation' || low === 'probationary') return 'Probation';
+  if (low === 'contractual' || low === 'contract') return 'Contractual';
+  if (low === 'part-time' || low === 'parttime' || low === 'part time') return 'Part-time';
+  return s;
+}
+
 // "150,000", "PKR 150000", " 150000.00 " -> 150000 — Gross Salary cells come
 // out of Excel/CSV in all sorts of dressed-up forms. Returns undefined (leave
 // the column alone) for a blank cell or anything that isn't a real number,
@@ -330,6 +362,15 @@ function parseCsvNumber(v) {
   if (v == null || v === '') return undefined;
   const n = Number(String(v).replace(/[^0-9.]/g, ''));
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+// Same idea as parseCsvNumber, but a real "0" cell (e.g. Field Allowance=0,
+// meaning this employee genuinely gets none) is kept instead of treated as
+// unparseable — only a truly blank/empty cell means "leave it alone".
+function parseCsvNumberAllowZero(v) {
+  if (v == null || String(v).trim() === '') return undefined;
+  const n = Number(String(v).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? n : undefined;
 }
 
 // Shift Start / Shift End — "09:00", "9:00", "09:00:00", "9:00 AM", "5:30 PM"
@@ -378,12 +419,49 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
   if (!rows.length) return res.status(400).json({ error: 'No rows to import.' });
   if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows in one import (max 5000).' });
 
-  const [existingRows] = await pool.query('SELECT id, employee_id FROM employees');
-  const byCode = new Map(); // normEmpCode -> employees.id (existing, or created earlier in this same batch)
-  for (const e of existingRows) byCode.set(normEmpCode(e.employee_id), e.id);
+  const [existingRows] = await pool.query('SELECT id, employee_id, full_name FROM employees');
+  const byCode = new Map(); // normEmpCode -> {id, fullName} (existing, or created earlier in this same batch)
+  for (const e of existingRows) byCode.set(normEmpCode(e.employee_id), { id: e.id, fullName: e.full_name });
+
+  // Emp Code is the authoritative match key (see the no-rename comment
+  // below), but a code that matches while the sheet's Name looks nothing
+  // like what's on file is exactly the shape of a typo'd/transposed Emp
+  // Code — surfaced as a non-fatal warning (the row still gets applied)
+  // rather than silently trusting the code alone.
+  function nameLooksMismatched(sheetName, onFileName) {
+    const words = (s) => new Set(String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !['mr', 'ms', 'mrs', 'syed', 'muhammad', 'mohammad'].includes(w)));
+    const a = words(sheetName), b = words(onFileName);
+    if (!a.size || !b.size) return false;
+    for (const w of a) if (b.has(w)) return false;
+    return true;
+  }
+
+  // Department/Office Location/Bank Name dropdowns must never silently
+  // reject a sheet value that isn't on the list yet — register every new
+  // one up front (one query each, not per-row) so it's there both for the
+  // UPDATE below and for anyone opening the Employee form afterwards.
+  const [deptRows] = await pool.query('SELECT name FROM departments');
+  const [locRows] = await pool.query('SELECT name FROM locations');
+  const [bankRows] = await pool.query('SELECT name FROM erp_banks');
+  const knownDepts = new Set(deptRows.map((r) => r.name.toLowerCase()));
+  const knownLocs = new Set(locRows.map((r) => r.name.toLowerCase()));
+  const knownBanks = new Set(bankRows.map((r) => r.name.toLowerCase()));
+  const newDepts = new Set(), newLocs = new Set(), newBanks = new Set();
+  for (const r of rows) {
+    const d = String(r.department || '').trim(); if (d && !knownDepts.has(d.toLowerCase())) newDepts.add(d);
+    const l = String(r.location || '').trim(); if (l && !knownLocs.has(l.toLowerCase())) newLocs.add(l);
+    const b = String(r.bankName || '').trim(); if (b && !knownBanks.has(b.toLowerCase())) newBanks.add(b);
+  }
+  for (const d of newDepts) await pool.query('INSERT INTO departments (name) VALUES (?)', [d]);
+  for (const l of newLocs) await pool.query('INSERT INTO locations (name) VALUES (?)', [l]);
+  for (const b of newBanks) await pool.query('INSERT IGNORE INTO erp_banks (name) VALUES (?)', [b]);
+  if (newDepts.size || newLocs.size || newBanks.size) {
+    await audit(req.erpUser.employeeId, 'employees-import-new-options', `depts=${[...newDepts].join('|')} locs=${[...newLocs].join('|')} banks=${[...newBanks].join('|')}`);
+  }
 
   let created = 0, updated = 0;
   const errors = [];
+  const nameWarnings = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || {};
@@ -395,7 +473,11 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
     const code = normEmpCode(employeeId);
 
     try {
-      let empRowId = byCode.get(code);
+      const existing = byCode.get(code);
+      let empRowId = existing ? existing.id : undefined;
+      if (empRowId && nameLooksMismatched(name, existing.fullName)) {
+        nameWarnings.push({ row: rowNum, employeeId, message: `Sheet says "${name}" but Emp Code ${employeeId} is on file as "${existing.fullName}" — double-check this Emp Code before trusting this row's update.` });
+      }
       if (empRowId) {
         // Existing employee (already on file, or created earlier in this
         // same CSV) — update email/status, but deliberately NEVER touch
@@ -412,6 +494,8 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
         const fields = []; const values = [];
         if (row.email) { fields.push('email = ?'); values.push(row.email); }
         if (mappedStatus) { fields.push('status = ?'); values.push(mappedStatus); }
+        if (row.department) { fields.push('department = ?'); values.push(String(row.department).trim()); }
+        if (row.location) { fields.push('location = ?'); values.push(String(row.location).trim()); }
         if (fields.length) { values.push(empRowId); await pool.query(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values); }
         updated++;
       } else {
@@ -419,10 +503,10 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
         const hashed = await bcrypt.hash(randomPassword, 10);
         const [result] = await pool.query(
           'INSERT INTO employees (employee_id, full_name, email, password, department, location, status) VALUES (?,?,?,?,?,?,?)',
-          [employeeId, name, row.email || null, hashed, '', '', mapCsvStatus(row.status) || 'Active']
+          [employeeId, name, row.email || null, hashed, String(row.department || '').trim(), String(row.location || '').trim(), mapCsvStatus(row.status) || 'Active']
         );
         empRowId = result.insertId;
-        byCode.set(code, empRowId);
+        byCode.set(code, { id: empRowId, fullName: name });
         created++;
       }
 
@@ -432,7 +516,13 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
       const phoneNumber = formatPhoneNumber(row.phoneNumber);
       const grossSalary = parseCsvNumber(row.grossSalary);
       const profile = {
-        first_name: firstName, last_name: lastName, gender: detectGenderFromTitle(name),
+        first_name: firstName, last_name: lastName,
+        // An explicit Gender column in the sheet always wins over guessing
+        // from the name's title — only falls back to the guess when the
+        // sheet left this cell blank.
+        gender: normalizeGender(row.gender) || detectGenderFromTitle(name),
+        employment_type: normalizeEmploymentType(row.employmentType),
+        field_allowance: parseCsvNumberAllowZero(row.fieldAllowance),
         father_husband_name: row.fatherHusbandName, mother_name: row.motherName,
         phone_number: phoneNumber, nic_number: formatNic(row.nicNumber),
         bank_name: row.bankName, account_no: row.accountNo, iban: row.iban, account_title: row.accountTitle,
@@ -501,8 +591,8 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
     }
   }
 
-  await audit(req.erpUser.employeeId, 'employees-imported', `created=${created} updated=${updated} errors=${errors.length}`);
-  res.json({ created, updated, errors });
+  await audit(req.erpUser.employeeId, 'employees-imported', `created=${created} updated=${updated} errors=${errors.length} nameWarnings=${nameWarnings.length}`);
+  res.json({ created, updated, errors, nameWarnings });
 });
 
 // Accepts DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD and a few common variants
@@ -540,6 +630,32 @@ router.delete('/departments/:id', requireGroup('Human Resources'), async (req, r
   const [result] = await pool.query('DELETE FROM departments WHERE id = ?', [req.params.id]);
   if (!result.affectedRows) return res.status(404).json({ error: 'Not found.' });
   await audit(req.erpUser.employeeId, 'department-deleted', req.params.id);
+  res.json({ ok: true });
+});
+
+/* ---------------- banks (ERP-only master list — unlike departments/
+   locations above, there's no ISO table for this; see erp_banks in
+   migrate.js) ---------------- */
+router.get('/banks', async (req, res) => {
+  const [rows] = await pool.query('SELECT * FROM erp_banks ORDER BY name ASC');
+  res.json(rows);
+});
+router.post('/banks', requireGroup('Human Resources'), async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name is required.' });
+  try {
+    const [result] = await pool.query('INSERT INTO erp_banks (name) VALUES (?)', [name]);
+    await audit(req.erpUser.employeeId, 'bank-created', name);
+    res.status(201).json({ id: result.insertId, name });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.json({ ok: true, name }); // already on the list — nothing to do
+    throw e;
+  }
+});
+router.delete('/banks/:id', requireGroup('Human Resources'), async (req, res) => {
+  const [result] = await pool.query('DELETE FROM erp_banks WHERE id = ?', [req.params.id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Not found.' });
+  await audit(req.erpUser.employeeId, 'bank-deleted', req.params.id);
   res.json({ ok: true });
 });
 

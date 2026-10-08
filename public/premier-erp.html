@@ -627,10 +627,10 @@ receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','
 items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),T('unit','UoM','ea'),N('reorder','Reorder level',{nospin:1}),N('cost','Std. cost'),T('loc','Default location'),FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',fields:[D('date','Date'),REF('item','Item','items','name'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),N('qty','Quantity'),T('from','From location'),T('to','To location'),T('ref','Reference (PO/WO)'),T('who','By')],list:['date','item','type','qty','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
-purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',fields:[T('no','PO no.','PO-2026-001'),D('date','Date'),REF('vendor','Vendor','customers','name'),T('subject','Subject / items'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','subject','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','customers','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
-vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','customers','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
-payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','customers','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',fields:[T('no','PO no.','PO-2026-001'),D('date','Date'),REF('vendor','Vendor','vendors','name'),T('subject','Subject / items'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','subject','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
+vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
+payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
@@ -862,6 +862,7 @@ async function pullSharedMaster(){
   // with no CRM access.
   try{await crmLoadCustomers();}catch(e){}
   try{await crmLoadQuotationRefs();}catch(e){}
+  try{collSet('shared_banks',await api('/api/shared/banks'));}catch(e){}
 }
 /* Birthday reminder — pops up once per day (per browser) whenever any
    employee's birthday falls today, tomorrow, or the day after. Only ever
@@ -2207,7 +2208,6 @@ const EMP_ISO_GROUPS=[
  {k:'isoFormsAccess',l:'ISO Forms'},{k:'isoFormsAdminAccess',l:'ISO Forms — Admin'},
  {k:'jlrOperationsAccess',l:'JLR — Operations'},{k:'jlrQhseAccess',l:'JLR — QHSE'},{k:'jlrInventoryAccess',l:'JLR — Inventory'},{k:'jlrAccountsAccess',l:'JLR — Accounts'},{k:'jlrItAccess',l:'JLR — IT'},{k:'jlrFullAccess',l:'JLR — Full access'},
 ];
-const EMP_BANKS=['HBL','UBL','MCB','Bank Alfalah','Meezan Bank','Allied Bank','National Bank of Pakistan','Standard Chartered','Faysal Bank','Askari Bank','Bank Al Habib','Soneri Bank','Other'];
 const EMP_PHONE_COUNTRIES=[
  {c:'PK',flag:'🇵🇰',code:'+92',l:'Pakistan'},{c:'SA',flag:'🇸🇦',code:'+966',l:'Saudi Arabia'},
  {c:'AE',flag:'🇦🇪',code:'+971',l:'UAE'},{c:'IN',flag:'🇮🇳',code:'+91',l:'India'},
@@ -2281,12 +2281,20 @@ function efConfirmNew(id){
   if(!opt){opt=document.createElement('option');opt.value=val;opt.textContent=val;sel.insertBefore(opt,sel.querySelector('option[value="__addnew__"]'));}
   sel.value=opt.value;
   if(id==='ef-dept')efPersistNewDepartment(val);
+  if(id==='ef-bankname')efPersistNewBank(val);
 }
 async function efPersistNewDepartment(name){
   try{
     await api('/api/shared/departments',{method:'POST',body:JSON.stringify({name})});
     const list=coll('shared_departments');
     if(!list.some(d=>d.name===name)){list.push({name});collSet('shared_departments',list);}
+  }catch(e){/* non-fatal — still usable for this employee even if the shared save fails (e.g. offline) */}
+}
+async function efPersistNewBank(name){
+  try{
+    await api('/api/shared/banks',{method:'POST',body:JSON.stringify({name})});
+    const list=coll('shared_banks');
+    if(!list.some(b=>b.name===name)){list.push({name});collSet('shared_banks',list);}
   }catch(e){/* non-fatal — still usable for this employee even if the shared save fails (e.g. offline) */}
 }
 function efField(id,label,type,extra){
@@ -2315,6 +2323,7 @@ function empSectionHtml(k){
   const deptOpts=coll('shared_departments').map(d=>d.name);
   if(EMP_EDIT&&EMP_EDIT.department)deptOpts.push(EMP_EDIT.department); // so an existing employee's current value is always selectable, even if it's not in the shared list (e.g. legacy data)
   const locOpts=coll('shared_locations').map(d=>d.name);
+  if(EMP_EDIT&&EMP_EDIT.location)locOpts.push(EMP_EDIT.location); // same safety net as Department above — a value the shared list doesn't have yet (e.g. this session's cache predates a bulk import that added it) must still show as selected, not blank
   // No dedicated "designations" table — the dropdown is just every distinct
   // designation already used across employees (EMP_LIST, loaded whenever the
   // Employees screen is open). Typing a new one via "+ Add new…" needs no
@@ -2437,13 +2446,17 @@ function empSectionHtml(k){
    efField('ef-homeaddr','Home Address','textarea',{full:1})+
    efField('ef-mailaddr','Mailing Address','textarea',{full:1})+
    '</div>';
-  if(k==='bank')return '<div class="fgrid">'+
-   efField('ef-bankname','Bank Name','select',{options:['',...EMP_BANKS]})+
+  if(k==='bank'){
+   const bankOpts=coll('shared_banks').map(b=>b.name);
+   if(EMP_EDIT&&EMP_EDIT.profile&&EMP_EDIT.profile.bankName)bankOpts.push(EMP_EDIT.profile.bankName); // so an existing employee's current bank is always selectable, even if it's not (yet) on the shared list
+   return '<div class="fgrid">'+
+   efSelectAddNew('ef-bankname','Bank Name',bankOpts,false)+
    efField('ef-iban','IBAN #','text')+
    efField('ef-accno','Account No.','text')+
    efField('ef-accounttitle','Account Title','text')+
    efField('ef-bloodgroup','Blood Group','select',{options:['','A+','A-','B+','B-','AB+','AB-','O+','O-']})+
    '</div>';
+  }
   if(k==='ref')return '<div class="fgrid">'+
    efField('ef-refname','Reference Name','text')+
    efField('ef-refcontact','Contact','text')+
@@ -3468,6 +3481,11 @@ const EMP_IMPORT_HEADER_MAP={
   'shiftstart':'shiftStart','shiftstarttime':'shiftStart','starttime':'shiftStart',
   'shiftend':'shiftEnd','shiftendtime':'shiftEnd','endtime':'shiftEnd',
   'status':'status',
+  'gender':'gender',
+  'fieldallowance':'fieldAllowance',
+  'typeofemployee':'employmentType','employeetype':'employmentType','employmenttype':'employmentType',
+  'department':'department',
+  'officelocation':'location','location':'location',
 };
 let EMP_IMPORT_ROWS=[];
 function empOpenImport(){
@@ -3533,8 +3551,8 @@ function empImportFileChosen(ev){
       EMP_IMPORT_ROWS=rows;
       document.getElementById('empimport-preview').innerHTML=
         '<div class="hint">'+rows.length+' row(s) found. Columns mapped: '+esc(headers.filter((h,idx)=>keys[idx]).join(', '))+'</div>'+
-        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Designation</th><th>CNIC</th><th>Contact</th><th class="num">Gross Salary</th><th>Shift</th><th>Status</th></tr></thead><tbody>'+
-        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.designation||'')+'</td><td>'+esc(r.nicNumber||'')+'</td><td>'+esc(r.phoneNumber||'')+'</td><td class="num">'+esc(r.grossSalary||'')+'</td><td>'+esc([r.shiftStart,r.shiftEnd].filter(Boolean).join(' – '))+'</td><td>'+esc(r.status||'')+'</td></tr>').join('')+
+        '<div class="tblwrap" style="max-height:260px;overflow:auto;margin-top:8px"><table><thead><tr><th>Emp Code</th><th>Name</th><th>Gender</th><th>Dept</th><th>Location</th><th>Type</th><th class="num">Field Allow.</th><th>Bank</th></tr></thead><tbody>'+
+        rows.slice(0,50).map(r=>'<tr><td>'+esc(r.employeeId||'')+'</td><td>'+esc(r.name||'')+'</td><td>'+esc(r.gender||'')+'</td><td>'+esc(r.department||'')+'</td><td>'+esc(r.location||'')+'</td><td>'+esc(r.employmentType||'')+'</td><td class="num">'+esc(r.fieldAllowance||'')+'</td><td>'+esc(r.bankName||'')+'</td></tr>').join('')+
         '</tbody></table></div>'+(rows.length>50?'<div class="hint">…and '+(rows.length-50)+' more.</div>':'');
       document.getElementById('empimport-go').disabled=rows.length===0;
     }catch(e){
@@ -3558,6 +3576,14 @@ async function empImportRun(){
       document.getElementById('empimport-preview').innerHTML+=
         '<div class="lerr" style="display:block;margin-top:10px">Skipped rows:<br>'+
         res.errors.slice(0,30).map(e=>'Row '+e.row+' ('+esc(e.employeeId||'')+'): '+esc(e.message)).join('<br>')+'</div>';
+    }
+    if(res.nameWarnings&&res.nameWarnings.length){
+      msg+=' '+res.nameWarnings.length+' name mismatch warning(s) — review below.';
+      document.getElementById('empimport-preview').innerHTML+=
+        '<div class="lerr" style="display:block;margin-top:10px;color:var(--warn,#B54708);background:#FFFAEB;border-color:#FEDF89">Emp Code matched but the name looks different — please double-check:<br>'+
+        res.nameWarnings.slice(0,30).map(e=>'Row '+e.row+': '+esc(e.message)).join('<br>')+'</div>';
+    }
+    if((res.errors&&res.errors.length)||(res.nameWarnings&&res.nameWarnings.length)){
       toast(msg,'info');
     }else{
       toast(msg,'ok');
@@ -3579,6 +3605,11 @@ let CRM_CUSTOMERS=[],CRM_CUST_EDIT=null;
 // against real customers until they're moved to the backend too.
 function crmMirrorCustomersToLocalStorage(){
   lsSet('customers',CRM_CUSTOMERS.map(c=>({code:c.code,name:c.name,contact:c.contactPerson,email:c.email,phone:c.phone,ctype:c.customerType,trn:c.taxRegNo,terms:c.paymentTerms,addr:c.address})));
+  // Separate mirror, Vendor/Both only — procurement screens (Purchase
+  // Orders, Goods Receipts, Payment Vouchers) pick their "Vendor" dropdown
+  // from THIS collection instead of 'customers' above, so a plain Customer
+  // never shows up there.
+  lsSet('vendors',CRM_CUSTOMERS.filter(c=>c.customerType==='Vendor'||c.customerType==='Both').map(c=>({code:c.code,name:c.name,contact:c.contactPerson,email:c.email,phone:c.phone,ctype:c.customerType,trn:c.taxRegNo,terms:c.paymentTerms,addr:c.address})));
 }
 async function crmLoadCustomers(){
   CRM_CUSTOMERS=await api('/api/crm/customers');

@@ -643,7 +643,27 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config ready (no ISO tables were altered).');
+  // Bank Name master list (Employee form's Bank & Personal tab) — ERP-only,
+  // unlike departments/locations which are real ISO tables. Used to be a
+  // fixed in-code list (EMP_BANKS); now it's a real shared/add-able list
+  // like Department already is, via GET/POST /api/shared/banks.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_banks (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      name       VARCHAR(150) UNIQUE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  // One-time (idempotent — INSERT IGNORE against the UNIQUE name) backfill:
+  // every bank name already sitting on an employee's profile from before
+  // this table existed gets a row here too, so nobody's current selection
+  // goes missing from the new dropdown just because they predate it.
+  await pool.query(`
+    INSERT IGNORE INTO erp_banks (name)
+    SELECT DISTINCT TRIM(bank_name) FROM erp_employee_profile WHERE bank_name IS NOT NULL AND TRIM(bank_name) <> ''
+  `);
+
+  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;
