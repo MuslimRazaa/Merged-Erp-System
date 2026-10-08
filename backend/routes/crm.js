@@ -188,27 +188,65 @@ router.post('/customers/import', async (req, res) => {
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
   if (!rows.length) return res.status(400).json({ error: 'No rows to import.' });
   if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows in one import (max 5000).' });
+  const importType = CODE_PREFIX_BY_TYPE[req.body.customerType] ? req.body.customerType : 'Customer';
 
-  let created = 0;
+  // A row whose Name already matches an existing record (case/whitespace
+  // insensitive — e.g. importing a vendor sheet where some names are also
+  // already-onboarded customers) is MERGED into that record instead of
+  // creating a duplicate: its type becomes "Both" (if it wasn't already),
+  // and only fields the existing record doesn't already have are filled in
+  // — nothing already on file ever gets overwritten by the sheet.
+  const [existingRows] = await pool.query('SELECT * FROM erp_crm_customers');
+  const existingByName = new Map(existingRows.map((r) => [r.name.trim().toLowerCase(), r]));
+
+  let created = 0, merged = 0;
   const errors = [];
   for (let i = 0; i < rows.length; i++) {
-    const name = String((rows[i] || {}).name || '').trim();
-    const address = String((rows[i] || {}).address || '').trim();
+    const row = rows[i] || {};
+    const name = String(row.name || '').trim();
     if (!name) { errors.push({ row: i + 1, message: 'Missing Name.' }); continue; }
+    const address = String(row.address || '').trim() || null;
+    const phone = String(row.phone || '').trim() || null;
+    const contactPerson = String(row.contactPerson || '').trim() || null;
+    const paymentTerms = String(row.paymentTerms || '').trim() || null;
+    const cnic = String(row.cnic || '').trim() || null;
     try {
-      const [result] = await pool.query(
-        'INSERT INTO erp_crm_customers (code, name, address, customer_type, status, created_by) VALUES (?,?,?,?,?,?)',
-        [`TEMP-${Date.now()}-${i}`, name, address || null, 'Customer', 'Active', req.erpUser.id]
-      );
-      const code = `CUST-${String(result.insertId).padStart(4, '0')}`;
-      await pool.query('UPDATE erp_crm_customers SET code = ? WHERE id = ?', [code, result.insertId]);
-      created++;
+      const existing = existingByName.get(name.toLowerCase());
+      if (existing) {
+        const newType = existing.customer_type === importType || existing.customer_type === 'Both' ? existing.customer_type : 'Both';
+        await pool.query(
+          `UPDATE erp_crm_customers SET
+             customer_type = ?,
+             address = COALESCE(NULLIF(address, ''), ?),
+             phone = COALESCE(NULLIF(phone, ''), ?),
+             contact_person = COALESCE(NULLIF(contact_person, ''), ?),
+             payment_terms = COALESCE(NULLIF(payment_terms, ''), ?),
+             cnic = COALESCE(NULLIF(cnic, ''), ?)
+           WHERE id = ?`,
+          [newType, address, phone, contactPerson, paymentTerms, cnic, existing.id]
+        );
+        existing.customer_type = newType; // keep the in-memory map consistent for any later duplicate name in this same batch
+        merged++;
+      } else {
+        const [result] = await pool.query(
+          'INSERT INTO erp_crm_customers (code, name, address, phone, contact_person, payment_terms, cnic, customer_type, status, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)',
+          [`TEMP-${Date.now()}-${i}`, name, address, phone, contactPerson, paymentTerms, cnic, importType, 'Active', req.erpUser.id]
+        );
+        const code = `${CODE_PREFIX_BY_TYPE[importType]}-${String(result.insertId).padStart(4, '0')}`;
+        await pool.query('UPDATE erp_crm_customers SET code = ? WHERE id = ?', [code, result.insertId]);
+        // Deliberately NOT added to existingByName: two rows with the same
+        // name that are both new to the system (no pre-existing match) each
+        // get their own separate record — e.g. two branches of the same
+        // company under one name — rather than the second silently merging
+        // into the first just because this import happened to create it.
+        created++;
+      }
     } catch (e) {
       errors.push({ row: i + 1, message: e.message });
     }
   }
-  await audit(req.erpUser.employeeId, 'crm-customers-imported', `created=${created} errors=${errors.length}`);
-  res.json({ created, errors });
+  await audit(req.erpUser.employeeId, 'crm-customers-imported', `created=${created} merged=${merged} errors=${errors.length}`);
+  res.json({ created, merged, errors });
 });
 
 /* ---------------- RFQs ---------------- */
