@@ -60,7 +60,6 @@ const pool = require('../db');
 const { requireAuth } = require('./auth');
 const { canAccess } = require('../roles');
 const { computeAttendanceRows } = require('./attendance');
-const { toYmd, daysBetween } = require('../fieldJobs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -213,26 +212,6 @@ router.post('/generate', requireHr, async (req, res) => {
     for (const p of profiles) profileById.set(p.employee_id, p);
   }
 
-  // Approved "Field Shift" days per employee — ONLY the days that fall inside
-  // this payroll's date range. (It used to add every Field Shift day the
-  // employee had ever taken, so each month's payroll paid the allowance again
-  // for all the earlier months' days too.)
-  const [fieldShiftRows] = empIds.length ? await pool.query(
-    `SELECT employee_id, from_date, to_date, leave_request_type FROM erp_leave_requests
-     WHERE leave_type = 'Field Shift' AND status = 'Approved' AND from_date <= ? AND to_date >= ?
-       AND employee_id IN (${empIds.map(() => '?').join(',')})`,
-    [to, from, ...empIds]
-  ) : [[]];
-  const fieldShiftDaysById = new Map();
-  for (const r of fieldShiftRows) {
-    const a = toYmd(r.from_date) > from ? toYmd(r.from_date) : from;
-    const b = toYmd(r.to_date) < to ? toYmd(r.to_date) : to;
-    if (b < a) continue;
-    const span = daysBetween(a, b) + 1;
-    const days = r.leave_request_type === 'Half Day' ? span * 0.5 : span;
-    fieldShiftDaysById.set(r.employee_id, (fieldShiftDaysById.get(r.employee_id) || 0) + days);
-  }
-
   const tax = taxTableFor(to);
 
   // Group the day-by-day rows per employee.
@@ -315,9 +294,16 @@ router.post('/generate', requireHr, async (req, res) => {
     // breakdown, not a second subtraction on top of this.
     const netSalary = perDayRate != null ? perDayRate * netPaidDays - (incomeTax || 0) : null;
 
+    // Field Allowance = this employee's per-day rate × however many days in
+    // THIS payroll range JLR actually had them out on a field job
+    // (fieldDays above — the same count the Attendance Report shows, from
+    // fieldJobs.js's job-presence data). Used to be driven by a separate,
+    // manually-filed-and-approved "Field Shift" leave request instead; that
+    // required someone to remember to file one and never reflected what JLR
+    // itself already knew, so it's gone in favor of this single source of
+    // truth.
     const fieldAllowancePerDay = profile && profile.field_allowance != null ? Number(profile.field_allowance) : 0;
-    const fieldShiftDays = fieldShiftDaysById.get(meta.employeeId) || 0;
-    const fieldAllowanceTotal = fieldAllowancePerDay * fieldShiftDays;
+    const fieldAllowanceTotal = fieldAllowancePerDay * fieldDays;
 
     report.push({
       employeeId: meta.employeeId, employeeCode: meta.employeeCode, employeeName: meta.name, department: meta.department,
@@ -327,7 +313,7 @@ router.post('/generate', requireHr, async (req, res) => {
       lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal,
       paidDays, netPaidDays, baseDays,
       otherDeductionAmount, lateDeductionAmount, incomeTax, netSalary,
-      fieldAllowancePerDay, fieldShiftDays, fieldAllowanceTotal,
+      fieldAllowancePerDay, fieldAllowanceTotal,
       grossPayable: netSalary != null ? netSalary + fieldAllowanceTotal : null,
       reviewFlags,
     });

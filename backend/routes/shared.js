@@ -523,6 +523,12 @@ router.post('/employees/import', requireGroup('Human Resources'), async (req, re
         gender: normalizeGender(row.gender) || detectGenderFromTitle(name),
         employment_type: normalizeEmploymentType(row.employmentType),
         field_allowance: parseCsvNumberAllowZero(row.fieldAllowance),
+        // This import is this company's Pakistan-payroll employee sheet —
+        // every row it touches gets its Compensation tab's Currency set to
+        // PKR, overwriting the Employee form's own "AED" fallback (which
+        // only ever showed because this column was blank, not because
+        // anyone actually chose AED for these people).
+        currency: 'PKR',
         father_husband_name: row.fatherHusbandName, mother_name: row.motherName,
         phone_number: phoneNumber, nic_number: formatNic(row.nicNumber),
         bank_name: row.bankName, account_no: row.accountNo, iban: row.iban, account_title: row.accountTitle,

@@ -534,6 +534,27 @@ router.get('/field-breaks/:employeeId', async (req, res) => {
   res.json(await computeFieldBreaks(employeeId, date));
 });
 
+// GET /api/attendance/field-days/:employeeId[?from=&to=] — how many days
+// JLR had this employee out on a field job (same dayType==='Field' count
+// Payroll's Field Allowance is calculated from). Defaults to the current
+// calendar month so the Employees/Compensation tab's running total always
+// shows something without the caller having to pick a range. Themselves,
+// or HR.
+router.get('/field-days/:employeeId', async (req, res) => {
+  const employeeId = +req.params.employeeId;
+  if (!Number.isFinite(employeeId)) return res.status(400).json({ error: 'Invalid employee id.' });
+  if (employeeId !== req.erpUser.id && !canAccess(req.erpUser.role, 'Human Resources')) return res.status(403).json({ error: 'You cannot view this.' });
+  const now = new Date();
+  const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const defaultTo = localYmd(now);
+  const from = req.query.from ? toYmd(req.query.from) : defaultFrom;
+  const to = req.query.to ? toYmd(req.query.to) : defaultTo;
+  if ((req.query.from && !from) || (req.query.to && !to)) return res.status(400).json({ error: 'from/to must be YYYY-MM-DD.' });
+  const rows = await computeAttendanceRows(from, to, { employeeIds: [employeeId] });
+  const days = rows.filter((r) => r.dayType === 'Field').length;
+  res.json({ days, from, to });
+});
+
 module.exports = router;
 module.exports.computeAttendanceRows = computeAttendanceRows;
 module.exports.computeFieldBreaks = computeFieldBreaks;
