@@ -2427,12 +2427,12 @@ function empSectionHtml(k){
    '</div>'+
    '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px">'+
     '<b style="font-size:12.5px">Field Allowance — Per Day Rate</b>'+
-    '<div class="hint" style="margin:4px 0 10px">Separate from Gross Salary — varies per employee (e.g. Operations staff). Enter the rate this employee earns for each "Field Shift" leave day; it accumulates automatically as their Field Shift leaves get approved.</div>'+
+    '<div class="hint" style="margin:4px 0 10px">Separate from Gross Salary — varies per employee (e.g. Operations staff). Enter the rate this employee earns for each day JLR has them out on a field job; Payroll multiplies this rate by however many of those days fall in the payroll\'s own date range — the figure below is just this calendar month\'s count, for reference.</div>'+
     '<div class="fgrid">'+
      efField('ef-fieldallow','Field Allowance (Per Day)','number',{step:'0.01'})+
     '</div>'+
     '<div class="kpis" style="margin-top:12px">'+
-     '<div class="kpi"><span>Approved Field Shift days</span><b id="ef-fieldallow-days">'+fsDays+'</b></div>'+
+     '<div class="kpi"><span>Field Days this month (JLR)</span><b id="ef-fieldallow-days">'+fsDays+'</b></div>'+
      '<div class="kpi"><span>Total Field Allowance</span><b id="ef-fieldallow-total">0.00</b></div>'+
     '</div>'+
    '</div>'+
@@ -2616,13 +2616,15 @@ function empRecalcGross(){
   if(outEl('ef-fieldallow-total'))outEl('ef-fieldallow-total').textContent=total.toFixed(2);
   if(outEl('ef-fieldallow-days'))outEl('ef-fieldallow-days').textContent=EMP_FIELD_SHIFT_DAYS;
 }
-// Loads this employee's approved Field Shift leave-day count so the running
-// Field Allowance total (per-day rate x days) can be shown/recomputed.
+// Loads this employee's JLR field-day count for the current calendar month
+// (the same count Payroll multiplies the Field Allowance rate by, just for
+// whatever date range that payroll run covers) so the running total shown
+// here is at least a reasonable, always-fresh estimate.
 async function empLoadFieldShiftDays(){
   EMP_FIELD_SHIFT_DAYS=0;
   if(!EMP_EDIT)return;
   try{
-    const r=await api('/api/leave/field-shift-days/'+EMP_EDIT.id);
+    const r=await api('/api/attendance/field-days/'+EMP_EDIT.id);
     EMP_FIELD_SHIFT_DAYS=r.days||0;
   }catch(e){EMP_FIELD_SHIFT_DAYS=0;}
   empRecalcGross();
@@ -3291,12 +3293,24 @@ function evAttRenderKpis(from,to){
   const absents=rows.filter(r=>r.dayType==='Absent').length;
   const presents=rows.filter(r=>r.dayType==='Present'||r.dayType==='Field').length;
   const leaves=rows.filter(r=>r.dayType==='Leave'||r.dayType==='LeaveWithoutPay').length;
+  // Same count Payroll itself uses for this employee's Field Allowance
+  // (fieldDays × the per-day rate on their Compensation tab) — shown right
+  // here so HR can sanity-check the payroll figure against this employee's
+  // own attendance for the exact same date range before running payroll.
+  const fieldDays=rows.filter(r=>r.dayType==='Field').length;
+  const p=(EV_ATT_EMP&&EV_ATT_EMP.profile)||{};
+  const fieldAllowancePerDay=p.fieldAllowance!=null?Number(p.fieldAllowance):0;
+  const fieldAllowanceTotal=fieldAllowancePerDay*fieldDays;
+  const currency=p.currency||'PKR';
   kEl.innerHTML=
    '<div class="hint" style="grid-column:1/-1;margin-bottom:2px">'+from+' → '+to+'</div>'+
    '<div class="kpi"><span>Lates</span><b'+(lates?' class="warn"':'')+'>'+lates+'</b></div>'+
    '<div class="kpi"><span>Absents</span><b'+(absents?' class="warn"':'')+'>'+absents+'</b></div>'+
    '<div class="kpi"><span>Presents</span><b>'+presents+'</b></div>'+
-   '<div class="kpi"><span>Leaves</span><b>'+leaves+'</b></div>';
+   '<div class="kpi"><span>Leaves</span><b>'+leaves+'</b></div>'+
+   '<div class="kpi"><span>Field Days</span><b>'+fieldDays+'</b>'+
+    '<div class="hint" style="margin-top:3px">Field Allowance: '+esc(currency)+' '+fmt(fieldAllowanceTotal)+(fieldAllowancePerDay?' ('+esc(currency)+' '+fmt(fieldAllowancePerDay)+'/day)':' — no per-day rate set')+'</div>'+
+   '</div>';
 }
 async function evAttGenerate(){
   const e=EMP_LIST.find(r=>String(r.id)===String(EMP_VIEW_ID));
