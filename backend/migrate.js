@@ -663,7 +663,35 @@ async function migrate() {
     SELECT DISTINCT TRIM(bank_name) FROM erp_employee_profile WHERE bank_name IS NOT NULL AND TRIM(bank_name) <> ''
   `);
 
-  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks ready (no ISO tables were altered).');
+  // A SAVED payroll run — once one exists for a calendar month (month_key
+  // is UNIQUE), /api/payroll/generate and /save both refuse to run ANY
+  // payroll (whole-company, department-wise or employee-wise) for that same
+  // month again, in either direction, until this row is deleted. `data` is
+  // a full snapshot of the generated report at save time (not recomputed
+  // later), so the Payrolls list and payslips always show exactly what was
+  // actually finalized even if attendance/leave data changes afterwards.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_payroll_runs (
+      id                  INT AUTO_INCREMENT PRIMARY KEY,
+      month_key           VARCHAR(7) NOT NULL UNIQUE,
+      month_label         VARCHAR(30) NOT NULL,
+      from_date           DATE NOT NULL,
+      to_date             DATE NOT NULL,
+      mode                VARCHAR(20) NOT NULL DEFAULT '',
+      departments         TEXT NULL,
+      employee_ids        TEXT NULL,
+      employee_count      INT NOT NULL DEFAULT 0,
+      total_gross_payable DECIMAL(16,2) NULL,
+      data                LONGTEXT NOT NULL,
+      saved_by            INT NULL,
+      saved_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_erp_payroll_runs_saved_by
+        FOREIGN KEY (saved_by) REFERENCES employees(id)
+        ON DELETE SET NULL
+    )
+  `);
+
+  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

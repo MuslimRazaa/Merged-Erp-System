@@ -57,7 +57,7 @@
 'use strict';
 const express = require('express');
 const pool = require('../db');
-const { requireAuth } = require('./auth');
+const { requireAuth, audit } = require('./auth');
 const { canAccess } = require('../roles');
 const { computeAttendanceRows } = require('./attendance');
 
@@ -171,19 +171,34 @@ router.get('/tax-calc', (req, res) => {
 });
 
 
-// POST /api/payroll/generate
-// { from, to, mode: 'department'|'employee', departments: [name,...], employees: [id,...] }
-router.post('/generate', requireHr, async (req, res) => {
-  const { from, to, mode } = req.body || {};
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) {
-    return res.status(400).json({ error: 'from/to must be YYYY-MM-DD.' });
-  }
-  if (new Date(to) < new Date(from)) return res.status(400).json({ error: '"To" date must not be before "From" date.' });
+// 'YYYY-MM' of a payroll's own "To" date — this, not the exact from/to
+// values, is what a saved run locks: ANY generate/save for the same
+// calendar month is refused once one exists, regardless of mode or which
+// employees/departments it covered.
+function monthKeyOf(toYmd) { return String(toYmd).slice(0, 7); }
+function monthLabelOf(toYmd) {
+  const d = new Date(String(toYmd) + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+async function findLockedMonth(monthKey) {
+  const [rows] = await pool.query('SELECT id, month_label FROM erp_payroll_runs WHERE month_key = ?', [monthKey]);
+  return rows[0] || null;
+}
 
-  const departments = Array.isArray(req.body.departments) ? req.body.departments.filter(Boolean) : [];
-  const employeeIds = Array.isArray(req.body.employees) ? req.body.employees.map(Number).filter(Number.isFinite) : [];
-  if (mode === 'employee' && !employeeIds.length) return res.status(400).json({ error: 'Select at least one employee.' });
-  if (mode === 'department' && !departments.length) return res.status(400).json({ error: 'Select at least one department.' });
+// Shared by POST /generate (preview — never persisted) and POST /save
+// (persists exactly this same computation). Validates from/to/mode/
+// departments/employees and returns either { error, status } or the full
+// report { from, to, totalDaysInRange, daysInMonth, taxYear, taxYearFallback, rows }.
+async function buildPayrollReport({ from, to, mode, departments, employees }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) {
+    return { error: 'from/to must be YYYY-MM-DD.', status: 400 };
+  }
+  if (new Date(to) < new Date(from)) return { error: '"To" date must not be before "From" date.', status: 400 };
+
+  departments = Array.isArray(departments) ? departments.filter(Boolean) : [];
+  const employeeIds = Array.isArray(employees) ? employees.map(Number).filter(Number.isFinite) : [];
+  if (mode === 'employee' && !employeeIds.length) return { error: 'Select at least one employee.', status: 400 };
+  if (mode === 'department' && !departments.length) return { error: 'Select at least one department.', status: 400 };
 
   const totalDaysInRange = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   // Per-Day Rate always divides by the days in the PAYROLL MONTH (30 for
@@ -320,7 +335,121 @@ router.post('/generate', requireHr, async (req, res) => {
   }
 
   report.sort((a, b) => (a.department || '').localeCompare(b.department || '') || (a.employeeName || '').localeCompare(b.employeeName || ''));
-  res.json({ from, to, totalDaysInRange, daysInMonth, taxYear: tax.table.label, taxYearFallback: tax.fallback, rows: report });
+  return { from, to, totalDaysInRange, daysInMonth, taxYear: tax.table.label, taxYearFallback: tax.fallback, rows: report };
+}
+
+// POST /api/payroll/generate — live PREVIEW only, nothing is persisted.
+// { from, to, mode: 'department'|'employee', departments: [name,...], employees: [id,...] }
+// Refused outright once a payroll has been SAVED for this calendar month
+// (see POST /save) — regenerating/previewing a finalized month is exactly
+// what saving is meant to prevent, so the lock applies here too, not just
+// on save.
+router.post('/generate', requireHr, async (req, res) => {
+  const { from, to, mode, departments, employees } = req.body || {};
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to || '')) {
+    const locked = await findLockedMonth(monthKeyOf(to));
+    if (locked) return res.status(409).json({ error: `Payroll for ${locked.month_label} has already been saved and locked. Delete it first (Payroll / Slips → Payrolls) if you need to regenerate it.`, locked: true, monthLabel: locked.month_label });
+  }
+  const result = await buildPayrollReport({ from, to, mode, departments, employees });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json(result);
+});
+
+// POST /api/payroll/save — runs the exact same computation as /generate,
+// then permanently locks this calendar month: a snapshot of the report is
+// stored in erp_payroll_runs and no generate/save for this month will be
+// allowed again (in any mode) until this row is deleted (see DELETE below).
+router.post('/save', requireHr, async (req, res) => {
+  const { from, to, mode, departments, employees } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(to || '')) return res.status(400).json({ error: 'from/to must be YYYY-MM-DD.' });
+  const monthKey = monthKeyOf(to);
+  const locked = await findLockedMonth(monthKey);
+  if (locked) return res.status(409).json({ error: `Payroll for ${locked.month_label} has already been saved and locked.`, locked: true, monthLabel: locked.month_label });
+
+  const result = await buildPayrollReport({ from, to, mode, departments, employees });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  if (!result.rows.length) return res.status(400).json({ error: 'Nothing to save — the generated payroll has no rows.' });
+
+  const monthLabel = monthLabelOf(to);
+  const totalGrossPayable = result.rows.reduce((s, r) => s + (r.grossPayable || 0), 0);
+  try {
+    const [ins] = await pool.query(
+      `INSERT INTO erp_payroll_runs (month_key, month_label, from_date, to_date, mode, departments, employee_ids, employee_count, total_gross_payable, data, saved_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [monthKey, monthLabel, from, to, mode || '', JSON.stringify(departments || []), JSON.stringify(employees || []), result.rows.length, totalGrossPayable, JSON.stringify(result), req.erpUser.id]
+    );
+    await audit(req.erpUser.employeeId, 'payroll-saved', `${monthLabel} (${result.rows.length} employee(s))`);
+    res.status(201).json({ id: ins.insertId, monthKey, monthLabel, employeeCount: result.rows.length, totalGrossPayable });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `Payroll for ${monthLabel} has already been saved and locked.`, locked: true, monthLabel });
+    throw e;
+  }
+});
+
+// mysql2 hands a DATE column back as a JS Date at LOCAL midnight — letting
+// res.json()'s default toISOString() serialize it shifts it into the
+// PREVIOUS calendar day for any positive UTC offset (e.g. Pakistan,
+// UTC+5). Same bug, same fix as everywhere else in this codebase that
+// shows a DATE column (JLR's change dates, leave requests' from/to, ...).
+function dateOnly(d) {
+  if (!d) return null;
+  if (typeof d === 'string') return d.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// GET /api/payroll/saved — month-wise list for the Payroll/Slips → Payrolls
+// tab. Optional ?year=2026 filters to that calendar year (by month_key).
+router.get('/saved', requireHr, async (req, res) => {
+  const where = [], params = [];
+  if (req.query.year && /^\d{4}$/.test(req.query.year)) { where.push('month_key LIKE ?'); params.push(req.query.year + '-%'); }
+  const sql = `SELECT r.id, r.month_key, r.month_label, r.from_date, r.to_date, r.mode, r.employee_count, r.total_gross_payable, r.saved_at,
+                      e.full_name AS saved_by_name
+               FROM erp_payroll_runs r LEFT JOIN employees e ON e.id = r.saved_by
+               ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+               ORDER BY r.month_key DESC`;
+  const [rows] = await pool.query(sql, params);
+  res.json(rows.map((r) => ({ ...r, from_date: dateOnly(r.from_date), to_date: dateOnly(r.to_date) })));
+});
+
+// GET /api/payroll/saved/:id — the full saved snapshot (for re-viewing the
+// exact report that was finalized — never recomputed).
+router.get('/saved/:id', requireHr, async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT r.*, e.full_name AS saved_by_name FROM erp_payroll_runs r LEFT JOIN employees e ON e.id = r.saved_by WHERE r.id = ?`,
+    [req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+  const row = rows[0];
+  res.json({
+    id: row.id, monthKey: row.month_key, monthLabel: row.month_label,
+    fromDate: dateOnly(row.from_date), toDate: dateOnly(row.to_date), mode: row.mode,
+    departments: JSON.parse(row.departments || '[]'), employeeIds: JSON.parse(row.employee_ids || '[]'),
+    employeeCount: row.employee_count, totalGrossPayable: row.total_gross_payable,
+    savedBy: row.saved_by, savedByName: row.saved_by_name, savedAt: row.saved_at,
+    report: JSON.parse(row.data),
+  });
+});
+
+// DELETE /api/payroll/saved/:id — unlocks the month so payroll can be run
+// again (e.g. a correction is needed). Administrator/Sub Admin only (a
+// plain HR Officer can generate/save payroll but not undo a finalized
+// one), AND the caller must echo back this exact record's month_key as
+// req.body.confirmMonthKey — a lightweight server-side guard against this
+// ever firing from anything other than the UI's own 2-step confirmation,
+// which shows the month label and makes the user type/confirm it first.
+router.delete('/saved/:id', async (req, res) => {
+  if (req.erpUser.role !== 'Administrator' && req.erpUser.role !== 'Sub Admin') {
+    return res.status(403).json({ error: 'Only an Administrator or Sub Admin can delete a saved payroll.' });
+  }
+  const [rows] = await pool.query('SELECT month_key, month_label FROM erp_payroll_runs WHERE id = ?', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+  const { month_key, month_label } = rows[0];
+  if (String(req.body && req.body.confirmMonthKey) !== month_key) {
+    return res.status(400).json({ error: 'Confirmation did not match — this payroll was not deleted.' });
+  }
+  await pool.query('DELETE FROM erp_payroll_runs WHERE id = ?', [req.params.id]);
+  await audit(req.erpUser.employeeId, 'payroll-deleted', month_label);
+  res.json({ ok: true, monthLabel: month_label });
 });
 
 module.exports = router;
