@@ -120,6 +120,25 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 .actions{display:flex;gap:9px;margin-top:13px;flex-wrap:wrap}
 /* ---------- tables ---------- */
 .tblwrap{overflow-x:auto}
+/* Opt-in (not every table — just long reports like the Payroll preview):
+   the table itself becomes its own scrollable box with a capped height, so
+   the header can stick to THAT box's own top (position:sticky;top:0) —
+   independent of the page's scroll position, the top bar's height, or
+   anything else outside this box. Far more robust than pinning to the page
+   scroll, which broke (header landing mid-table) once the top bar's real
+   height didn't match what was measured. */
+.sticky-thead{max-height:65vh;overflow-y:auto;overflow-x:auto}
+/* CSS position:sticky on <th> turned out to silently never engage for this
+   specific case (confirmed in both headless and a real Chrome window —
+   not a headless-only quirk) once the table's content is swapped in via
+   JS after the container is already on screen; no reflow/repaint trick
+   fixed it. JS-driven pinning instead — see pinTableHead() — translateY's
+   the header row by the box's own scrollTop on every scroll event, which
+   has no such caveats. thead needs position:relative so that translate
+   actually keeps it painted ABOVE the scrolled-under body rows. */
+.sticky-thead table{border-collapse:separate;border-spacing:0}
+.sticky-thead table thead{position:relative;z-index:2}
+.sticky-thead table thead th{background:var(--card,#fff);box-shadow:0 1px 0 var(--line)}
 table{width:100%;border-collapse:collapse}
 th{padding:9px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);border-bottom:1px solid var(--line);background:#FAFBFD;white-space:nowrap}
 td{padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
@@ -304,6 +323,17 @@ body.locked #app{display:none}
   <div class="field" style="margin-top:9px"><label>Remarks / Message</label><textarea id="lvoverride-remarks" rows="3" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
   <div class="lerr" id="lvoverride-err" style="display:none"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('lvoverridemodal')">Cancel</button><button class="btn" onclick="lvConfirmOverride()">Save</button></div>
+</div></div>
+
+<!-- Delete a saved/locked payroll run — 2-step: the warning + details is
+     step 1, typing the exact month label to enable the button is step 2. -->
+<div class="modal" id="prsdelmodal"><div class="box" style="max-width:480px">
+  <h3>Delete saved payroll?</h3>
+  <div class="hint" style="margin-bottom:10px;color:#b42318">This permanently deletes the saved payroll and UN-LOCKS this month — payroll can then be generated and saved again for it. This cannot be undone.</div>
+  <div id="prsdel-summary" style="font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px"></div>
+  <div class="field"><label>Type the month shown above to confirm</label><input id="prsdel-type" type="text" oninput="prsDelTypeChecked()"></div>
+  <div class="lerr" id="prsdel-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('prsdelmodal')">Cancel</button><button class="btn" id="prsdel-go" onclick="prsConfirmDelete()" disabled style="background:#b42318">Delete permanently</button></div>
 </div></div>
 
 <!-- Generic record View/Edit modals — opt-in per module via m.actionsCol
@@ -681,7 +711,7 @@ const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets'
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
-  'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
+  'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
 };
@@ -771,7 +801,12 @@ async function api(path,opts={}){
   const res=await fetch(path,{...opts,headers:{...(isFormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
   const body=await res.json().catch(()=>({}));
   if(res.status===401){localStorage.removeItem('erp_jwt');throw new Error(body.error||'Session expired — please log in again.');}
-  if(!res.ok)throw new Error(body.error||res.statusText);
+  // Extra fields an endpoint's error body carries beyond .message (e.g.
+  // payroll's {locked:true, monthLabel:'September 2026'}) ride along on the
+  // thrown Error itself, so a caller that needs them doesn't have to
+  // re-parse res.json() — existing callers that only ever read e.message
+  // are unaffected.
+  if(!res.ok)throw Object.assign(new Error(body.error||res.statusText),body);
   return body;
 }
 function lerr(msg){const e=document.getElementById('l-err');e.textContent=msg;e.style.display='block';}
@@ -1252,11 +1287,15 @@ async function rptGenerate(){
     document.getElementById('rpt-result-hint').textContent=' — '+window.__rptFrom+' to '+window.__rptTo+' · '+(RPT_SEL.size?RPT_SEL.size+' employee(s) selected':'all employees');
     const det=rptBuildDetailed();
     document.getElementById('rpt-preview').innerHTML=det.rows.length
-     ?rptSummaryHtml()+'<table><thead><tr>'+det.headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
+     ?rptSummaryHtml()+'<div class="tblwrap sticky-thead" id="rpt-detail-table"><table><thead><tr>'+det.headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
        det.rows.slice(0,50).map(r=>'<tr>'+r.map(cel=>'<td>'+esc(cel)+'</td>').join('')+'</tr>').join('')+
-      '</tbody></table>'+(det.rows.length>50?'<div class="hint" style="padding:8px">Showing first 50 of '+det.rows.length+' rows — the full data is included in every export.</div>':'')
+      '</tbody></table></div>'+(det.rows.length>50?'<div class="hint" style="padding:8px">Showing first 50 of '+det.rows.length+' rows — the full data is included in every export.</div>':'')
      :'<div class="empty">No attendance found for this range/selection — check the dates and try again.</div>';
     rptRenderPdfPreview();
+    if(det.rows.length){
+      pinTableHead(document.getElementById('rpt-detail-table'));
+      pinTableHead(document.getElementById('rpt-summary-table'));
+    }
   }catch(e){
     document.getElementById('rpt-preview').innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
   }
@@ -1384,7 +1423,7 @@ function rptSummaryHtml(){
      '<button class="btn ghost small" onclick="rptExportCsv(\'summary\')">⬇ CSV</button>'+
      '<button class="btn ghost small" onclick="rptExportXlsx(\'summary\')">⬇ Excel Workbook</button>'+
     '</div>'+kpis+
-    '<div style="overflow:auto"><table><thead><tr>'+headers.map(h=>'<th'+(/Code|Name|Department/.test(h)?'':' class="num"')+'>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
+    '<div class="tblwrap sticky-thead" id="rpt-summary-table" style="max-height:40vh"><table><thead><tr>'+headers.map(h=>'<th'+(/Code|Name|Department/.test(h)?'':' class="num"')+'>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+
     rows.map((r,i)=>'<tr'+(i===rows.length-1&&list.length>1?' style="font-weight:700"':'')+'>'+r.map((c,j)=>'<td'+(j>2?' class="num"':'')+'>'+esc(c)+'</td>').join('')+'</tr>').join('')+
     '</tbody></table></div></div>';
 }
@@ -1541,7 +1580,7 @@ async function holDelete(id){
    Report's own day-by-day data (routes/attendance.js) plus each employee's
    Gross Salary/Field Allowance already on file.
    ================================================================ */
-let PR_MODE='',PR_DEPTS=new Set(),PR_EMPS=new Set(),PR_DEPT_LIST=[],PR_EMP_LIST=[],PR_REPORT=null;
+let PR_MODE='',PR_DEPTS=new Set(),PR_EMPS=new Set(),PR_DEPT_LIST=[],PR_EMP_LIST=[],PR_REPORT=null,PR_SAVED=false;
 function prMonthLabel(toDateStr){
   if(!toDateStr)return '';
   const d=new Date(toDateStr+'T00:00:00');
@@ -1603,10 +1642,11 @@ async function renderPayroll(){
    '<div id="pr-selector" style="margin-top:6px"></div>'+
    '<div class="actions" style="margin-top:14px"><button class="btn" onclick="prGenerate()">▸ Generate Payroll</button></div>'+
    '<div class="lerr" id="pr-err" style="display:none"></div>'+
+   '<div id="pr-lock-banner"></div>'+
    '</div></div>'+
    '<div class="card" id="pr-result" style="display:none"><div class="card-h">Payroll Report<span class="hint" style="font-weight:400" id="pr-result-hint"></span>'+
-    '<span class="sp"></span><button class="btn ghost small" onclick="prExportPdf()">⬇ PDF</button><button class="btn ghost small" onclick="prExportCsv()">⬇ CSV</button><button class="btn ghost small" onclick="prExportXlsx()">⬇ Excel</button>'+
-   '</div><div class="card-b"><div id="pr-kpis"></div><div class="tblwrap" id="pr-preview" style="margin-top:10px"></div>'+
+    '<span class="sp"></span><button class="btn small" id="pr-save-btn" onclick="prSavePayroll()">💾 Save Payroll</button><button class="btn ghost small" onclick="prExportPdf()">⬇ PDF</button><button class="btn ghost small" onclick="prExportCsv()">⬇ CSV</button><button class="btn ghost small" onclick="prExportXlsx()">⬇ Excel</button>'+
+   '</div><div class="card-b"><div id="pr-kpis"></div><div class="tblwrap sticky-thead" id="pr-preview" style="margin-top:10px"></div>'+
     '<div class="hint" style="margin-top:14px">PDF preview — one page, everyone\'s full payroll — exactly what the ⬇ PDF button downloads</div>'+
     '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:4px">'+
      '<iframe id="pr-pdf-frame" style="width:100%;height:60vh;border:0;display:none"></iframe>'+
@@ -1670,12 +1710,15 @@ function prSelAllEmps(){PR_EMP_LIST.forEach(e=>PR_EMPS.add(e.id));document.query
 function prSelNoneEmps(){PR_EMPS.clear();document.querySelectorAll('.pr-emp-cb').forEach(cb=>cb.checked=false);}
 async function prGenerate(){
   const err=document.getElementById('pr-err');err.style.display='none';
+  document.getElementById('pr-lock-banner').innerHTML='';
   if(!PR_MODE)return showErrEl(err,'Choose Department-wise or Employee-wise first.');
   if(PR_MODE==='department'&&!PR_DEPTS.size)return showErrEl(err,'Select at least one department.');
   if(PR_MODE==='employee'&&!PR_EMPS.size)return showErrEl(err,'Select at least one employee.');
   document.getElementById('pr-result').style.display='block';
   document.getElementById('pr-preview').innerHTML='<div class="empty">Generating…</div>';
   document.getElementById('pr-kpis').innerHTML='';
+  PR_SAVED=false;
+  const saveBtn=document.getElementById('pr-save-btn');if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='💾 Save Payroll';}
   try{
     const body={from:window.__prFrom,to:window.__prTo,mode:PR_MODE};
     if(PR_MODE==='department')body.departments=[...PR_DEPTS];
@@ -1684,7 +1727,35 @@ async function prGenerate(){
     prRenderReport();
     toast('Payroll generated for '+PR_REPORT.rows.length+' employee(s).','ok');
   }catch(e){
-    document.getElementById('pr-preview').innerHTML='<div class="empty">Failed: '+esc(e.message)+'</div>';
+    // A locked month (already saved — see POST /save) gets its own clear
+    // banner instead of the generic preview-failed message, since this
+    // isn't really a failure, it's the lock working as designed.
+    if(e.locked){
+      document.getElementById('pr-result').style.display='none';
+      document.getElementById('pr-lock-banner').innerHTML='<div class="lerr" style="display:block;margin-top:10px">🔒 '+esc(e.message)+'</div>';
+    }else{
+      document.getElementById('pr-preview').innerHTML='<div class="empty">Failed: '+esc(e.message)+'</div>';
+    }
+    toast(e.message,'err');
+  }
+}
+// Persists the exact report already on screen as THIS month's final,
+// locked payroll — after this, nobody can generate/save for this month
+// again (any mode) until it's deleted from Payroll / Slips → Payrolls.
+async function prSavePayroll(){
+  if(!PR_REPORT||!PR_REPORT.rows.length)return;
+  const btn=document.getElementById('pr-save-btn');
+  btn.disabled=true;btn.textContent='Saving…';
+  try{
+    const body={from:window.__prFrom,to:window.__prTo,mode:PR_MODE};
+    if(PR_MODE==='department')body.departments=[...PR_DEPTS];
+    else body.employees=[...PR_EMPS];
+    const res=await api('/api/payroll/save',{method:'POST',body:JSON.stringify(body)});
+    PR_SAVED=true;
+    btn.textContent='✓ Saved';
+    toast('Payroll saved and locked for '+res.monthLabel+'. No one can run payroll for this month again until it\'s deleted from Payroll / Slips.','ok');
+  }catch(e){
+    btn.disabled=false;btn.textContent='💾 Save Payroll';
     toast(e.message,'err');
   }
 }
@@ -1699,13 +1770,23 @@ function prRenderReport(){
    '<div class="kpi"><span>Total Payable</span><b>'+fmt(totalPayable)+'</b></div>'+
    '<div class="kpi"><span>Missing Salary</span><b'+(missing?' class="warn"':'')+'>'+missing+'</b></div>'+
    '</div>';
-  document.getElementById('pr-preview').innerHTML=rep.rows.length
-   ?'<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
+  document.getElementById('pr-preview').innerHTML=prBuildRowsTableHtml(rep.rows);
+  pinTableHead(document.getElementById('pr-preview'));
+  prRenderPdfPreview();
+}
+// The full per-employee payroll table — every column Generate Payroll
+// shows. Shared with Payroll / Slips → Payrolls' "View" action, which
+// reuses this on a SAVED run's stored snapshot (report.rows), so a saved
+// month's full employee-by-employee breakdown always looks identical to
+// what was actually generated and saved, not a re-derived summary.
+function prBuildRowsTableHtml(rows){
+  if(!rows.length)return '<div class="empty">No employees matched this selection.</div>';
+  return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
      '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th></tr></thead><tbody>'+
-    rep.rows.map(r=>'<tr>'+
-     '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
+    rows.map(r=>'<tr>'+
+     '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags&&r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
      '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':fmt(r.grossSalary))+'</td>'+
      '<td class="num">'+r.daysInMonth+'</td>'+
      '<td class="num">'+r.totalDaysInRange+'</td>'+
@@ -1720,9 +1801,26 @@ function prRenderReport(){
      '<td class="num">'+fmt(r.fieldAllowanceTotal)+'</td>'+
      '<td class="num"><b>'+(r.grossPayable!=null?fmt(r.grossPayable):'—')+'</b></td>'+
      '</tr>').join('')+
-    '</tbody></table>'
-   :'<div class="empty">No employees matched this selection.</div>';
-  prRenderPdfPreview();
+    '</tbody></table>';
+}
+// Keeps a .sticky-thead table's header visually pinned to the top of its
+// own scrollable box while scrolling — via JS, not CSS position:sticky
+// (which never engaged for this table; see the CSS comment above
+// .sticky-thead). Shifts <thead> down by exactly however far the box has
+// scrolled, so it always renders at the box's own top edge no matter how
+// far through the body the user has scrolled — same visual result sticky
+// would give, with no browser-specific caveats. One listener per element
+// (re-wrapping a function reference in the dataset guards against piling
+// up duplicate listeners across repeated Generate clicks on the same box).
+function pinTableHead(el){
+  if(!el)return;
+  const thead=el.querySelector('thead');
+  if(!thead)return;
+  if(el._pinTableHeadHandler)el.removeEventListener('scroll',el._pinTableHeadHandler);
+  const handler=()=>{ thead.style.transform='translateY('+el.scrollTop+'px)'; };
+  el._pinTableHeadHandler=handler;
+  el.addEventListener('scroll',handler);
+  handler();
 }
 function prReportGrid(){
   const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
@@ -1768,6 +1866,109 @@ function prExportXlsx(){
   const {headers,rows}=prReportGrid();
   const grid=[headers].concat(rows.map(r=>r.map(c=>c==null?'':c)));
   dlXlsx(buildXlsxBlob(grid),'payroll-'+PR_REPORT.from+'_to_'+PR_REPORT.to+'.xlsx');
+}
+/* ================================================================
+   PAYROLL / SLIPS — every SAVED (locked) month-wise payroll run, with
+   filters, and a 2-step-confirmed delete that un-locks the month (see
+   POST /save + the lock check on POST /generate). Second tab (month-wise
+   PDF payslips) is a placeholder — that's a separate upcoming feature.
+   ================================================================ */
+let PRS_TAB='payrolls',PRS_RUNS=[],PRS_YEAR='';
+async function renderPayrollSlips(){
+  const c=document.getElementById('content');
+  c.innerHTML=
+   '<div class="card"><div class="card-h">Payroll / Slips<span class="hint" style="font-weight:400"> — once a month\'s payroll is saved here, it\'s locked: nobody can generate or save payroll for that month again (whole company, department-wise or employee-wise) until it\'s deleted</span></div><div class="card-b">'+
+    '<div class="att-tabs"><button class="att-tab'+(PRS_TAB==='payrolls'?' on':'')+'" onclick="prsSwitchTab(\'payrolls\')">Payrolls</button>'+
+     '<button class="att-tab'+(PRS_TAB==='payslips'?' on':'')+'" onclick="prsSwitchTab(\'payslips\')">Payslips</button></div>'+
+    '<div id="prs-body" style="margin-top:14px"></div>'+
+   '</div></div>';
+  await prsRenderTab();
+}
+function prsSwitchTab(tab){PRS_TAB=tab;prsRenderTab();}
+async function prsRenderTab(){
+  const body=document.getElementById('prs-body');if(!body)return;
+  if(PRS_TAB==='payrolls')await prsLoadPayrolls();
+  else body.innerHTML='<div class="empty">Month-wise PDF payslips — coming soon.</div>';
+}
+async function prsLoadPayrolls(){
+  const body=document.getElementById('prs-body');
+  body.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    const q=PRS_YEAR?('?year='+encodeURIComponent(PRS_YEAR)):'';
+    PRS_RUNS=await api('/api/payroll/saved'+q);
+    prsRenderPayrollsList();
+  }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function prsRenderPayrollsList(){
+  const body=document.getElementById('prs-body');if(!body)return;
+  const years=[...new Set(PRS_RUNS.map(r=>r.month_key.slice(0,4)))].sort().reverse();
+  const canDelete=canManageRoles();
+  body.innerHTML=
+   '<div class="searchrow no-print" style="margin-bottom:10px">'+
+    '<select id="prs-year-filter" onchange="prsYearChanged(this.value)" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+     '<option value="">All years</option>'+years.map(y=>'<option value="'+y+'"'+(y===PRS_YEAR?' selected':'')+'>'+y+'</option>').join('')+
+    '</select>'+
+   '</div>'+
+   (PRS_RUNS.length
+    ?'<div class="tblwrap"><table><thead><tr><th>Month</th><th>From</th><th>To</th><th>Mode</th><th class="num">Employees</th><th class="num">Total Gross Payable</th><th>Saved By</th><th>Saved At</th><th class="no-print"></th></tr></thead><tbody>'+
+      PRS_RUNS.map(r=>'<tr><td><b>'+esc(r.month_label)+'</b></td><td>'+rptFmtDate(r.from_date)+'</td><td>'+rptFmtDate(r.to_date)+'</td><td>'+esc(r.mode?(r.mode==='department'?'Department-wise':'Employee-wise'):'—')+'</td>'+
+       '<td class="num">'+r.employee_count+'</td><td class="num">'+fmt(r.total_gross_payable)+'</td><td>'+esc(r.saved_by_name||'')+'</td><td>'+esc(String(r.saved_at||'').slice(0,16).replace('T',' '))+'</td>'+
+       '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View every employee\'s full payroll for this month" onclick="prsViewPayroll('+r.id+')">👁 View</button> '+(canDelete?'<button class="del" title="Delete (unlocks this month)" onclick="prsOpenDelete('+r.id+')">🗑</button>':'')+'</td></tr>').join('')+
+      '</tbody></table></div>'
+    :'<div class="empty">No payroll saved yet. Generate one on the Payroll page, then click "💾 Save Payroll" to lock it in here.</div>')+
+   '<div id="prs-detail" style="margin-top:16px"></div>';
+}
+function prsYearChanged(y){PRS_YEAR=y;prsLoadPayrolls();}
+
+// Expands the full employee-by-employee table for one saved month, right
+// below the Payrolls list — reads straight from that run's stored snapshot
+// (GET /saved/:id), never recomputed, so it always matches exactly what
+// was saved regardless of anything that's changed in attendance/leave
+// since. Same table layout as Generate Payroll (prBuildRowsTableHtml).
+async function prsViewPayroll(id){
+  const detail=document.getElementById('prs-detail');if(!detail)return;
+  detail.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  detail.scrollIntoView({behavior:'smooth',block:'nearest'});
+  try{
+    const run=await api('/api/payroll/saved/'+id);
+    const rep=run.report;
+    const missing=rep.rows.filter(r=>r.salaryMissing).length;
+    detail.innerHTML='<div class="card"><div class="card-h">'+esc(run.monthLabel)+' — full payroll'+
+      '<span class="hint" style="font-weight:400"> — '+esc(run.fromDate)+' to '+esc(run.toDate)+' · '+esc(run.mode?(run.mode==='department'?'Department-wise':'Employee-wise'):'—')+' · saved by '+esc(run.savedByName||'')+' on '+esc(String(run.savedAt||'').slice(0,16).replace('T',' '))+'</span>'+
+      '<span class="sp"></span><button class="btn ghost small" onclick="document.getElementById(\'prs-detail\').innerHTML=\'\'">✕ Close</button>'+
+     '</div><div class="card-b">'+
+      '<div class="kpis"><div class="kpi"><span>Employees</span><b>'+rep.rows.length+'</b></div><div class="kpi"><span>Total Payable</span><b>'+fmt(rep.rows.reduce((s,r)=>s+(r.grossPayable||0),0))+'</b></div><div class="kpi"><span>Missing Salary</span><b'+(missing?' class="warn"':'')+'>'+missing+'</b></div></div>'+
+      '<div class="tblwrap sticky-thead" id="prs-detail-table" style="margin-top:10px">'+prBuildRowsTableHtml(rep.rows)+'</div>'+
+     '</div></div>';
+    pinTableHead(document.getElementById('prs-detail-table'));
+  }catch(e){detail.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(e.message)+'</div></div></div>';}
+}
+
+/* ---- Delete a saved payroll — 2-step confirmed (Administrator/Sub Admin
+   only; same restriction the backend enforces). Un-locks the month. ---- */
+let PRS_DEL_ID=null,PRS_DEL_MONTHKEY=null,PRS_DEL_MONTHLABEL=null;
+function prsOpenDelete(id){
+  const row=PRS_RUNS.find(r=>r.id===id);if(!row)return;
+  PRS_DEL_ID=id;PRS_DEL_MONTHKEY=row.month_key;PRS_DEL_MONTHLABEL=row.month_label;
+  document.getElementById('prsdel-summary').innerHTML='<b>'+esc(row.month_label)+'</b> — '+row.employee_count+' employee(s), total Gross Payable '+fmt(row.total_gross_payable)+'.';
+  const inp=document.getElementById('prsdel-type');inp.value='';inp.placeholder='Type "'+row.month_label+'" to confirm';
+  document.getElementById('prsdel-go').disabled=true;
+  document.getElementById('prsdel-err').style.display='none';
+  openModal('prsdelmodal');
+}
+function prsDelTypeChecked(){
+  document.getElementById('prsdel-go').disabled=document.getElementById('prsdel-type').value.trim()!==PRS_DEL_MONTHLABEL;
+}
+async function prsConfirmDelete(){
+  const err=document.getElementById('prsdel-err');err.style.display='none';
+  const btn=document.getElementById('prsdel-go');btn.disabled=true;btn.textContent='Deleting…';
+  try{
+    await api('/api/payroll/saved/'+PRS_DEL_ID,{method:'DELETE',body:JSON.stringify({confirmMonthKey:PRS_DEL_MONTHKEY})});
+    closeModal('prsdelmodal');
+    toast('Deleted — '+PRS_DEL_MONTHLABEL+' is unlocked and can be run again.','ok');
+    await prsLoadPayrolls();
+  }catch(e){showErrEl(err,e.message);btn.disabled=false;}
+  finally{btn.textContent='Delete permanently';}
 }
 /* ================================================================
    LEAVE REQUESTS / FIELD DUTY — every logged-in user can file their own;
@@ -9171,7 +9372,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -9180,7 +9381,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
