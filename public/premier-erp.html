@@ -119,7 +119,30 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 
 .actions{display:flex;gap:9px;margin-top:13px;flex-wrap:wrap}
 /* ---------- tables ---------- */
-.tblwrap{overflow-x:auto}
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+/* nicer horizontal scrollbar for every data table (Chrome/Edge + Firefox) */
+.tblwrap{scrollbar-width:thin;scrollbar-color:#C7D0DC var(--bg)}
+.tblwrap::-webkit-scrollbar{height:10px}
+.tblwrap::-webkit-scrollbar-track{background:var(--bg);border-radius:20px}
+.tblwrap::-webkit-scrollbar-thumb{background:#C7D0DC;border-radius:20px;border:2px solid var(--bg)}
+.tblwrap::-webkit-scrollbar-thumb:hover{background:#A9B4C4}
+/* Line-item grids (e.g. Purchase Order) open a searchable dropdown inside a
+   table row. overflow-x:auto on the wrapper silently upgrades overflow-y to
+   auto too (CSS spec: a non-visible axis forces the other out of 'visible'),
+   which clipped that dropdown's panel unless the wrapper happened to already
+   be scrolled to reveal it. Declaring overflow-y:visible here keeps
+   horizontal scrolling while letting the panel escape downward, uncropped. */
+.po-lines-wrap{overflow-y:visible}
+.pogrid thead th:first-child{border-top-left-radius:9px}
+.pogrid thead th:last-child{border-top-right-radius:9px}
+.pogrid input:not([type=checkbox]),.pogrid select{padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:12.5px;width:100%}
+.pogrid input:disabled{background:var(--bg);color:var(--faint)}
+.pogrid input:not([type=checkbox]):focus,.pogrid select:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:transparent}
+.pogrid input[type=checkbox]{width:16px;height:16px;cursor:pointer}
+.pogrid .selx-btn{padding:6px 8px;font-size:12.5px}
+.pogrid td{padding:7px 8px}
+.pogrid tbody tr:hover td{background:var(--bg)}
+.pogrid tfoot td{background:var(--brand-t);border-top:2px solid var(--brand);padding:10px 8px}
 /* Opt-in (not every table — just long reports like the Payroll preview):
    the table itself becomes its own scrollable box with a capped height, so
    the header can stick to THAT box's own top (position:sticky;top:0) —
@@ -558,7 +581,7 @@ function closeModal(id){document.getElementById(id).classList.remove('open');}
 const T=(k,l,ph)=>({k,l,t:'text',ph});
 const N=(k,l,opt)=>({k,l,t:'number',...opt});
 const D=(k,l)=>({k,l,t:'date'});
-const S=(k,l,o)=>({k,l,t:'select',o});
+const S=(k,l,o,extra)=>({k,l,t:'select',o,...(extra||{})});
 const A=(k,l)=>({k,l,t:'area'});
 const A2=(k,l)=>({k,l,t:'area',half:1});  // textarea that stays in its column instead of spanning the row
 const FILEF=(k,l)=>({k,l,t:'file'});  // a single optional image/PDF attachment, right in the fields grid like any other field
@@ -654,10 +677,10 @@ activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type'
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
-items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),T('unit','UoM','ea'),N('reorder','Reorder level',{nospin:1}),N('cost','Std. cost'),T('loc','Default location'),FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
+items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool','Equipment']}},{...D('expiry','Expiry Date'),showIf:{field:'cat',values:['Chemical']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',fields:[D('date','Date'),REF('item','Item','items','name'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),N('qty','Quantity'),T('from','From location'),T('to','To location'),T('ref','Reference (PO/WO)'),T('who','By')],list:['date','item','type','qty','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
-purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',fields:[T('no','PO no.','PO-2026-001'),D('date','Date'),REF('vendor','Vendor','vendors','name'),T('subject','Subject / items'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','subject','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
 grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
@@ -5179,11 +5202,53 @@ function selxOpen(id,ev){
   const w=document.getElementById('selx-'+id);
   if(!w)return;
   const wasOpen=w.classList.contains('open');
-  document.querySelectorAll('.selx.open').forEach(e=>e.classList.remove('open'));
+  document.querySelectorAll('.selx.open').forEach(e=>{e.classList.remove('open');const p=e.querySelector('.selx-pan');if(p)p.style.cssText='';});
   if(wasOpen)return;
   w.classList.add('open');
+  // The panel is position:absolute by default, anchored to its own .selx
+  // wrapper — so ANY scrolling/clipping ancestor between it and the page (a
+  // table's horizontal-scroll wrapper, a card, a modal) can crop it, which
+  // looked like "the dropdown doesn't show" unless that ancestor happened to
+  // be scrolled to just the right spot. Switching to position:fixed with
+  // JS-computed, viewport-relative coordinates escapes every such ancestor
+  // (fixed positioning anchors to the viewport, not any scrolling parent),
+  // and still flips the panel above the button when there isn't room below.
+  const pan=w.querySelector('.selx-pan');
+  if(pan){
+    const btn=w.querySelector('.selx-btn')||w;
+    const r=btn.getBoundingClientRect();
+    const width=Math.max(r.width,220);
+    pan.style.position='fixed';
+    pan.style.zIndex='150'; // must clear .modal's z-index:100 — a selx can open from inside a modal too
+    pan.style.left=Math.max(8,Math.min(r.left,window.innerWidth-width-8))+'px';
+    pan.style.width=width+'px';
+    pan.style.minWidth=width+'px';
+    pan.style.maxWidth=Math.min(560,window.innerWidth-16)+'px';
+    // top/bottom are always set to an explicit value below — never left ''
+    // (unset), because an unset inline style falls back to the STYLESHEET's
+    // own top:calc(100% + 4px) rule, written for the old position:absolute
+    // behavior; under position:fixed that 100% resolves against the
+    // viewport itself and silently relocates the panel off-screen.
+    pan.style.top=(r.bottom+4)+'px';
+    pan.style.bottom='auto';
+    const panH=pan.offsetHeight;
+    if(r.bottom+4+panH>window.innerHeight-8&&r.top>window.innerHeight-r.bottom){
+      pan.style.top='auto';
+      pan.style.bottom=(window.innerHeight-r.top+4)+'px';
+    }
+    // Safety clamp — if the button itself sits outside the viewport (can't
+    // normally happen from a real click, but covers any edge case), keep the
+    // panel on-screen rather than anchored to an off-screen reference point.
+    if(r.top<0||r.bottom>window.innerHeight){
+      pan.style.bottom='auto';
+      pan.style.top=Math.max(8,Math.min(window.innerHeight-panH-8,r.bottom+4))+'px';
+    }
+  }
   const q=w.querySelector('.selx-q');
-  if(q){q.value='';selxFilter(id);q.focus();}
+  // preventScroll — focusing this input would otherwise make the browser
+  // auto-scroll the page to bring it into view, silently moving the page
+  // out from under our own just-computed fixed position above.
+  if(q){q.value='';selxFilter(id);q.focus({preventScroll:true});}
 }
 function selxFilter(id){
   const w=document.getElementById('selx-'+id);
@@ -5219,12 +5284,12 @@ function selxPick(id,v){
   w.classList.remove('open');
   if(SELX_CB[id])SELX_CB[id](v);
 }
-document.addEventListener('click',()=>document.querySelectorAll('.selx.open').forEach(e=>e.classList.remove('open')));
-function fieldInput(f,v,idPrefix){
+document.addEventListener('click',()=>document.querySelectorAll('.selx.open').forEach(e=>{e.classList.remove('open');const p=e.querySelector('.selx-pan');if(p)p.style.cssText='';}));
+function fieldInput(f,v,idPrefix,onSelectChange){
   idPrefix=idPrefix||'f-';
   v=v==null?'':v;
-  if(f.t==='select')return selx(idPrefix+f.k,v,f.o.filter(o=>o!==''),null,'\u2014 choose \u2014');
-  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),null,'\u2014 choose \u2014');
+  if(f.t==='select')return selx(idPrefix+f.k,v,f.o.filter(o=>o!==''),onSelectChange||null,'\u2014 choose \u2014');
+  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
   if(f.t==='file'){
@@ -5235,6 +5300,39 @@ function fieldInput(f,v,idPrefix){
       (existing?'<div class="hint" style="margin-top:4px">Current: '+esc(existing.name)+' — <a href="javascript:void(0)" onclick="fileFieldClear(\''+idPrefix+f.k+'\')">remove</a></div>':'');
   }
   return '<input id="'+idPrefix+f.k+'" type="'+(f.t==='number'?'number':f.t==='date'?'date':'text')+'"'+(f.t==='number'?' step="0.01"':'')+(f.t==='number'&&f.nospin?' class="nospin-num"':'')+' value="'+esc(v)+'"'+(f.ph?' placeholder="'+esc(f.ph)+'"':'')+'>';
+}
+// Conditional fields — opt-in per field via showIf:{field,values}, e.g.
+// Item Master's Asset Tag Number only applies to Tool/Equipment and its
+// Expiry Date only to Chemical. Each such field's wrapper div carries a
+// predictable id ("fw-"+idPrefix+f.k) so this can show/hide it purely by
+// reading the CURRENT value of whichever OTHER field it watches — no
+// knowledge of what that field actually is baked in here. When a field
+// becomes hidden its own input is cleared too, so an irrelevant value
+// (entered before switching category, say) never silently gets saved.
+// Required fields — opt-in per field via req:1 (e.g. Purchase Order's PO
+// type). Skips any field currently hidden by its own showIf, so a required
+// field that doesn't apply to the selected category/type never blocks a save.
+function reqFieldMissingLabel(m,idPrefix){
+  for(const f of m.fields){
+    if(!f.req)continue;
+    if(f.showIf){
+      const watchEl=document.getElementById(idPrefix+f.showIf.field);
+      if(!watchEl||!f.showIf.values.includes(watchEl.value))continue;
+    }
+    const el=document.getElementById(idPrefix+f.k);
+    if(el&&!String(el.value||'').trim())return f.l;
+  }
+  return null;
+}
+function applyConditionalFields(m,idPrefix){
+  m.fields.forEach(f=>{
+    if(!f.showIf)return;
+    const watchEl=document.getElementById(idPrefix+f.showIf.field);
+    const show=!!watchEl&&f.showIf.values.includes(watchEl.value);
+    const wrap=document.getElementById('fw-'+idPrefix+f.k);
+    if(wrap)wrap.style.display=show?'':'none';
+    if(!show){const el=document.getElementById(idPrefix+f.k);if(el)el.value='';}
+  });
 }
 function renderModule(){
   const k=modKey(),m=MODULES[k],data=coll(k);
@@ -5251,15 +5349,20 @@ function renderModule(){
   if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
+  if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
   renderModule._lk=false;
+  // Any field some OTHER field's showIf watches needs to re-run
+  // applyConditionalFields the moment it's picked, not just on next render.
+  const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
   const form='<div class="card"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
-    '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'"><label>'+f.l+'</label>'+
+    '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-f-'+f.k+'"><label>'+f.l+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+
       // auto-numbered fields preview the number this record will get; a
       // file field gets the record's id instead of a value (see fieldInput)
-      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]))+'</div>').join('')+'</div>'+
+      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null)+'</div>').join('')+'</div>'+
     (m.lines?'<div id="ql-zone">'+qlGrid(rec)+'</div>':'')+
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
+    (m.polines?'<div id="po-zone">'+poGrid(rec)+'</div>':'')+
     '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
@@ -5279,6 +5382,8 @@ function renderModule(){
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
     '<div class="tblwrap" id="list-zone">'+listTable(m,rows)+'</div></div></div>';
   document.getElementById('content').innerHTML=kpis+form+list;
+  if(watchedFields.size)applyConditionalFields(m,'f-');
+  if(m.polines)poSyncAmountField();
 }
 function listTable(m,rows){
   if(!rows.length)return '<div class="empty">No records yet — add the first one above.</div>';
@@ -5306,7 +5411,7 @@ function viewRec(id){
   const k=modKey(),m=MODULES[k];
   const r=coll(k).find(x=>x.id===id);if(!r)return;
   document.getElementById('recview-title').textContent=m.name+' — '+esc(r[m.list[0]]||'');
-  const rows=m.fields.filter(f=>f.t!=='file').map(f=>{
+  const rows=m.fields.filter(f=>f.t!=='file').filter(f=>!f.showIf||f.showIf.values.includes(r[f.showIf.field])).map(f=>{
     let v=f.t==='computed'?f.fn(r):r[f.k];
     if(f.t==='number'&&v)v=fmt(+v);
     return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><div style="flex:0 0 160px;color:var(--faint,#98A2B3);font-size:12.5px">'+esc(f.l)+'</div><div style="flex:1;font-size:13px">'+esc(v||'—')+'</div></div>';
@@ -5323,16 +5428,21 @@ function editRecModal(id){
   // or this one closed without saving) so it never leaks into this one.
   m.fields.filter(f=>f.t==='file').forEach(f=>delete FILE_STAGE['mf-'+f.k]);
   document.getElementById('recedit-title').textContent='Edit — '+esc(m.name);
-  document.getElementById('recedit-body').innerHTML='<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'"><label>'+esc(f.l)+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-')+'</div>').join('')+'</div>'+
+  const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
+  document.getElementById('recedit-body').innerHTML='<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null)+'</div>').join('')+'</div>'+
     filePreviewHtml(id,m);
   document.getElementById('recedit-err').style.display='none';
+  if(watchedFields.size)applyConditionalFields(m,'mf-');
   openModal('recimodal');
 }
 async function recEditSave(){
   const k=modKey(),m=MODULES[k];
   const data=coll(k);
   const rec=data.find(x=>x.id===REC_EDIT_ID);if(!rec)return;
-  const err=document.getElementById('recedit-err');err.style.display='none';
+  const err=document.getElementById('recedit-err');
+  const missingReq=reqFieldMissingLabel(m,'mf-');
+  if(missingReq){err.textContent=missingReq+' is required.';err.style.display='block';return;}
+  err.style.display='none';
   m.fields.forEach(f=>{if(f.t==='computed'||f.t==='file')return;const el=document.getElementById('mf-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
   m.fields.filter(f=>f.t==='file').forEach(f=>{
@@ -5370,6 +5480,8 @@ function renderListOnly(){
 }
 async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
+  const missingReq=reqFieldMissingLabel(m,'f-');
+  if(missingReq)return toast(missingReq+' is required.','err');
   const wasNew=!editId;
   const existing=editId?data.find(r=>r.id===editId):null;
   // Server-backed modules edit a COPY: the cache must only change once the
@@ -5389,6 +5501,7 @@ async function saveRec(){
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
+  if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     try{
@@ -5753,6 +5866,62 @@ function wlGrid(rec){
   '<div class="hint" style="margin-top:6px">'+WL.filter(l=>l.cat||l.svc||l.qty).length+' line(s). Saved with the work order — use "Update record" to store changes.</div>';
 }
 function wlRefresh(){renderModule._lk=true;const z=document.getElementById('wl-zone');if(z)z.innerHTML=wlGrid(null);}
+/* ============ purchase order line grid ============================
+   Item is picked from Item Master; Category, UOM & Price auto-fill from
+   the picked item (Price stays editable — a PO can agree a different
+   rate than the item's standard cost). Tax is computed on the line
+   subtotal (Qty x Price) at the Taxable % entered for that line. */
+let POL=[{}];
+function poLineTotals(l){
+  const qty=+l.qty||0,price=+l.price||0,pct=+l.taxable||0;
+  const sub=qty*price,tax=sub*pct/100;
+  return {sub,tax,amount:sub+tax};
+}
+function poTotals(){return {grand:POL.reduce((s,l)=>s+poLineTotals(l).amount,0)};}
+function poGrid(rec){
+  const itemNames=coll('items').map(x=>x.name).filter(Boolean);
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Line items <button class="btn ghost small" style="margin-left:8px" onclick="POL.push({});poRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick an item from Item Master — Category, UOM &amp; Price auto-fill</span></div>'+
+  '<div class="tblwrap po-lines-wrap pogrid"><table><thead><tr>'+
+    '<th style="width:26px">#</th><th style="width:220px">Item</th><th style="width:110px">Category</th><th style="width:80px">UOM</th>'+
+    '<th style="width:80px">Quantity</th><th style="width:100px">Price</th><th>Note to Vendor</th>'+
+    '<th style="width:95px">Taxable</th><th style="width:100px" class="num">Tax Amount</th><th style="width:70px">Capital<br>Expense</th>'+
+    '<th style="width:110px" class="num">Amount</th><th style="width:30px"></th>'+
+  '</tr></thead><tbody>'+
+  POL.map((l,i)=>{const lt=poLineTotals(l);return '<tr><td class="num">'+(i+1)+'</td>'+
+   '<td>'+selx('po-item-'+i,l.item||'',itemNames,()=>poPickItem(i),'Select item…')+'</td>'+
+   '<td><input value="'+esc(l.cat||'')+'" disabled></td>'+
+   '<td><input value="'+esc(l.uom||'')+'" disabled></td>'+
+   '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="POL['+i+'].qty=this.value;poRefreshRow('+i+')"></td>'+
+   '<td><input type="number" step="0.01" value="'+esc(l.price||'')+'" oninput="POL['+i+'].price=this.value;poRefreshRow('+i+')"></td>'+
+   '<td><input value="'+esc(l.note||'')+'" oninput="POL['+i+'].note=this.value"></td>'+
+   '<td><div style="display:flex;align-items:center;gap:3px"><input type="number" step="0.01" style="width:100%" value="'+esc(l.taxable||'')+'" oninput="POL['+i+'].taxable=this.value;poRefreshRow('+i+')"><span style="color:var(--faint,#98A2B3)">%</span></div></td>'+
+   '<td class="num" id="po-tax-'+i+'">'+fmt(lt.tax)+'</td>'+
+   '<td style="text-align:center"><input type="checkbox" '+(l.capex?'checked':'')+' onchange="POL['+i+'].capex=this.checked"></td>'+
+   '<td class="num" id="po-amt-'+i+'">'+fmt(lt.amount)+'</td>'+
+   '<td><button class="del" onclick="POL.splice('+i+',1);poRefresh()">✕</button></td></tr>';}).join('')+
+  '</tbody><tfoot><tr><td colspan="10" style="text-align:right;font-weight:700">Total Amount</td><td class="num" style="font-weight:700" id="po-grand">'+fmt(poTotals().grand)+'</td><td></td></tr></tfoot></table></div>';
+}
+function poRefresh(){renderModule._lk=true;const z=document.getElementById('po-zone');if(z)z.innerHTML=poGrid(null);poSyncAmountField();}
+function poRefreshRow(i){
+  const lt=poLineTotals(POL[i]);
+  const te=document.getElementById('po-tax-'+i);if(te)te.textContent=fmt(lt.tax);
+  const ae=document.getElementById('po-amt-'+i);if(ae)ae.textContent=fmt(lt.amount);
+  const ge=document.getElementById('po-grand');if(ge)ge.textContent=fmt(poTotals().grand);
+  poSyncAmountField();
+}
+// The top "Amount" field is a read-only computed field — it just mirrors the
+// line-items grand total live, so it always matches what's about to be saved.
+function poSyncAmountField(){
+  const el=document.getElementById('f-amount');
+  if(el)el.value=fmt(poTotals().grand);
+}
+function poPickItem(i){
+  const name=document.getElementById('po-item-'+i).value;
+  POL[i].item=name;
+  const it=coll('items').find(x=>x.name===name);
+  if(it){POL[i].cat=it.cat||'';POL[i].uom=it.unit||'';if(!POL[i].price)POL[i].price=it.cost||'';}
+  poRefresh();
+}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
