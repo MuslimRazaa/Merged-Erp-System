@@ -2034,7 +2034,13 @@ async function renderLeaveRequests(){
      '<button class="btn ghost" onclick="lvTogglePrevious()">View Previous Leaves</button>'+
     '</div>'+
    '</div></div>'+
-   '<div class="card" id="lv-mine-card" style="display:none"><div class="card-h">My Leave Requests'+(hasHr?'<span class="hint" style="font-weight:400"> — to review/decide everyone\'s requests, use the ❏ Leave Inbox in the top bar</span>':'')+'</div><div class="card-b tblwrap" id="lv-mine-body"><div class="empty">Loading…</div></div></div>';
+   '<div class="card" id="lv-mine-card" style="display:none"><div class="card-h">My Leave Requests'+(hasHr?'<span class="hint" style="font-weight:400"> — to review/decide everyone\'s requests, use the ❏ Leave Inbox in the top bar</span>':'')+'</div><div class="card-b">'+
+    '<div style="font-weight:700;margin-bottom:8px">Available Leave Days ('+new Date().getFullYear()+')</div>'+
+    '<div class="kpis" id="lv-balance-kpis" style="margin-bottom:10px"></div>'+
+    '<div class="tblwrap" id="lv-balance-table" style="margin-bottom:20px"><div class="empty">Loading…</div></div>'+
+    '<div style="font-weight:700;margin-bottom:8px">Previous Requests</div>'+
+    '<div class="tblwrap" id="lv-mine-body"><div class="empty">Loading…</div></div>'+
+   '</div></div>';
   lvFillForm(null);
   await lvPollPending(); // not HR-gated any more — a non-HR HOD needs this too
 }
@@ -2042,7 +2048,38 @@ function lvTogglePrevious(){
   const card=document.getElementById('lv-mine-card');if(!card)return;
   const opening=card.style.display==='none';
   card.style.display=opening?'block':'none';
-  if(opening){lvLoadMine();card.scrollIntoView({behavior:'smooth'});}
+  if(opening){lvLoadMine();lvBalanceInit();card.scrollIntoView({behavior:'smooth'});}
+}
+// Reuses evBuildLeaveBalanceTable() (built for HR's Employee View Leave tab)
+// so the entitlement math — Casual/Medical 12 days (Permanent only), Annual
+// 1 day (Permanent + 1 full year served), Field Break from the attendance
+// server — lives in exactly one place. Always the LOGGED-IN user's own
+// balance, matching "My Leave Requests" right below it (not whoever's
+// selected in the new-request form's Employee dropdown, for HR filing on
+// someone else's behalf).
+async function lvBalanceInit(){
+  const kEl=document.getElementById('lv-balance-kpis'),tEl=document.getElementById('lv-balance-table');
+  if(!kEl||!tEl||!SESSION)return;
+  try{
+    if(!EMP_LIST||!EMP_LIST.length)EMP_LIST=await api('/api/shared/employees');
+    const me=EMP_LIST.find(x=>String(x.id)===String(SESSION.uid))||{};
+    const [mine,fb]=await Promise.all([
+      api('/api/leave/mine').catch(()=>[]),
+      api('/api/attendance/field-breaks/'+SESSION.uid).catch(()=>null)
+    ]);
+    const rows=evBuildLeaveBalanceTable(mine,me.profile||{},fb);
+    const quotaRows=rows.filter(r=>r.entitled!==null);
+    const totalEntitled=quotaRows.reduce((s,r)=>s+r.entitled,0);
+    const totalRemaining=quotaRows.reduce((s,r)=>s+r.remaining,0);
+    const totalAvailedAll=rows.reduce((s,r)=>s+r.availed,0);
+    kEl.innerHTML=
+     '<div class="kpi"><span>Total Entitled</span><b>'+totalEntitled+'</b></div>'+
+     '<div class="kpi"><span>Total Availed</span><b>'+totalAvailedAll+'</b></div>'+
+     '<div class="kpi"><span>Total Remaining</span><b>'+totalRemaining+'</b></div>';
+    tEl.innerHTML='<table><thead><tr><th>Leave Type</th><th>Entitled</th><th>Availed</th><th>Remaining</th></tr></thead><tbody>'+
+     rows.map(r=>'<tr><td>'+esc(r.type)+'</td><td>'+(r.entitled==null?'<span class="hint">Approval-based</span>':r.entitled)+'</td><td>'+r.availed+'</td><td>'+(r.remaining==null?'—':r.remaining)+'</td></tr>').join('')+
+     '</tbody></table>';
+  }catch(e){tEl.innerHTML='<div class="empty">Failed to load leave balance: '+esc(e.message)+'</div>';}
 }
 // row is optional — when passed, "ReleasedForApproval" shows "Awaiting
 // <HOD name>" if a HOD is registered, else the generic label.
