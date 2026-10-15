@@ -6227,38 +6227,51 @@ function poPdf(id,mode){
     if(ls.length>maxL){ls=ls.slice(0,maxL);ls[maxL-1]=doc.fit(ls[maxL-1]+'…',w,sz);}
     ls.forEach((t2,i)=>{const yy=TY(ty+i*lead);if(center)doc.textC(x+w/2,yy,t2,sz,bold);else doc.text(x,yy,t2,sz,bold);});
   };
+  // A very light diagonal "PTIS" watermark behind everything else on the
+  // current page — drawn first (painted under subsequent ops) and repeated
+  // on every page this PO spans, via the Tm text matrix for a 45° rotation
+  // (PdfDoc has no general-angle text helper, so it's built inline here).
+  const drawWatermark=()=>{
+    const wmSize=120,ang=Math.PI/4,cosA=Math.cos(ang),sinA=Math.sin(ang);
+    const wmW=doc.twx('PTIS',wmSize,true);
+    const cx=doc.w/2,cy=doc.h/2;
+    const x0=cx-(wmW/2)*cosA,y0=cy-(wmW/2)*sinA;
+    doc.cur.ops.push('BT /F2 '+wmSize+' Tf 0.955 0.955 0.96 rg '+cosA.toFixed(4)+' '+sinA.toFixed(4)+' '+(-sinA).toFixed(4)+' '+cosA.toFixed(4)+' '+x0.toFixed(1)+' '+y0.toFixed(1)+' Tm ('+doc.esc('PTIS')+') Tj ET');
+  };
+  drawWatermark();
 
-  /* ---------- letterhead (logo + company block, left) ---------- */
-  doc.imageAt(PTIS_LOGO_JPEG,L,rty(14,38.7),58,38.7);
-  doc.text(L+66,TY(26),WO_CO.name,13,true);
-  doc.text(L+66,TY(40),WO_CO.addr,7.8);
-  doc.text(L,TY(58),'City: '+WO_CO.city+', Zip Code: '+WO_CO.zip,7.8);
-  doc.text(L,TY(70),'Phone: '+WO_CO.phone+'   Fax: '+WO_CO.fax,7.8);
-  doc.text(L,TY(82),'NTN#: '+WO_CO.ntn+'   GST#: '+WO_CO.gst,7.8);
+  /* ---------- letterhead — logo and company block centered, full width ---------- */
+  doc.rect(0,doc.h-3,doc.w,3,'0.10 0.16 0.30'); // brand accent bar across the very top
+  const logoW=70,logoH=46.7,logoX=L+(W-logoW)/2;
+  doc.imageAt(PTIS_LOGO_JPEG,logoX,rty(12,logoH),logoW,logoH);
+  doc.textC(L+W/2,TY(72),WO_CO.name,14,true);
+  doc.textC(L+W/2,TY(87),WO_CO.addr,8);
+  doc.textC(L+W/2,TY(99),'City: '+WO_CO.city+', Zip Code: '+WO_CO.zip+'    Phone: '+WO_CO.phone+'   Fax: '+WO_CO.fax,7.8);
+  doc.textC(L+W/2,TY(111),'NTN#: '+WO_CO.ntn+'   GST#: '+WO_CO.gst,7.8);
+  doc.rect(L,rty(121,2.2),W,2.2,'0.10 0.16 0.30');
+  doc.textC(L+W/2,TY(140),'PURCHASE ORDER',16,true);
 
-  /* ---------- PO details box (top right) ---------- */
-  const bx0=L+350,bx1=R,bxMid=bx0+80;
-  doc.textR(bx1,TY(13),'PURCHASE ORDER',14,true);
-  const poRows=[
-    ['DATE',woDmy(r.date)],['PO Type',r.potype||''],['P.O. #',r.no||''],
-    ['Your Ref. #',''],['Quoted Date',''],['Status',r.status||''],
-    ['Prepared by',(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:''],
-    ['Req #',''],['Currency',r.cur||'']
+  /* ---------- PO details — horizontal, full width (3 cols x 3 rows) ---------- */
+  const poGridRows=[
+    [['DATE',woDmy(r.date)],['PO TYPE',r.potype||''],['P.O. #',r.no||'']],
+    [['STATUS',r.status||''],['CURRENCY',r.cur||''],['PREPARED BY',(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:'']],
+    [['YOUR REF. #',''],['QUOTED DATE',''],['REQ #','']]
   ];
-  const rowH=14.5,boxTop=22,boxH=rowH*poRows.length;
-  doc.box(bx0,rty(boxTop,boxH),bx1-bx0,boxH);
-  doc.rule(bxMid,rty(boxTop,boxH),bxMid,TY(boxTop),0.9);
-  poRows.forEach((pr,i)=>{
-    const rt=boxTop+i*rowH;
-    if(i>0)doc.rule(bx0,TY(rt),bx1,TY(rt),0.7);
-    doc.rect(bx0,rty(rt,rowH),bxMid-bx0,rowH,'0.92 0.93 0.95');
-    doc.text(bx0+4,TY(rt+10.5),doc.fit(pr[0],bxMid-bx0-6,7.5),7.5,true);
-    doc.text(bxMid+5,TY(rt+10.5),doc.fit(String(pr[1]),bx1-bxMid-10,8),8);
+  const pgColW=W/3,pgRowH=17,pgTop=156,pgH=pgRowH*poGridRows.length;
+  doc.box(L,rty(pgTop,pgH),W,pgH);
+  for(let ci=1;ci<3;ci++)doc.rule(L+ci*pgColW,rty(pgTop,pgH),L+ci*pgColW,TY(pgTop),0.8);
+  poGridRows.forEach((row,ri)=>{
+    const rt=pgTop+ri*pgRowH;
+    if(ri>0)doc.rule(L,TY(rt),L+W,TY(rt),0.7);
+    row.forEach((pr,ci)=>{
+      const cx=L+ci*pgColW;
+      doc.text(cx+6,TY(rt+11.5),doc.fit(pr[0],58,7),7,true,'0.35 0.38 0.45');
+      doc.text(cx+68,TY(rt+11.5),doc.fit(String(pr[1]),pgColW-74,8.5),8.5);
+    });
   });
 
   /* ---------- Supplier / Ship To / Bill To ---------- */
-  let t=98+poRows.length*rowH; // below whichever of the letterhead/PO box runs longer, plus a gap — recomputed just below
-  t=Math.max(100,boxTop+boxH+14);
+  let t=pgTop+pgH+14;
   const c1=L,c2=L+230,c3=L+230+140,cEnd=R;
   const hdrH=16,bodyH=64,secH=hdrH+bodyH;
   doc.box(c1,rty(t,secH),cEnd-c1,secH);
@@ -6317,7 +6330,7 @@ function poPdf(id,mode){
     const rowH=15+(noteLines.length?noteLines.length*9+3:0);
     if(t+rowH>doc.h-doc.mB-60){
       doc.rule(tblX,TY(t),tblX+tblW,TY(t),0.9);
-      doc.newPage();t=doc.mT;drawHead();
+      doc.newPage();t=doc.mT;drawWatermark();drawHead();
     }
     const vals=[String(i+1),l.cat||'',l.item||'',l.uom||'',qty?fmt(qty):'',price?fmt(price):'',sub?fmt(sub):'',
       pct?pct+'%':'',tax?fmt(tax):'',tot?fmt(tot):''];
@@ -6337,7 +6350,7 @@ function poPdf(id,mode){
 
   /* ---------- totals box (right) + delivery notes (left) ---------- */
   const totW=160,totX=R-totW,totRowH=15,totH=totRowH*3;
-  if(t+Math.max(totH,40)>doc.h-doc.mB-130){doc.newPage();t=doc.mT;}
+  if(t+Math.max(totH,40)>doc.h-doc.mB-130){doc.newPage();t=doc.mT;drawWatermark();}
   doc.text(L,TY(t+11),'Required Delivery:',8,true);
   doc.text(L+90,TY(t+11),woDmy(r.deldate)||'—',8);
   doc.box(totX,rty(t,totH),totW,totH);
@@ -6351,7 +6364,7 @@ function poPdf(id,mode){
   /* ---------- other comments / special instructions ---------- */
   const cmt=doc.wrap(r.terms||'',W-14,8.5);
   const cmtH=Math.max(36,18+cmt.length*11);
-  if(t+cmtH>doc.h-doc.mB-170){doc.newPage();t=doc.mT;}
+  if(t+cmtH>doc.h-doc.mB-170){doc.newPage();t=doc.mT;drawWatermark();}
   doc.box(L,rty(t,cmtH),W,cmtH);
   doc.text(L+6,TY(t+13),'Other Comments or Special Instructions',8,true);
   let cy=t+28;cmt.forEach(ln=>{doc.text(L+6,TY(cy),ln,8.5);cy+=11;});
@@ -6366,17 +6379,17 @@ function poPdf(id,mode){
     'Please Note: Goods must be delivered between 09:00 A.M to 04:00 P.M.',
     "Invoices shall be passed and paid based on vendor's original invoice supported by evidencing award of Purchase/Work Order copy."
   ];
-  if(t+30>doc.h-doc.mB-110){doc.newPage();t=doc.mT;}
+  if(t+30>doc.h-doc.mB-110){doc.newPage();t=doc.mT;drawWatermark();}
   doc.text(L,TY(t+10),'Terms & Conditions:',8.5,true);t+=22;
   terms.forEach((tx,i)=>{
     const wrapped=doc.wrap((i+1)+'. '+tx,W-6,7.5);
-    if(t+wrapped.length*9.5>doc.h-doc.mB-90){doc.newPage();t=doc.mT;}
+    if(t+wrapped.length*9.5>doc.h-doc.mB-90){doc.newPage();t=doc.mT;drawWatermark();}
     wrapped.forEach(ln=>{doc.text(L,TY(t),ln,7.5);t+=9.5;});
   });
   t+=16;
 
   /* ---------- signature ---------- */
-  if(t+60>doc.h-doc.mB-30){doc.newPage();t=doc.mT;}
+  if(t+60>doc.h-doc.mB-30){doc.newPage();t=doc.mT;drawWatermark();}
   const sigX=R-200;
   doc.text(sigX,TY(t),'Approved by',9,true);doc.textR(R,TY(t),'Date            Signature',9,true);
   t+=28;
