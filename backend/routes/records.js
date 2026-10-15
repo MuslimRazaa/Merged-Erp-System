@@ -24,15 +24,15 @@ router.use(requireAuth);
 const MODULE_GROUP = {
   docs: 'Compliance', audits: 'Compliance', ncrs: 'Compliance', risks: 'Compliance', hse: 'Compliance',
   mgtreviews: 'Compliance', calibrations: 'Compliance', apiq2: 'Compliance',
-  invoices: 'Sales & AR', receipts: 'Sales & AR', salesorders: 'CRM',
+  invoices: 'Sales & AR', receipts: 'Sales & AR', salesorders: 'CRM', leads: 'CRM', activities: 'CRM',
   trainings: 'Human Resources',
   items: 'Inventory', stockmoves: 'Inventory',
   purchaseorders: 'Procurement', grns: 'Procurement', vendorbills: 'Procurement', payments: 'Procurement',
   assets: 'Fixed Assets', maintenance: 'Fixed Assets',
-  // Inspection: work orders and the saved inspection-report library. These
-  // used to live only in the browser that wrote them, so a report filed at
-  // one site was invisible to everyone else.
-  workorders: 'Inspection', ir_library: 'Inspection',
+  // Inspection: work orders, client contracts and the saved inspection-report
+  // library. These used to live only in the browser that wrote them, so a
+  // report (or contract, or lead) filed at one site was invisible elsewhere.
+  workorders: 'Inspection', contracts: 'Inspection', ir_library: 'Inspection',
 };
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
