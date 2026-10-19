@@ -23,7 +23,7 @@ router.use(requireAuth);
 
 const MODULE_GROUP = {
   docs: 'Compliance', audits: 'Compliance', ncrs: 'Compliance', risks: 'Compliance', hse: 'Compliance',
-  mgtreviews: 'Compliance', calibrations: 'Compliance', apiq2: 'Compliance',
+  mgtreviews: 'Compliance', calibrations: 'Compliance', apiq2: 'Compliance', dcr: 'Compliance',
   invoices: 'Sales & AR', receipts: 'Sales & AR', salesorders: 'CRM', leads: 'CRM', activities: 'CRM',
   trainings: 'Human Resources',
   items: 'Inventory', stockmoves: 'Inventory',

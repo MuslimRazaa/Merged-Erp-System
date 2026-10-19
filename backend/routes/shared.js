@@ -53,6 +53,17 @@ const PROFILE_COLUMNS = [
 // request-body camelCase -> DB snake_case, for the profile columns above.
 const PROFILE_FIELD_MAP = Object.fromEntries(PROFILE_COLUMNS.map((c) => [c.replace(/_([a-z])/g, (m, l) => l.toUpperCase()), c]));
 
+// Minimal employee directory — no salary/profile/PII, just enough to
+// populate a "pick a person" dropdown (NCR Owner, DCR Requested By, leave
+// requests, etc.) for every signed-in user, not just HR. GET /employees
+// below carries the full HR profile (salary, bank, NIC...) and stays
+// HR-gated; this is the subset that's safe for anyone with ERP access —
+// pullSharedMaster() falls back to this when the richer call 403s.
+router.get('/employees-directory', async (req, res) => {
+  const [rows] = await pool.query('SELECT id, employee_id, full_name, department, location, status FROM employees ORDER BY full_name ASC');
+  res.json(rows.map((r) => ({ id: r.id, employeeId: r.employee_id, name: r.full_name, department: r.department, location: r.location, status: r.status })));
+});
+
 /* ---------------- employees (Human Resources) ---------------- */
 router.get('/employees', requireGroup('Human Resources'), async (req, res) => {
   // LEFT JOINed so the HR form can show/edit each employee's ERP role,
