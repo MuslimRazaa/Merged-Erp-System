@@ -376,6 +376,12 @@ body.locked #app{display:none}
   <div class="lerr" id="recedit-err" style="display:none"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('recimodal')">Cancel</button><button class="btn" onclick="recEditSave()">Save</button></div>
 </div></div>
+<div class="modal" id="dcrmodal"><div class="box" style="max-width:980px;width:96vw;max-height:92vh">
+  <h3 id="dcrmodal-title" style="text-align:center">Document Change Request Form</h3>
+  <div id="dcrmodal-body"></div>
+  <div class="lerr" id="dcrmodal-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('dcrmodal')">Cancel</button><button class="btn" onclick="dcrSave()">Save</button></div>
+</div></div>
 
 <div class="modal" id="empimportmodal"><div class="box" style="max-width:640px">
   <h3>Import Employees from CSV</h3>
@@ -742,7 +748,11 @@ const EXTRA_NAV={
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
-  'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}]
+  'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
+  // Listed first so it sits right before Controlled Documents (a MODULES
+  // entry) — a group with no GROUP_NAV_ORDER override shows every EXTRA_NAV
+  // item before any MODULES item, in EXTRA_NAV's own order.
+  'Compliance':[{id:'dcr_list',ic:'🔁',name:'DCR'}]
 };
 let route=lsGet('ui_route','dashboard');
 // Explicit tab order for a group \u2014 a mix of EXTRA_NAV route ids (dedicated
@@ -905,7 +915,16 @@ function logout(){
 /* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
 async function pullSharedMaster(){
   try{
-    const [emps,deps,locs]=await Promise.all([api('/api/shared/employees'),api('/api/shared/departments'),api('/api/shared/locations')]);
+    // GET /employees carries the full HR profile (salary, bank, NIC…) and
+    // is HR-gated (403 for anyone else); fall back to the lightweight,
+    // non-gated directory (just id/name/department/location/status) so
+    // coll('employees') — which NCR's Owner picker, DCR's Requested By,
+    // and anything else that just needs "pick a person" reads from —
+    // isn't silently left empty for every non-HR user.
+    const [emps,deps,locs]=await Promise.all([
+      api('/api/shared/employees').catch(()=>api('/api/shared/employees-directory')),
+      api('/api/shared/departments'),api('/api/shared/locations')
+    ]);
     collSet('shared_departments',deps);
     collSet('shared_locations',locs);
     const local=coll('employees');
@@ -3926,6 +3945,212 @@ let CRM_CUST_SELECTED=new Set();
 // type-choice page and the form's own Type field never drift from each other.
 const CRM_CUST_TYPE_LABEL={Customer:'Customer',Vendor:'Vendor',Both:'Customer & Vendor'};
 const CRM_CUST_TYPE_PILL={Customer:'b',Vendor:'a',Both:'g'};
+/* ================================================================
+   DCR — Document Change Request (Compliance). A bespoke screen, not a
+   generic MODULES entry: the form has fixed, titled sections (two of
+   them — Change of Request and Instances of Change — with a conditional
+   "Other: ___" sub-field), three QHSE-only sections, and opens as a
+   near-fullscreen modal rather than the small generic edit modal. Saved
+   through the same generic erp_records table every Compliance screen
+   uses (server-backed — see MODULE_GROUP in records.js), called
+   directly here rather than through coll()/SERVER_MODS since this
+   screen owns its own fetch/save, the same way Leave Requests does.
+   ================================================================ */
+const DCR_CHANGE_TYPES=['Hardware','Software','Network','Application','H&S Protocols','Operational Procedure','Environment','Others'];
+const DCR_INSTANCES=['Scheduled','Unscheduled','Emergency','Other'];
+const DCR_PRIORITIES=['Urgent','Normal','Low'];
+const DCR_IMPACT_LEVELS=['Significant','Negligible','No Impact','NA'];
+const DCR_APPROVALS=['Approved','Rejected','Postponed'];
+const DCR_CLOSING_STATUSES=['Successfully Completed','CAR(s) Generated','Terminated','Postponed'];
+let DCR_LIST=[],DCR_EDIT=null,DCR_FILTER='';
+// Only QHSE & Quality department staff (or an Administrator/Sub Admin) may
+// fill the Impact Analysis / Approval / Closing sections — everyone else
+// files a plain change request. Front-end gate only, same granularity as
+// every other role check in this app's generic screens (the shared
+// erp_records save endpoint has no field-level permissions of its own) —
+// it hides the UI rather than cryptographically preventing a write.
+function dcrIsQhse(){
+  if(!SESSION)return false;
+  if(isAdmin()||SESSION.role==='Sub Admin')return true;
+  const me=coll('employees').find(e=>String(e.isoId)===String(SESSION.uid));
+  return !!(me&&me.dept==='QHSE & Quality');
+}
+function dcrBadge(r){return r.closingStatus||r.approval||'Open';}
+function dcrBadgeCls(s){
+  if(s==='Approved'||s==='Successfully Completed')return 'g';
+  if(s==='Rejected'||s==='Terminated')return 'r';
+  if(s==='Postponed')return 'v';
+  if(s==='CAR(s) Generated')return 'a';
+  return 'b';
+}
+async function renderDcrList(){
+  const c=document.getElementById('content');
+  c.innerHTML=
+   '<div class="card"><div class="card-h" style="justify-content:center;text-align:center;font-size:15px">Document Change Request Form</div>'+
+   '<div class="card-b">'+
+    '<div class="searchrow no-print" style="justify-content:space-between">'+
+     '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      '<input id="dcr-search" placeholder="Search Change Request #, Requested By…" value="'+esc(DCR_FILTER)+'" oninput="dcrFilter()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:260px">'+
+      '<select id="dcr-status" onchange="dcrFilter()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+       '<option value="">All statuses</option><option>Open</option>'+DCR_APPROVALS.map(s=>'<option>'+s+'</option>').join('')+DCR_CLOSING_STATUSES.map(s=>'<option>'+s+'</option>').join('')+
+      '</select>'+
+     '</div>'+
+     '<button class="btn" onclick="dcrOpenForm()">+ Add DCR</button>'+
+    '</div>'+
+    '<div id="dcr-list" class="tblwrap" style="margin-top:12px"><div class="empty">Loading…</div></div>'+
+   '</div></div>';
+  await dcrReload();
+}
+async function dcrReload(){
+  try{
+    DCR_LIST=await api('/api/records/dcr');
+    collSet('dcr',DCR_LIST); // so nextAutoCode('dcr',...) scans the real server list, not an empty local cache
+    dcrFilter();
+  }catch(e){const el=document.getElementById('dcr-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+function dcrFilter(){
+  const qEl=document.getElementById('dcr-search');const q=(qEl?qEl.value:DCR_FILTER).trim().toLowerCase();
+  const sEl=document.getElementById('dcr-status');const s=sEl?sEl.value:'';
+  DCR_FILTER=q;
+  const rows=DCR_LIST.filter(r=>(!q||(r.no||'').toLowerCase().includes(q)||(r.requestedByName||'').toLowerCase().includes(q))&&(!s||dcrBadge(r)===s))
+    .slice().sort((a,b)=>(b.no||'').localeCompare(a.no||''));
+  const admin=isAdmin()||(SESSION&&SESSION.role==='Sub Admin');
+  const body=rows.length
+   ?'<table><thead><tr><th>S.No</th><th>Change Request #</th><th>Created By</th><th>Change Against</th><th>Created Date</th><th>Status</th><th class="no-print">Actions</th></tr></thead><tbody>'+
+     rows.map((r,i)=>'<tr><td class="num">'+(i+1)+'</td><td><b>'+esc(r.no)+'</b></td><td>'+esc(r.createdByName||'')+'</td><td>'+esc(r.changeType==='Others'?(r.changeTypeOther||'Others'):(r.changeType||''))+'</td><td>'+esc(String(r.reqDate||'').slice(0,10))+'</td><td><span class="pill '+dcrBadgeCls(dcrBadge(r))+'">'+esc(dcrBadge(r))+'</span></td>'+
+      '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View / Edit" onclick="dcrOpenForm('+r.id+')">👁</button> '+(admin?'<button class="del" title="Delete" onclick="dcrDeleteRow('+r.id+')">🗑</button>':'')+'</td></tr>').join('')+
+    '</tbody></table>'
+   :'<div class="empty">No matching change requests.</div>';
+  const el=document.getElementById('dcr-list');if(el)el.innerHTML=body;
+}
+async function dcrDeleteRow(id){
+  if(!confirm('Delete this change request?'))return;
+  try{await api('/api/records/dcr/'+encodeURIComponent(id),{method:'DELETE'});toast('Deleted.','ok');await dcrReload();}
+  catch(e){toast('NOT deleted — '+e.message,'err');}
+}
+
+/* ---------------- Add / Edit modal (near-fullscreen) ---------------- */
+async function dcrOpenForm(id){
+  // EMP_LIST (full profiles, incl. designation) is HR-gated — for anyone
+  // else this just 403s and EMP_LIST stays empty, which is fine: the
+  // designation auto-fill below already no-ops when it can't find a
+  // profile, leaving the field for the user to type by hand, exactly as
+  // the form is meant to work for a non-HR requester.
+  if(!EMP_LIST||!EMP_LIST.length){try{EMP_LIST=await api('/api/shared/employees');}catch(e){EMP_LIST=EMP_LIST||[];}}
+  DCR_EDIT=id?DCR_LIST.find(r=>r.id===id):null;
+  const r=DCR_EDIT||{};
+  const qhse=dcrIsQhse();
+  document.getElementById('dcrmodal-title').textContent=DCR_EDIT?('Change Request — '+r.no):'New Document Change Request';
+  document.getElementById('dcrmodal-body').innerHTML=dcrFormHtml(r,qhse);
+  document.getElementById('dcrmodal-err').style.display='none';
+  dcrApplyConditional();
+  openModal('dcrmodal');
+}
+function dcrSectionHdr(t){return '<div style="background:#12203C;color:#fff;font-weight:700;text-align:center;padding:8px 10px;border-radius:6px;margin:18px 0 10px;font-size:12.5px;letter-spacing:.02em">'+esc(t)+'</div>';}
+function dcrFormHtml(r,qhse){
+  const emp=coll('employees').filter(e=>e.name).map(e=>({id:e.isoId,label:e.empno+' — '+e.name}));
+  const no=r.no||nextAutoCode('dcr','no','DCR');
+  let html='<div class="fgrid">'+
+    '<div class="field"><label>Change Request #</label><input id="dcr-no" value="'+esc(no)+'" disabled></div>'+
+    '<div class="field"><label>Requested By</label>'+selxId('dcr-reqby',r.requestedBy||'',emp,dcrOnRequestedByPick,'— choose —')+'</div>'+
+    '<div class="field"><label>Requested Designation</label><input id="dcr-reqdesig" value="'+esc(r.requestedDesig||'')+'" placeholder="Auto-fetched if available — type manually otherwise"></div>'+
+    '<div class="field"><label>Date of Request</label><input id="dcr-reqdate" type="date" value="'+esc(r.reqDate?String(r.reqDate).slice(0,10):today())+'"></div>'+
+    '<div class="field"><label>Change of Request</label>'+selx('dcr-changetype',r.changeType||'',DCR_CHANGE_TYPES,dcrApplyConditional,'— choose —')+'</div>'+
+    '<div class="field" id="fw-dcr-changetypeother" style="display:none"><label>Other — please specify</label><input id="dcr-changetypeother" value="'+esc(r.changeTypeOther||'')+'"></div>'+
+    '<div class="field"><label>Instances of Change</label>'+selx('dcr-instance',r.instance||'',DCR_INSTANCES,dcrApplyConditional,'— choose —')+'</div>'+
+    '<div class="field" id="fw-dcr-instanceother" style="display:none"><label>Other — please specify</label><input id="dcr-instanceother" value="'+esc(r.instanceOther||'')+'"></div>'+
+    '<div class="field"><label>Priority of Change Implementation</label>'+selx('dcr-priority',r.priority||'',DCR_PRIORITIES,null,'— choose —')+'</div>'+
+    '<div class="field"><label>Required Resources</label><input id="dcr-resources" value="'+esc(r.resources||'')+'"></div>'+
+   '</div>'+
+   '<div class="field full" style="margin-top:10px"><label>Description of Change</label><textarea id="dcr-desc" rows="3">'+esc(r.description||'')+'</textarea></div>';
+  if(qhse){
+    html+=dcrSectionHdr('IMPACT ANALYSIS (TO BE FILLED BY ISMR / CHANGE TEAM)')+
+     '<div class="fgrid">'+
+      '<div class="field"><label>Impact Level</label>'+selx('dcr-impact',r.impactLevel||'',DCR_IMPACT_LEVELS,null,'— choose —')+'</div>'+
+      '<div class="field"><label>Affected Area</label><input id="dcr-affected" value="'+esc(r.affectedArea||'')+'" placeholder="e.g. Whole Organization"></div>'+
+      '<div class="field full"><label>Other (Description)</label><input id="dcr-impactother" value="'+esc(r.impactOther||'')+'"></div>'+
+     '</div>'+
+     dcrSectionHdr('REQUEST APPROVAL DETAILS (TO BE FILLED BY ISMR / CHANGE TEAM)')+
+     '<div class="fgrid">'+
+      '<div class="field"><label>Change Request Approval</label>'+selx('dcr-approval',r.approval||'',DCR_APPROVALS,null,'— choose —')+'</div>'+
+      '<div class="field"><label>Date of Decision</label><input id="dcr-decisiondate" type="date" value="'+esc(r.decisionDate?String(r.decisionDate).slice(0,10):'')+'"></div>'+
+      '<div class="field full"><label>Reason for Decision</label><textarea id="dcr-reason" rows="2">'+esc(r.approvalReason||'')+'</textarea></div>'+
+     '</div>'+
+     dcrSectionHdr('CLOSING DETAILS (TO BE FILLED BY ISMR / CHANGE TEAM)')+
+     '<div class="fgrid">'+
+      '<div class="field"><label>Closed By</label>'+selxId('dcr-closedby',r.closedBy||'',emp,null,'— choose —')+'</div>'+
+      '<div class="field"><label>Date of Closing</label><input id="dcr-closingdate" type="date" value="'+esc(r.closingDate?String(r.closingDate).slice(0,10):'')+'"></div>'+
+      '<div class="field"><label>Status</label>'+selx('dcr-closingstatus',r.closingStatus||'',DCR_CLOSING_STATUSES,null,'— choose —')+'</div>'+
+     '</div>';
+  }
+  return html;
+}
+function dcrOnRequestedByPick(isoId){
+  const full=EMP_LIST.find(x=>String(x.id)===String(isoId));
+  const desigEl=document.getElementById('dcr-reqdesig');
+  // Auto-fill only — never clobber something the user already typed (e.g.
+  // the employee's designation isn't on file, so they typed it by hand).
+  const desig=full&&full.profile&&full.profile.designation;
+  if(desigEl&&!desigEl.value&&desig)desigEl.value=desig;
+}
+function dcrApplyConditional(){
+  const ct=(document.getElementById('dcr-changetype')||{}).value;
+  const inst=(document.getElementById('dcr-instance')||{}).value;
+  const ctWrap=document.getElementById('fw-dcr-changetypeother');
+  const instWrap=document.getElementById('fw-dcr-instanceother');
+  if(ctWrap)ctWrap.style.display=ct==='Others'?'':'none';
+  if(instWrap)instWrap.style.display=inst==='Other'?'':'none';
+}
+async function dcrSave(){
+  const err=document.getElementById('dcrmodal-err');err.style.display='none';
+  const reqBy=document.getElementById('dcr-reqby').value;
+  if(!reqBy){showErrEl(err,'Requested By is required.');return;}
+  const emp=coll('employees').find(e=>String(e.isoId)===String(reqBy));
+  const closedByEl=document.getElementById('dcr-closedby');
+  const closedByVal=closedByEl?closedByEl.value:(DCR_EDIT?DCR_EDIT.closedBy:'');
+  const closedByEmp=coll('employees').find(e=>String(e.isoId)===String(closedByVal));
+  const rec={
+    id:DCR_EDIT?DCR_EDIT.id:uid(),
+    no:document.getElementById('dcr-no').value,
+    requestedBy:reqBy,
+    requestedByName:emp?emp.empno+' — '+emp.name:(DCR_EDIT?DCR_EDIT.requestedByName:''),
+    requestedDesig:document.getElementById('dcr-reqdesig').value,
+    reqDate:document.getElementById('dcr-reqdate').value,
+    changeType:document.getElementById('dcr-changetype').value,
+    changeTypeOther:(document.getElementById('dcr-changetypeother')||{}).value||'',
+    instance:document.getElementById('dcr-instance').value,
+    instanceOther:(document.getElementById('dcr-instanceother')||{}).value||'',
+    priority:document.getElementById('dcr-priority').value,
+    resources:document.getElementById('dcr-resources').value,
+    description:document.getElementById('dcr-desc').value,
+    createdByName:DCR_EDIT?DCR_EDIT.createdByName:(SESSION?SESSION.name:'')
+  };
+  if(dcrIsQhse()){
+    Object.assign(rec,{
+      impactLevel:(document.getElementById('dcr-impact')||{}).value||'',
+      affectedArea:(document.getElementById('dcr-affected')||{}).value||'',
+      impactOther:(document.getElementById('dcr-impactother')||{}).value||'',
+      approval:(document.getElementById('dcr-approval')||{}).value||'',
+      decisionDate:(document.getElementById('dcr-decisiondate')||{}).value||'',
+      approvalReason:(document.getElementById('dcr-reason')||{}).value||'',
+      closedBy:closedByVal||'',
+      closedByName:closedByEmp?closedByEmp.empno+' — '+closedByEmp.name:(DCR_EDIT?DCR_EDIT.closedByName:''),
+      closingDate:(document.getElementById('dcr-closingdate')||{}).value||'',
+      closingStatus:(document.getElementById('dcr-closingstatus')||{}).value||''
+    });
+  }else if(DCR_EDIT){
+    // Non-QHSE user editing an already-QHSE-filled request — those fields
+    // aren't in the DOM at all right now, so carry the existing values
+    // through untouched rather than silently wiping them on save.
+    ['impactLevel','affectedArea','impactOther','approval','decisionDate','approvalReason','closedBy','closedByName','closingDate','closingStatus'].forEach(k=>{if(DCR_EDIT[k]!=null)rec[k]=DCR_EDIT[k];});
+  }
+  try{
+    await api('/api/records/dcr'+(DCR_EDIT?'/'+encodeURIComponent(DCR_EDIT.id):''),{method:DCR_EDIT?'PUT':'POST',body:JSON.stringify(rec)});
+    closeModal('dcrmodal');
+    toast('Saved.','ok');
+    await dcrReload();
+  }catch(e){showErrEl(err,e.message);}
+}
 async function renderCrmCustomers(){
   CRM_CUST_SELECTED=new Set();
   const c=document.getElementById('content');
@@ -10068,7 +10293,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -10077,7 +10302,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
