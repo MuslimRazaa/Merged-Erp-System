@@ -655,6 +655,12 @@ function nextAutoCode(mk,field,prefix){
 }
 const AUTOCODE=(k,l,mk,prefix)=>({k,l,t:'computed',auto:1,fn:r=>r[k]||nextAutoCode(mk,k,prefix)});
 const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
+// Multi-select version of REF — e.g. NCR/CAPA's Owner, which can name more
+// than one person. Stored as one comma-joined string on the record (same
+// scalar shape every other field uses), so list columns, search and print
+// need no special-casing; only the input widget itself differs (checkboxes
+// that stay open while you tick several, instead of pick-one-and-close).
+const REFM=(k,l,coll,dk)=>({k,l,t:'refm',coll,dk});
 function C(k,l,fn){return {k,l,t:'computed',fn};}
 function trainingStatus(r){
   if(!r.date)return 'Planned'; // not completed yet
@@ -709,7 +715,7 @@ trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',cols:2,att:
 /* ---------------- COMPLIANCE ---------------- */
 docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),S('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
 audits:{g:'Compliance',ic:'☑',name:'Audits',fields:[T('no','Audit no.','AUD-2026-01'),S('atype','Type',['Internal','External / CB','Client','Supplier']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Integrated']),D('date','Date'),T('auditor','Auditor(s)'),T('scope','Scope / area'),N('findings','Findings count'),S('status','Status',['Planned','In progress','Report issued','Closed']),A('summary','Summary')],list:['no','atype','std','date','auditor','findings','status'],badge:r=>r.status},
-ncrs:{g:'Compliance',ic:'⚠',name:'NCR / CAPA',fields:[T('no','NCR no.','NCR-2026-01'),D('date','Raised'),S('source','Source',['Internal audit','External audit','Customer complaint','Inspection','Process','Supplier','HSE incident']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','N/A']),A('desc','Nonconformity description'),A('rootcause','Root cause'),A('correction','Correction'),A('ca','Corrective action'),REF('owner','Owner','employees','name'),D('due','CA due date'),S('status','Status',['Open','CA in progress','Verification','Closed']),D('closed','Closed date')],list:['no','date','source','std','owner','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status!=='Closed').length,l:'Open NCRs',warn:1}]},
+ncrs:{g:'Compliance',ic:'⚠',name:'NCR / CAPA',fields:[T('no','NCR no.','NCR-2026-01'),D('date','Raised'),S('source','Source',['Internal audit','External audit','Customer complaint','Inspection','Process','Supplier','HSE incident']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','N/A']),A('desc','Nonconformity description'),A('rootcause','Root cause'),A('correction','Correction'),A('ca','Corrective action'),REFM('owner','Owner','employees','name'),D('due','CA due date'),S('status','Status',['Open','CA in progress','Verification','Closed']),D('closed','Closed date')],list:['no','date','source','std','owner','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status!=='Closed').length,l:'Open NCRs',warn:1}]},
 risks:{g:'Compliance',ic:'◮',name:'Risk & Opportunity',fields:[T('no','Risk no.','RSK-01'),S('cat','Category',['Quality','Environment','OH&S','Business','Impartiality (17020/17025)','Legal']),A('desc','Risk / opportunity description'),S('like','Likelihood',['1 - Rare','2 - Unlikely','3 - Possible','4 - Likely','5 - Almost certain']),S('sev','Severity',['1 - Negligible','2 - Minor','3 - Moderate','4 - Major','5 - Severe']),A('controls','Existing controls'),A('actions','Planned actions'),T('owner','Owner'),D('review','Review date'),S('status','Status',['Open','Mitigating','Accepted','Closed'])],list:['no','cat','like','sev','owner','review','status'],badge:r=>r.status},
 hse:{g:'Compliance',ic:'✚',name:'HSE Incidents',fields:[T('no','Incident no.','HSE-2026-01'),D('date','Date'),S('itype','Type',['Near miss','First aid','Medical treatment','LTI','Property damage','Environmental','Observation']),T('loc','Location'),A('desc','Description'),A('cause','Immediate cause'),A('action','Action taken'),S('status','Status',['Reported','Under investigation','Closed'])],list:['no','date','itype','loc','status'],badge:r=>r.itype,kpi:d=>[{n:d.filter(r=>r.itype==='LTI').length,l:'LTIs',warn:1}]},
 mgtreviews:{g:'Compliance',ic:'◫',name:'Management Reviews',fields:[D('date','Date'),T('ref','Reference','MR-2026-01'),S('std','Scope',['Integrated IMS','ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025']),T('chair','Chaired by'),A('inputs','Key inputs discussed'),A('outputs','Decisions / actions'),D('next','Next review')],list:['date','ref','std','chair','next'],badge:r=>r.std},
@@ -2012,7 +2018,7 @@ async function renderLeaveRequests(){
    '<div class="card"><div class="card-h" id="lv-form-title">New Leave Request<span class="sp"></span><button class="btn ghost small" onclick="lvNewForm()">+ New</button></div><div class="card-b">'+
     '<div class="fgrid">'+
      '<div class="field"><label>Document Type</label><input id="lv-doctype" value="Leave Request Form - Default" disabled></div>'+
-     (hasHr?'<div class="field"><label>Employee</label><select id="lv-emp" onchange="lvFbHint()">'+coll('employees').map(e=>'<option value="'+esc(e.isoId)+'">'+esc(e.empno)+' — '+esc(e.name)+'</option>').join('')+'</select></div>'
+     (hasHr?'<div class="field"><label>Employee</label>'+selxId('lv-emp',SESSION?SESSION.uid:'',coll('employees').filter(e=>e.name).map(e=>({id:e.isoId,label:e.empno+' — '+e.name})),lvFbHint,'— choose —')+'</div>'
       :'<div class="field"><label>Employee</label><input value="'+esc(SESSION?SESSION.name:'')+'" disabled></div>')+
      '<div class="field"><label>Leave Request Type</label><select id="lv-reqtype">'+LV_REQUEST_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
      '<div class="field"><label>Current Status</label><input id="lv-status" value="InProcess" disabled></div>'+
@@ -2139,10 +2145,18 @@ function lvFillForm(row){
   set('lv-reqdate',row?String(row.requestDate).slice(0,10):today());
   set('lv-purpose',row?row.purpose:'');
   set('lv-remarks',row?row.remarks:'');
-  const empEl=document.getElementById('lv-emp');if(empEl)empEl.value=row?row.employeeId:(SESSION?SESSION.uid:'');
+  if(document.getElementById('lv-emp')){
+    const newEmpId=row?row.employeeId:(SESSION?SESSION.uid:'');
+    const emp=coll('employees').find(e=>String(e.isoId)===String(newEmpId));
+    selxIdPick('lv-emp',newEmpId,emp?emp.empno+' — '+emp.name:'');
+  }
   lvFbHint();
   const locked=row&&row.status!=='InProcess';
   ['lv-reqtype','lv-type','lv-from','lv-to','lv-reqdate','lv-purpose','lv-remarks','lv-emp'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=locked;});
+  // lv-emp's real control is the selx widget's button, not the hidden input
+  // above (which .disabled alone does nothing to) — lock that too.
+  const empBtn=document.querySelector('#selx-lv-emp .selx-btn');
+  if(empBtn){empBtn.style.pointerEvents=locked?'none':'';empBtn.style.opacity=locked?'0.6':'';}
   const releaseBtn=document.getElementById('lv-release-btn');if(releaseBtn)releaseBtn.disabled=!(row&&row.status==='InProcess');
   const cancelBtn=document.getElementById('lv-cancel-btn');if(cancelBtn)cancelBtn.disabled=!(row&&(row.status==='InProcess'||row.status==='ReleasedForApproval'||row.status==='PendingHRApproval'));
   const infoEl=document.getElementById('lv-decision-info');
@@ -5234,6 +5248,54 @@ function selxOptsHtml(id,opts,cur){
   return '<div class="selx-opt'+(cur===''?' on':'')+'" data-v="" onclick="selxPick(\''+id+'\',\'\')"><span style="opacity:.5">\u2014 none \u2014</span></div>'+
     opts.map(o=>'<div class="selx-opt'+(o===cur?' on':'')+'" data-v="'+esc(o)+'" onclick="selxPick(\''+id+'\',this.dataset.v)">'+esc(o)+'</div>').join('');
 }
+/* Multi-select variant of selx() \u2014 e.g. NCR/CAPA's Owner, which can name
+   more than one person. Same widget shell (search box, panel positioning \u2014
+   including the fixed-position/flip-up logic in selxOpen, reused as-is)
+   but options are checkboxes that stay checked/unchecked without closing
+   the panel, so several can be ticked in one go. Value is a comma-joined
+   string in the same hidden <input id> every other field reads/writes by,
+   so saveRec()/recEditSave() need no changes at all to pick it up. */
+function selxMulti(id,value,options,onpick,placeholder){
+  if(onpick)SELX_CB[id]=onpick;
+  const cur=value==null?'':String(value);
+  const sel=new Set(cur.split(',').map(s=>s.trim()).filter(Boolean));
+  const opts=(options||[]).map(o=>String(o==null?'':o));
+  sel.forEach(s=>{if(opts.indexOf(s)<0)opts.unshift(s);}); // keep a value that has left the list
+  const label=[...sel].join(', ');
+  return '<div class="selx" id="selx-'+id+'">'+
+    '<input type="hidden" id="'+id+'" value="'+esc(cur)+'">'+
+    '<div class="selx-btn" onclick="selxOpen(\''+id+'\',event)"><span>'+
+      (label?esc(label):'<span style="opacity:.45">'+esc(placeholder||'')+'</span>')+'</span><span class="cv">\u25be</span></div>'+
+    '<div class="selx-pan">'+
+      '<input class="selx-q" placeholder="Search\u2026" oninput="selxFilter(\''+id+'\')">'+
+      '<div class="selx-opt" style="color:var(--brand)" onclick="event.stopPropagation();selxMultiClear(\''+id+'\')">Clear selection</div>'+
+      '<div class="selx-list">'+selxMultiOptsHtml(id,opts,sel)+'</div>'+
+    '</div></div>';
+}
+function selxMultiOptsHtml(id,opts,sel){
+  return opts.map(o=>'<label class="selx-opt'+(sel.has(o)?' on':'')+'" data-v="'+esc(o)+'" style="display:flex;align-items:center;gap:8px" onclick="event.stopPropagation()">'+
+    '<input type="checkbox"'+(sel.has(o)?' checked':'')+' onchange="selxMultiToggle(\''+id+'\',this.closest(\'.selx-opt\').dataset.v,this.checked)">'+
+    '<span>'+esc(o)+'</span></label>').join('');
+}
+function selxMultiToggle(id,v,checked){
+  const h=document.getElementById(id);if(!h)return;
+  const sel=new Set((h.value||'').split(',').map(s=>s.trim()).filter(Boolean));
+  if(checked)sel.add(v);else sel.delete(v);
+  selxMultiApply(id,sel);
+}
+function selxMultiClear(id){selxMultiApply(id,new Set());}
+function selxMultiApply(id,sel){
+  const h=document.getElementById(id);if(!h)return;
+  h.value=[...sel].join(', ');
+  const w=document.getElementById('selx-'+id);
+  const btnSpan=w&&w.querySelector('.selx-btn span');
+  if(btnSpan)btnSpan.innerHTML=sel.size?esc([...sel].join(', ')):'<span style="opacity:.45"></span>';
+  if(w)w.querySelectorAll('.selx-opt[data-v]').forEach(o=>{
+    o.classList.toggle('on',sel.has(o.dataset.v));
+    const cb=o.querySelector('input[type=checkbox]');if(cb)cb.checked=sel.has(o.dataset.v);
+  });
+  if(SELX_CB[id])SELX_CB[id](h.value);
+}
 function selxOpen(id,ev){
   if(ev)ev.stopPropagation();
   const w=document.getElementById('selx-'+id);
@@ -5321,12 +5383,52 @@ function selxPick(id,v){
   w.classList.remove('open');
   if(SELX_CB[id])SELX_CB[id](v);
 }
+/* Same searchable-dropdown widget, but for the rare case where the stored
+   VALUE (an id) has to differ from what's searched/shown (a label) — e.g.
+   the Leave Request form's Employee picker, which stores the ISO employee
+   id but searches/displays "empno — name". Plain selx()/REF() always store
+   exactly what's displayed, which is simpler and covers nearly everything
+   else; reach for this only when id != label. */
+function selxId(id,value,items,onpick,placeholder){
+  if(onpick)SELX_CB[id]=onpick;
+  const cur=value==null?'':String(value);
+  const found=(items||[]).find(it=>String(it.id)===cur);
+  return '<div class="selx" id="selx-'+id+'">'+
+    '<input type="hidden" id="'+id+'" value="'+esc(cur)+'">'+
+    '<div class="selx-btn" onclick="selxOpen(\''+id+'\',event)"><span>'+
+      (found?esc(found.label):'<span style="opacity:.45">'+esc(placeholder||'')+'</span>')+'</span><span class="cv">▾</span></div>'+
+    '<div class="selx-pan">'+
+      '<input class="selx-q" placeholder="Search…" oninput="selxFilter(\''+id+'\')" onkeydown="selxIdKey(\''+id+'\',event)">'+
+      '<div class="selx-list">'+selxIdOptsHtml(id,items||[],cur)+'</div>'+
+    '</div></div>';
+}
+function selxIdOptsHtml(id,items,cur){
+  return '<div class="selx-opt'+(cur===''?' on':'')+'" data-v="" onclick="selxIdPick(\''+id+'\',\'\',\'\')"><span style="opacity:.5">— none —</span></div>'+
+    items.map(it=>'<div class="selx-opt'+(String(it.id)===cur?' on':'')+'" data-v="'+esc(it.label)+'" onclick="selxIdPick(\''+id+'\',\''+esc(String(it.id))+'\',this.dataset.v)">'+esc(it.label)+'</div>').join('');
+}
+function selxIdKey(id,ev){
+  if(ev.key==='Escape'){document.getElementById('selx-'+id).classList.remove('open');return;}
+  if(ev.key!=='Enter')return;
+  ev.preventDefault();
+  const first=[...document.getElementById('selx-'+id).querySelectorAll('.selx-opt')].find(o=>!o.hidden&&o.dataset.v);
+  if(first)first.click(); // triggers that option's own baked-in selxIdPick(id,itemId,label) call
+}
+function selxIdPick(id,v,label){
+  const w=document.getElementById('selx-'+id),h=document.getElementById(id);
+  if(!w||!h)return;
+  h.value=v;
+  w.querySelector('.selx-btn span').innerHTML=v?esc(label):'<span style="opacity:.45"></span>';
+  w.querySelectorAll('.selx-opt').forEach(o=>{o.classList.toggle('on',o.dataset.v===''?!v:!!v&&o.dataset.v===label);});
+  w.classList.remove('open');
+  if(SELX_CB[id])SELX_CB[id](v);
+}
 document.addEventListener('click',()=>document.querySelectorAll('.selx.open').forEach(e=>{e.classList.remove('open');const p=e.querySelector('.selx-pan');if(p)p.style.cssText='';}));
 function fieldInput(f,v,idPrefix,onSelectChange){
   idPrefix=idPrefix||'f-';
   v=v==null?'':v;
   if(f.t==='select')return selx(idPrefix+f.k,v,f.o.filter(o=>o!==''),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
+  if(f.t==='refm')return selxMulti(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
   if(f.t==='file'){
