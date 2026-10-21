@@ -1828,12 +1828,15 @@ function prRenderReport(){
 // reuses this on a SAVED run's stored snapshot (report.rows), so a saved
 // month's full employee-by-employee breakdown always looks identical to
 // what was actually generated and saved, not a re-derived summary.
-function prBuildRowsTableHtml(rows){
+// runId is optional — only a SAVED run can generate a payslip (the live
+// Generate Payroll preview has no run id yet, so that caller just omits it
+// and gets the table with no Payslip column, same as before).
+function prBuildRowsTableHtml(rows,runId){
   if(!rows.length)return '<div class="empty">No employees matched this selection.</div>';
   return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
-     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th></tr></thead><tbody>'+
+     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
     rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags&&r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
      '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':fmt(r.grossSalary))+'</td>'+
@@ -1846,11 +1849,27 @@ function prBuildRowsTableHtml(rows){
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.incomeTax!=null?fmt(r.incomeTax):'—')+'</td>'+
+     '<td class="num">'+(r.loanDeduction?fmt(r.loanDeduction):'—')+'</td>'+
      '<td class="num">'+(r.netSalary!=null?fmt(r.netSalary):'—')+'</td>'+
      '<td class="num">'+fmt(r.fieldAllowanceTotal)+'</td>'+
      '<td class="num"><b>'+(r.grossPayable!=null?fmt(r.grossPayable):'—')+'</b></td>'+
+     (runId?'<td class="no-print"><button class="btn ghost small" title="Download this employee\'s payslip" onclick="prsDownloadPayslip('+runId+','+r.employeeId+',\''+esc(r.employeeName).replace(/'/g,"\\'")+'\')">📄</button></td>':'')+
      '</tr>').join('')+
     '</tbody></table>';
+}
+// Authenticated binary download — the payslip endpoint needs the JWT
+// header, so a plain <a href> / window.open() (no way to attach a header)
+// won't work; fetch the bytes and hand the browser a blob instead, same
+// pattern attDlSrv() already uses for attached documents.
+async function prsDownloadPayslip(runId,employeeId,employeeName){
+  try{
+    const res=await fetch('/api/payroll/saved/'+runId+'/payslip/'+employeeId,{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+    if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+    const blob=await res.blob();
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Payslip-'+employeeName+'.pdf';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+    toast('Downloaded — password-protected with the employee\u2019s Employee Code.','ok');
+  }catch(e){toast('Could not download — '+e.message,'err');}
 }
 // Keeps a .sticky-thead table's header visually pinned to the top of its
 // own scrollable box while scrolling — via JS, not CSS position:sticky
@@ -1872,8 +1891,8 @@ function pinTableHead(el){
   handler();
 }
 function prReportGrid(){
-  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Net Salary','Field Allowance','Gross Payable'];
-  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Net Salary','Field Allowance','Gross Payable'];
+  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
@@ -1962,7 +1981,9 @@ function prsRenderPayrollsList(){
     ?'<div class="tblwrap"><table><thead><tr><th>Month</th><th>From</th><th>To</th><th>Mode</th><th class="num">Employees</th><th class="num">Total Gross Payable</th><th>Saved By</th><th>Saved At</th><th class="no-print"></th></tr></thead><tbody>'+
       PRS_RUNS.map(r=>'<tr><td><b>'+esc(r.month_label)+'</b></td><td>'+rptFmtDate(r.from_date)+'</td><td>'+rptFmtDate(r.to_date)+'</td><td>'+esc(r.mode?(r.mode==='department'?'Department-wise':'Employee-wise'):'—')+'</td>'+
        '<td class="num">'+r.employee_count+'</td><td class="num">'+fmt(r.total_gross_payable)+'</td><td>'+esc(r.saved_by_name||'')+'</td><td>'+esc(String(r.saved_at||'').slice(0,16).replace('T',' '))+'</td>'+
-       '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View every employee\'s full payroll for this month" onclick="prsViewPayroll('+r.id+')">👁 View</button> '+(canDelete?'<button class="del" title="Delete (unlocks this month)" onclick="prsOpenDelete('+r.id+')">🗑</button>':'')+'</td></tr>').join('')+
+       '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View every employee\'s full payroll for this month" onclick="prsViewPayroll('+r.id+')">👁 View</button> '+
+       '<button class="btn ghost small" title="Email every employee their payslip for this month" onclick="prsSendPayslips('+r.id+',\''+esc(r.month_label).replace(/'/g,"\\'")+'\','+r.employee_count+')">✉ Send Payslips</button> '+
+       (canDelete?'<button class="del" title="Delete (unlocks this month)" onclick="prsOpenDelete('+r.id+')">🗑</button>':'')+'</td></tr>').join('')+
       '</tbody></table></div>'
     :'<div class="empty">No payroll saved yet. Generate one on the Payroll page, then click "💾 Save Payroll" to lock it in here.</div>')+
    '<div id="prs-detail" style="margin-top:16px"></div>';
@@ -1987,10 +2008,49 @@ async function prsViewPayroll(id){
       '<span class="sp"></span><button class="btn ghost small" onclick="document.getElementById(\'prs-detail\').innerHTML=\'\'">✕ Close</button>'+
      '</div><div class="card-b">'+
       '<div class="kpis"><div class="kpi"><span>Employees</span><b>'+rep.rows.length+'</b></div><div class="kpi"><span>Total Payable</span><b>'+fmt(rep.rows.reduce((s,r)=>s+(r.grossPayable||0),0))+'</b></div><div class="kpi"><span>Missing Salary</span><b'+(missing?' class="warn"':'')+'>'+missing+'</b></div></div>'+
-      '<div class="tblwrap sticky-thead" id="prs-detail-table" style="margin-top:10px">'+prBuildRowsTableHtml(rep.rows)+'</div>'+
+      '<div class="tblwrap sticky-thead" id="prs-detail-table" style="margin-top:10px">'+prBuildRowsTableHtml(rep.rows,id)+'</div>'+
      '</div></div>';
     pinTableHead(document.getElementById('prs-detail-table'));
   }catch(e){detail.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(e.message)+'</div></div></div>';}
+}
+
+/* ---- Bulk "Send Payslips" — generates + emails every employee in this
+   saved month's payslip. The server never stores the PDFs (built fresh
+   per employee, in-memory, right before it's attached to that employee's
+   email) and runs the actual sending in the background with a pause
+   between each one (SMTP rate limits), so this can take a few minutes for
+   a full roster — the UI polls for progress rather than blocking on one
+   long request. ---- */
+async function prsSendPayslips(id,monthLabel,employeeCount){
+  if(!confirm('Email payslips to all '+employeeCount+' employee(s) in '+monthLabel+'?\n\nEach PDF is password-protected with that employee\'s own Employee Code. This cannot be undone once sending starts.'))return;
+  const detail=document.getElementById('prs-detail');if(!detail)return;
+  detail.innerHTML='<div class="card"><div class="card-h">Sending Payslips — '+esc(monthLabel)+'</div><div class="card-b"><div id="prs-send-progress">Starting…</div></div></div>';
+  detail.scrollIntoView({behavior:'smooth',block:'nearest'});
+  try{
+    const {jobId,total}=await api('/api/payroll/saved/'+id+'/payslips/send',{method:'POST'});
+    prsPollPayslipJob(jobId,total);
+  }catch(e){
+    const el=document.getElementById('prs-send-progress');
+    if(el)el.innerHTML='<div class="empty">Could not start — '+esc(e.message)+'</div>';
+  }
+}
+async function prsPollPayslipJob(jobId,total){
+  const el=document.getElementById('prs-send-progress');if(!el)return;
+  let job;
+  try{job=await api('/api/payroll/saved/payslips/status/'+jobId);}
+  catch(e){el.innerHTML='<div class="empty">Lost track of this job — '+esc(e.message)+'</div>';return;}
+  const done=job.sent+job.failed+job.skipped;
+  el.innerHTML=
+   '<div class="kpis"><div class="kpi"><span>Progress</span><b>'+done+' / '+job.total+'</b></div>'+
+    '<div class="kpi"><span>Sent</span><b>'+job.sent+'</b></div>'+
+    '<div class="kpi"><span>Failed</span><b'+(job.failed?' class="warn"':'')+'>'+job.failed+'</b></div>'+
+    '<div class="kpi"><span>Skipped (no email)</span><b'+(job.skipped?' class="warn"':'')+'>'+job.skipped+'</b></div></div>'+
+   (job.done?'':'<div class="hint" style="margin-top:8px">Sending continues even if you leave this page — check back here, or the Audit Log, for the final result.</div>')+
+   (job.results&&job.results.length?'<div class="tblwrap" style="margin-top:10px"><table><thead><tr><th>Employee</th><th>Result</th></tr></thead><tbody>'+
+     job.results.map(r=>'<tr><td>'+esc(r.employeeName)+'</td><td>'+(r.ok?'<span class="pill g">Sent</span>':'<span class="pill r">'+esc(r.reason||'Failed')+'</span>')+'</td></tr>').join('')+
+     '</tbody></table></div>':'');
+  if(!job.done)setTimeout(()=>prsPollPayslipJob(jobId,total),2000);
+  else toast('Payslips done — '+job.sent+' sent, '+job.failed+' failed, '+job.skipped+' skipped.',job.failed?'err':'ok');
 }
 
 /* ---- Delete a saved payroll — 2-step confirmed (Administrator/Sub Admin

@@ -42,14 +42,19 @@
    month, NOT by how many days happen to be in the selected date range — a
    1-day range and a 20-day range in the same September both divide by 30.
    Payslip breakdown (each its own column):
-     Net Salary = Gross Salary − Other Deductions − Late Deduction − Income Tax
+     Net Salary = Gross Salary − Other Deductions − Late Deduction − Income Tax − Loan Deduction
      Other Deductions = Per-Day Rate × (Absent Days + Unpaid Leave Days)
      Late Deduction    = Per-Day Rate × Late Penalty Days
      Income Tax        = FBR salaried-individual slab tax for the payroll's tax year (see
                           FBR_SLABS_BY_TAX_YEAR / computeMonthlyIncomeTax) — add a new entry
                           there when a Finance Act changes the rates.
-   The columns always add up: Net = Per-Day Rate × Payable Days − Income Tax, where
-   Payable Days = the payroll month's days (or fewer, for a shorter range) minus Absent,
+     Loan Deduction    = the employee's active loan's monthly instalment (erp_employee_loans),
+                          capped at whatever balance is still remaining so the last instalment
+                          never over-deducts. POST /save is the only place this is actually
+                          posted to erp_loan_payments (once per employee per locked month) —
+                          /generate only previews the number.
+   The columns always add up: Net = Per-Day Rate × Payable Days − Income Tax − Loan Deduction,
+   where Payable Days = the payroll month's days (or fewer, for a shorter range) minus Absent,
    Unpaid Leave and Late Penalty days. A 25th-to-25th cycle is 31–32 calendar days but
    a month is 28–31 pay days: the extra calendar days are NOT paid on top, they only
    make absences count — earlier every extra day was paid as if it were a normal day.
@@ -229,6 +234,32 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
 
   const tax = taxTableFor(to);
 
+  // Active loan (if any) + remaining balance, per employee — folded into
+  // Net Salary below exactly like an Absence or Late deduction. Capped at
+  // the remaining balance so a loan's last instalment never deducts more
+  // than what's actually still owed. This is a read-only preview number
+  // here (safe to call from /generate too); POST /save is the only place
+  // that actually posts it as a real erp_loan_payments row.
+  const loanByEmployee = new Map();
+  if (empIds.length) {
+    const [loans] = await pool.query(
+      `SELECT id, employee_id, principal_amount, monthly_deduction FROM erp_employee_loans WHERE employee_id IN (${empIds.map(() => '?').join(',')}) AND status = 'Active'`,
+      empIds
+    );
+    if (loans.length) {
+      const loanIds = loans.map((l) => l.id);
+      const [paidRows] = await pool.query(
+        `SELECT loan_id, COALESCE(SUM(amount),0) paid FROM erp_loan_payments WHERE loan_id IN (${loanIds.map(() => '?').join(',')}) GROUP BY loan_id`,
+        loanIds
+      );
+      const paidByLoan = new Map(paidRows.map((p) => [p.loan_id, Number(p.paid)]));
+      for (const l of loans) {
+        const remaining = Math.max(0, Number(l.principal_amount) - (paidByLoan.get(l.id) || 0));
+        loanByEmployee.set(l.employee_id, { loanId: l.id, deduction: Math.min(Number(l.monthly_deduction), remaining) });
+      }
+    }
+  }
+
   // Group the day-by-day rows per employee.
   const byEmployee = new Map();
   for (const r of scoped) {
@@ -297,6 +328,10 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
     const salaryMissing = grossSalary == null;
     const perDayRate = grossSalary != null ? grossSalary / daysInMonth : null;
 
+    const loanInfo = loanByEmployee.get(meta.employeeId) || null;
+    const loanId = loanInfo ? loanInfo.loanId : null;
+    const loanDeduction = loanInfo ? loanInfo.deduction : 0;
+
     // Payslip-style breakdown — each a column of its own, per the deduction
     // rules in the header comment above.
     const otherDeductionAmount = perDayRate != null ? perDayRate * (absentDays + unpaidLeaveDays) : null;
@@ -306,8 +341,9 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
     // never counted them) and the late penalty (netPaidDays already
     // subtracts latePenaltyDays) — otherDeductionAmount/lateDeductionAmount
     // above are the same amounts shown as their own columns for a payslip
-    // breakdown, not a second subtraction on top of this.
-    const netSalary = perDayRate != null ? perDayRate * netPaidDays - (incomeTax || 0) : null;
+    // breakdown, not a second subtraction on top of this. loanDeduction IS
+    // a real subtraction on top (an active loan's monthly instalment).
+    const netSalary = perDayRate != null ? perDayRate * netPaidDays - (incomeTax || 0) - loanDeduction : null;
 
     // Field Allowance = this employee's per-day rate × however many days in
     // THIS payroll range JLR actually had them out on a field job
@@ -327,7 +363,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
       presentDays, fieldDays, officeDays: presentDays - fieldDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
       lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal,
       paidDays, netPaidDays, baseDays,
-      otherDeductionAmount, lateDeductionAmount, incomeTax, netSalary,
+      otherDeductionAmount, lateDeductionAmount, incomeTax, loanId, loanDeduction, netSalary,
       fieldAllowancePerDay, fieldAllowanceTotal,
       grossPayable: netSalary != null ? netSalary + fieldAllowanceTotal : null,
       reviewFlags,
@@ -372,18 +408,59 @@ router.post('/save', requireHr, async (req, res) => {
 
   const monthLabel = monthLabelOf(to);
   const totalGrossPayable = result.rows.reduce((s, r) => s + (r.grossPayable || 0), 0);
+
+  // The run itself + every active loan's instalment it triggers are one
+  // atomic unit: a save that half-applied (run locked but a loan payment
+  // missing, or vice versa) would leave no safe way to retry, since the
+  // month is already locked the moment the run row exists.
+  const conn = await pool.getConnection();
+  let insertId;
   try {
-    const [ins] = await pool.query(
-      `INSERT INTO erp_payroll_runs (month_key, month_label, from_date, to_date, mode, departments, employee_ids, employee_count, total_gross_payable, data, saved_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [monthKey, monthLabel, from, to, mode || '', JSON.stringify(departments || []), JSON.stringify(employees || []), result.rows.length, totalGrossPayable, JSON.stringify(result), req.erpUser.id]
-    );
-    await audit(req.erpUser.employeeId, 'payroll-saved', `${monthLabel} (${result.rows.length} employee(s))`);
-    res.status(201).json({ id: ins.insertId, monthKey, monthLabel, employeeCount: result.rows.length, totalGrossPayable });
+    await conn.beginTransaction();
+    try {
+      const [ins] = await conn.query(
+        `INSERT INTO erp_payroll_runs (month_key, month_label, from_date, to_date, mode, departments, employee_ids, employee_count, total_gross_payable, data, saved_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [monthKey, monthLabel, from, to, mode || '', JSON.stringify(departments || []), JSON.stringify(employees || []), result.rows.length, totalGrossPayable, JSON.stringify(result), req.erpUser.id]
+      );
+      insertId = ins.insertId;
+    } catch (e) {
+      await conn.rollback();
+      if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `Payroll for ${monthLabel} has already been saved and locked.`, locked: true, monthLabel });
+      throw e;
+    }
+
+    // Post each row's loan instalment as a real payment, tagged with this
+    // run's id so DELETE /saved/:id can cleanly reverse exactly these
+    // payments (and only these) if this month needs correcting.
+    for (const row of result.rows) {
+      if (!row.loanId || !(row.loanDeduction > 0)) continue;
+      await conn.query(
+        `INSERT INTO erp_loan_payments (loan_id, payroll_run_id, amount, payment_type, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)`,
+        [row.loanId, insertId, row.loanDeduction, 'Monthly', to, `Auto-deducted via payroll — ${monthLabel}`, req.erpUser.id]
+      );
+      const [[loanRow]] = await conn.query('SELECT principal_amount FROM erp_employee_loans WHERE id = ?', [row.loanId]);
+      const [[paidRow]] = await conn.query('SELECT COALESCE(SUM(amount),0) s FROM erp_loan_payments WHERE loan_id = ?', [row.loanId]);
+      if (loanRow && Number(loanRow.principal_amount) - Number(paidRow.s) <= 0) {
+        await conn.query("UPDATE erp_employee_loans SET status = 'Closed', closed_at = NOW() WHERE id = ?", [row.loanId]);
+      }
+    }
+
+    await conn.commit();
   } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: `Payroll for ${monthLabel} has already been saved and locked.`, locked: true, monthLabel });
+    await conn.rollback();
     throw e;
+  } finally {
+    conn.release();
   }
+
+  await audit(req.erpUser.employeeId, 'payroll-saved', `${monthLabel} (${result.rows.length} employee(s))`);
+  for (const row of result.rows) {
+    if (row.loanId && row.loanDeduction > 0) {
+      await audit(req.erpUser.employeeId, 'loan-payment', `loan ${row.loanId}, Monthly ${row.loanDeduction} (auto via payroll ${monthLabel})`);
+    }
+  }
+  res.status(201).json({ id: insertId, monthKey, monthLabel, employeeCount: result.rows.length, totalGrossPayable });
 });
 
 // mysql2 hands a DATE column back as a JS Date at LOCAL midnight — letting
@@ -447,9 +524,215 @@ router.delete('/saved/:id', async (req, res) => {
   if (String(req.body && req.body.confirmMonthKey) !== month_key) {
     return res.status(400).json({ error: 'Confirmation did not match — this payroll was not deleted.' });
   }
+
+  // Undo any loan instalments this run auto-posted (see POST /save) before
+  // the run itself goes — otherwise re-saving this month later would charge
+  // that loan a second time for a month that's being corrected/redone.
+  const [autoPayments] = await pool.query('SELECT DISTINCT loan_id FROM erp_loan_payments WHERE payroll_run_id = ?', [req.params.id]);
+  await pool.query('DELETE FROM erp_loan_payments WHERE payroll_run_id = ?', [req.params.id]);
+  for (const { loan_id } of autoPayments) {
+    const [[loanRow]] = await pool.query('SELECT principal_amount, status FROM erp_employee_loans WHERE id = ?', [loan_id]);
+    if (!loanRow) continue;
+    const [[paidRow]] = await pool.query('SELECT COALESCE(SUM(amount),0) s FROM erp_loan_payments WHERE loan_id = ?', [loan_id]);
+    if (loanRow.status === 'Closed' && Number(loanRow.principal_amount) - Number(paidRow.s) > 0) {
+      await pool.query("UPDATE erp_employee_loans SET status = 'Active', closed_at = NULL WHERE id = ?", [loan_id]);
+    }
+  }
+
   await pool.query('DELETE FROM erp_payroll_runs WHERE id = ?', [req.params.id]);
   await audit(req.erpUser.employeeId, 'payroll-deleted', month_label);
   res.json({ ok: true, monthLabel: month_label });
+});
+
+/* ================================================================
+   Payslips — generated on demand from an already-SAVED payroll run, never
+   stored as files. 221 employees × however many months would otherwise be
+   221×N PDFs sitting on disk/DB for no reason: the run's JSON snapshot
+   (already being kept for the Payrolls tab) is the only thing that persists;
+   every payslip PDF is built fresh, in-memory, right before it's downloaded
+   or emailed, then discarded. This app's own PDF writer (pdfDoc.js, a
+   straight Node port of the frontend's) builds one in a few milliseconds,
+   so "on demand" costs nothing noticeable even for the whole roster.
+   ================================================================ */
+const { buildPayslipPdf } = require('../payslip');
+const { sendMail, mailConfigured } = require('../mailer');
+
+// Combines one employee's row from the saved run's snapshot (financial
+// totals already computed and LOCKED at save time — never recomputed here)
+// with their CURRENT salary-component breakdown, designation and bank
+// details (none of which the saved snapshot carries, and none of which
+// rewrites history the way re-running attendance/tax would). If a change to
+// someone's Basic/HRA/Utility split happens after a month is saved,
+// re-printing that old month's payslip reflects the new split's numbers
+// added up to the SAME already-locked total — a known, minor edge case,
+// not a bug. The loan instalment (row.loanId/row.loanDeduction) is already
+// LOCKED at save time too — POST /save actually posted it as a real
+// erp_loan_payments row, so re-downloading this payslip never re-deducts it.
+async function buildPayslipData(row, monthLabel) {
+  const [[p]] = await pool.query(
+    `SELECT designation, join_date, bank_name, account_no, salary, hra, utility_allowance
+     FROM erp_employee_profile WHERE employee_id = ?`, [row.employeeId]
+  );
+  const profile = p || {};
+  let basic = +profile.salary || 0, hra = +profile.hra || 0, utility = +profile.utility_allowance || 0;
+  let standardTotal = basic + hra + utility;
+  if (standardTotal <= 0 && row.grossSalary) {
+    // No detailed Basic/HRA/Utility split on file for this employee — fall
+    // back to the single Gross Salary figure payroll itself already relies
+    // on, as "Basic Salary" alone, rather than printing a broken 0/0/0 split
+    // while still charging the already-correct tax/late deductions below.
+    basic = +row.grossSalary; hra = 0; utility = 0; standardTotal = basic;
+  }
+  // Only the ABSENCE/unpaid-leave portion of the deduction shrinks the
+  // allowance columns (Standard -> Payable) — tax and late deduction are
+  // their own line items on the right, not folded into these, matching the
+  // reference layout (and buildPayrollReport()'s own otherDeductionAmount
+  // vs lateDeductionAmount split).
+  const absenceDeduction = +row.otherDeductionAmount || 0;
+  const proration = standardTotal > 0 ? Math.max(0, 1 - absenceDeduction / standardTotal) : 1;
+  const payableBasic = basic * proration, payableHra = hra * proration, payableUtility = utility * proration;
+  const grossPayable = payableBasic + payableHra + payableUtility;
+
+  // row.loanDeduction is the amount actually posted against the loan when
+  // this run was saved (see POST /save) — use that, not a fresh read of the
+  // loan's current monthly_deduction, so an old payslip always matches what
+  // was really deducted that month even if the loan's terms changed since.
+  const loanDeductionAmount = +row.loanDeduction || 0;
+  let loan = null;
+  if (row.loanId) {
+    const [[l]] = await pool.query('SELECT id, principal_amount FROM erp_employee_loans WHERE id = ?', [row.loanId]);
+    if (l) {
+      const [[paid]] = await pool.query('SELECT COALESCE(SUM(amount),0) s FROM erp_loan_payments WHERE loan_id = ?', [l.id]);
+      loan = { sanctioned: +l.principal_amount, currentMonthDeduction: loanDeductionAmount, totalDeduction: +paid.s, balance: Math.max(0, +l.principal_amount - +paid.s) };
+    }
+  } else if (row.loanDeduction == null) {
+    // A saved run from before this feature existed — it never captured
+    // loanId/loanDeduction, so nothing was actually deducted for it. Fall
+    // back to today's live active loan just so the payslip still shows
+    // something, informational only (can't retroactively change a locked
+    // month's math).
+    const [loanRows] = await pool.query(
+      `SELECT id, principal_amount, monthly_deduction FROM erp_employee_loans WHERE employee_id = ? AND status = 'Active' LIMIT 1`,
+      [row.employeeId]
+    );
+    if (loanRows.length) {
+      const l = loanRows[0];
+      const [[paid]] = await pool.query('SELECT COALESCE(SUM(amount),0) s FROM erp_loan_payments WHERE loan_id = ?', [l.id]);
+      loan = { sanctioned: +l.principal_amount, currentMonthDeduction: +l.monthly_deduction, totalDeduction: +paid.s, balance: +l.principal_amount - +paid.s };
+    }
+  }
+
+  // Net Payable mirrors buildPayrollReport()'s own netSalary math exactly
+  // (gross minus tax minus late deduction minus this month's loan instalment).
+  const totalDeductions = (+row.incomeTax || 0) + (+row.lateDeductionAmount || 0) + loanDeductionAmount;
+  const netPayable = grossPayable - totalDeductions;
+
+  return {
+    employeeCode: row.employeeCode,
+    name: row.employeeName,
+    dateOfJoining: profile.join_date ? dmyMon(dateOnly(profile.join_date)) : '',
+    designation: profile.designation || '',
+    department: row.department || '',
+    bankName: profile.bank_name || '',
+    bankAccountNo: profile.account_no || '',
+    monthLabel,
+    daysWorked: row.netPaidDays,
+    allowances: [
+      { label: 'Basic Salary', standard: basic, payable: payableBasic },
+      { label: 'House Rent', standard: hra, payable: payableHra },
+      { label: 'Utility Allowance', standard: utility, payable: payableUtility },
+    ].filter((a) => a.standard || a.payable),
+    deductions: [
+      ...(row.incomeTax ? [{ label: 'Income Tax', amount: row.incomeTax }] : []),
+      ...(row.lateDeductionAmount ? [{ label: 'Late Deduction', amount: row.lateDeductionAmount }] : []),
+      ...(loanDeductionAmount ? [{ label: 'Loan Installment', amount: loanDeductionAmount }] : []),
+    ],
+    grossStandard: standardTotal, grossPayable, totalDeductions, loan, netPayable,
+  };
+}
+
+const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function dmyMon(ymd) { // 'YYYY-MM-DD' -> '29-Oct-2025', matching the reference payslip
+  const [y, m, d] = String(ymd).split('-');
+  return d + '-' + MON3[(+m) - 1] + '-' + y;
+}
+function findRunRow(id) {
+  return pool.query('SELECT * FROM erp_payroll_runs WHERE id = ?', [id]).then(([rows]) => rows[0] || null);
+}
+
+// GET /api/payroll/saved/:id/payslip/:employeeId — one employee's payslip,
+// straight download, password-protected with their own employee code.
+router.get('/saved/:id/payslip/:employeeId', requireHr, async (req, res) => {
+  const run = await findRunRow(req.params.id);
+  if (!run) return res.status(404).json({ error: 'Payroll run not found.' });
+  const report = JSON.parse(run.data);
+  const row = (report.rows || []).find((r) => String(r.employeeId) === String(req.params.employeeId));
+  if (!row) return res.status(404).json({ error: 'That employee is not in this payroll run.' });
+  const data = await buildPayslipData(row, run.month_label);
+  const bytes = buildPayslipPdf(data, row.employeeCode);
+  await audit(req.erpUser.employeeId, 'payslip-downloaded', `${run.month_label}: ${row.employeeName}`);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="Payslip-${row.employeeCode}-${run.month_key}.pdf"`);
+  res.send(bytes);
+});
+
+// ---------------- bulk "Send Payslips" ----------------
+// 221 emails in one request would hit SMTP rate limits and tie up the
+// request for minutes with no way to show progress. POST kicks off a
+// background loop (this is a single Node process — an in-memory Map is
+// enough; nothing here needs to survive a server restart) and returns a
+// jobId immediately; the frontend polls the status route for progress.
+const PAYSLIP_JOBS = new Map();
+const SEND_DELAY_MS = 1200; // spacing between sends — gentle on any normal SMTP account's per-minute limit
+
+router.post('/saved/:id/payslips/send', requireHr, async (req, res) => {
+  if (!mailConfigured()) return res.status(400).json({ error: 'Mail is not configured yet — ask an Administrator to set SMTP_HOST/SMTP_USER/SMTP_PASS in the backend .env.' });
+  const run = await findRunRow(req.params.id);
+  if (!run) return res.status(404).json({ error: 'Payroll run not found.' });
+  const report = JSON.parse(run.data);
+  const rows = report.rows || [];
+  if (!rows.length) return res.status(400).json({ error: 'This payroll run has no employees.' });
+
+  const empIds = rows.map((r) => r.employeeId);
+  const [emails] = await pool.query(`SELECT id, email FROM employees WHERE id IN (${empIds.map(() => '?').join(',')})`, empIds);
+  const emailById = new Map(emails.map((e) => [e.id, e.email]));
+
+  const jobId = 'ps' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const job = { total: rows.length, sent: 0, failed: 0, skipped: 0, done: false, results: [], startedAt: new Date().toISOString(), monthLabel: run.month_label };
+  PAYSLIP_JOBS.set(jobId, job);
+  res.json({ jobId, total: job.total });
+
+  (async () => {
+    for (const row of rows) {
+      const email = emailById.get(row.employeeId);
+      if (!email) {
+        job.skipped++; job.results.push({ employeeName: row.employeeName, ok: false, reason: 'No email on file' });
+        continue;
+      }
+      try {
+        const data = await buildPayslipData(row, run.month_label);
+        const bytes = buildPayslipPdf(data, row.employeeCode);
+        await sendMail({
+          to: email,
+          subject: `Payslip — ${run.month_label}`,
+          text: `Dear ${row.employeeName},\n\nPlease find attached your payslip for ${run.month_label}.\nThe PDF is password-protected with your Employee Code.\n\nThis is a system-generated email.`,
+          attachments: [{ filename: `Payslip-${row.employeeCode}-${run.month_key}.pdf`, content: bytes }],
+        });
+        job.sent++; job.results.push({ employeeName: row.employeeName, ok: true });
+      } catch (e) {
+        job.failed++; job.results.push({ employeeName: row.employeeName, ok: false, reason: e.message });
+      }
+      await new Promise((r) => setTimeout(r, SEND_DELAY_MS));
+    }
+    job.done = true;
+    await audit(req.erpUser.employeeId, 'payslips-sent', `${run.month_label}: ${job.sent} sent, ${job.failed} failed, ${job.skipped} skipped (no email)`);
+  })().catch(() => { job.done = true; job.failed = job.total - job.sent - job.skipped; });
+});
+
+router.get('/payslips/status/:jobId', requireHr, (req, res) => {
+  const job = PAYSLIP_JOBS.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Unknown job (server may have restarted).' });
+  res.json(job);
 });
 
 module.exports = router;

@@ -319,6 +319,13 @@ async function migrate() {
       INDEX idx_loanpay_loan (loan_id)
     )
   `);
+  // Tags a payment as the one a payroll run (routes/payroll.js's POST /save)
+  // auto-posted for that month's instalment — lets DELETE /saved/:id
+  // cleanly reverse exactly those payments (and only those) if that month's
+  // payroll is deleted for a correction, without touching anything HR
+  // entered by hand through routes/loans.js.
+  try { await pool.query('ALTER TABLE erp_loan_payments ADD COLUMN payroll_run_id INT NULL AFTER loan_id'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
   // HOD / reports-to — who this employee's leave requests route to for
   // approval (see GET/PUT in routes/leave.js). Nullable: an employee with no
