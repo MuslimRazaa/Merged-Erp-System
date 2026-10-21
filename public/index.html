@@ -749,10 +749,11 @@ const EXTRA_NAV={
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
-  // Listed first so it sits right before Controlled Documents (a MODULES
-  // entry) — a group with no GROUP_NAV_ORDER override shows every EXTRA_NAV
-  // item before any MODULES item, in EXTRA_NAV's own order.
-  'Compliance':[{id:'dcr_list',ic:'🔁',name:'DCR'}]
+  // DCR hidden from the sidebar for now at the user's request — the route,
+  // screen and modal are all still fully built and working underneath;
+  // just un-comment this entry (it was listed first so it sits right
+  // before Controlled Documents) to bring it back.
+  // 'Compliance':[{id:'dcr_list',ic:'🔁',name:'DCR'}]
 };
 let route=lsGet('ui_route','dashboard');
 // Explicit tab order for a group \u2014 a mix of EXTRA_NAV route ids (dedicated

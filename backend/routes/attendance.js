@@ -334,12 +334,13 @@ async function computeAttendanceRows(from, to, filter = {}) {
           // (there's nothing to compare the missing check-in against).
           late = true;
         }
-        // Company policy: Saturday is NEVER late, period — not for a
-        // Permanent employee's later (11:00) Saturday start, not for anyone
-        // else's normal start, whether the day turns out to be a free/
-        // WeeklyOff Saturday or a working one. Overrides whatever was just
-        // computed above, including the missing-check-in case.
-        if (dow === 6) { late = false; lateMinutes = 0; }
+        // Saturday now uses the exact same lateness rule as any other day —
+        // Permanent employees against their later (11:00) Saturday start,
+        // everyone else against their normal shift_start (9:00 unless set
+        // otherwise), both with the usual grace period. This used to be
+        // force-cleared to "never late" for every Saturday; a Saturday with
+        // zero punches was never affected either way (late only gets
+        // computed above when punches.length is truthy).
         // Late sitting: a QUALIFYING THRESHOLD (only computable when a
         // shift_end is actually configured — see PUT /shift/:employeeId).
         // Staying less than LATE_SITTING_MIN_MINUTES past shift_end earns
