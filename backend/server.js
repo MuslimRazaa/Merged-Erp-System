@@ -29,7 +29,6 @@ process.on('uncaughtException', (err) => { console.error('[uncaught-exception]',
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const compression = require('compression');
 require('dotenv').config();
 
 const migrate = require('./migrate');
@@ -50,16 +49,6 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 const app = express();
-
-// public/index.html is a single ~2MB+ hand-rolled SPA file (no bundler/build
-// step) — gzip shrinks that by ~85-90% on the wire. Also works around an
-// observed issue where some reverse proxies in front of this app (seen with
-// Apache + Phusion Passenger) truncate large uncompressed responses before
-// the client receives the full body, which breaks every inline <script> in
-// the truncated page (nothing in it ever finishes parsing, so nothing in it
-// is defined) — compressing responses keeps this well under whatever is
-// causing that.
-app.use(compression());
 
 const allowedOrigins = (process.env.CORS_ORIGIN || '*').split(',').map((s) => s.trim());
 app.use(cors({
