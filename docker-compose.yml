@@ -21,4 +21,15 @@ services:
       # never need this — only set it if something else calls the API
       # directly from another domain).
       - CORS_ORIGIN=${CORS_ORIGIN:-}
+      # Outgoing mail (Payroll / Slips → Send Payslips) — optional: left
+      # blank, Send Payslips reports a clear "mail not configured" error
+      # instead of silently failing. Set these in THIS compose project's
+      # own .env (next to this file, NOT backend/.env — that one's only
+      # read when running `node server.js` directly, outside Docker).
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
     restart: unless-stopped
