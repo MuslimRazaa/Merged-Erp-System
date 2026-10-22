@@ -1,8 +1,8 @@
 /* ============================================================
-   Payslip PDF — matches the reference "PAY SLIP" layout: centered
-   company header, employee/bank details, an Allowances|Deductions
-   two-column grid (Standard vs Payable), a Loan Sanctioned strip, and
-   a Net Amount Payable box with the amount spelled out.
+   Payslip PDF — "Premium Gradient" template: a navy-to-red gradient
+   header with the company mark and a PAY SLIP badge, sitting above a
+   white rounded card with employee info, an Allowances|Deductions grid,
+   Loan Sanctioned and a highlighted Net Amount Payable box.
 
    Pure data in, PDF bytes out — buildPayslipPdf() doesn't touch the
    database itself, so it's reusable for both the single-employee
@@ -13,7 +13,23 @@
 'use strict';
 const { PdfDoc } = require('./pdfDoc');
 
-const WO_CO_NAME = 'Premier Tubular Inspection Services (Pvt.) Ltd';
+const WO_CO_NAME_1 = 'PREMIER TUBULAR';
+const WO_CO_NAME_2 = 'INSPECTION SERVICES (PVT.) LTD';
+const WO_TAGLINE = 'THE STRONGEST LINK';
+
+// Brand palette — same navy/red already used elsewhere in the ERP's own UI
+// (public/index.html's --side / --rose CSS variables), so the payslip
+// matches the app it comes from rather than inventing a new palette.
+const NAVY = '#0B1524';
+const NAVY_2 = '#1A2A3F';
+const RED = '#C2372B';
+const RED_DARK = '#8E1F1A';
+const PAGE_BG = '#EEF1F6';
+const CARD_BG = '#FFFFFF';
+const ROW_ALT = '#F6F8FB';
+const INK = '#16202E';
+const SOFT = '#6B7A90';
+const NET_BG = '#FBEAE8';
 
 function fmt(n) {
   n = +n || 0;
@@ -46,122 +62,156 @@ function amountWords(n) {
 function buildPayslipPdf(data, password) {
   const doc = new PdfDoc();
   doc.noFooter = true;
-  const L = doc.mL, R = doc.w - doc.mR, W = R - L;
+  const L = 40, R = doc.w - 40, W = R - L;
   const TY = t => doc.h - t;
-  const mid = L + W / 2;
 
-  doc.textC(L + W / 2, TY(26), WO_CO_NAME, 15, true);
-  doc.textC(L + W / 2, TY(44), 'PAY SLIP', 11, true);
-  doc.text(R - 150, TY(44), 'Days Worked :', 9, true);
-  doc.text(R - 60, TY(44), String(data.daysWorked == null ? '' : data.daysWorked), 9, true);
-  doc.rule(L, TY(58), R, TY(58), 0.8);
+  // ---------- page background ----------
+  doc.rect(0, 0, doc.w, doc.h, PAGE_BG);
 
-  const lv = L + 110;
-  let t = 74;
-  const row = (label, value, bold) => { doc.text(L, TY(t), label, 9, true); doc.text(lv, TY(t), String(value || ''), 9, !!bold); t += 14; };
-  row('Employee Code:', data.employeeCode);
-  row('Name:', data.name, true);
-  row('Date of Joining :', data.dateOfJoining);
-  t += 4;
-  doc.rule(L, TY(t - 10), R, TY(t - 10), 0.5, '0.7 0.7 0.72');
-  row('Designation:', data.designation);
-  row('Department:', data.department);
-  t += 4;
-  doc.rule(L, TY(t - 10), R, TY(t - 10), 0.5, '0.7 0.7 0.72');
-  row('Bank Name :', data.bankName);
-  row('Bank Account # :', data.bankAccountNo);
+  // ---------- gradient header ----------
+  const headerH = 128;
+  doc.gradientH(0, doc.h - headerH, doc.w, headerH, NAVY, RED, 60);
+  // a diagonal accent wedge layered over the gradient, same visual trick
+  // the reference template uses to break up the flat gradient
+  doc.polygon([
+    [doc.w * 0.52, doc.h],
+    [doc.w, doc.h],
+    [doc.w, doc.h - headerH],
+    [doc.w * 0.78, doc.h - headerH],
+  ], RED_DARK);
 
-  t += 10;
+  // logo mark
+  doc.roundedRect(L, doc.h - 36 - 56, 56, 56, 14, '#FFFFFF');
+  doc.textC(L + 28, doc.h - 36 - 56 + 20, 'PT', 20, true, NAVY);
 
-  // ---------- Allowances | Deductions header row ----------
-  const hdrTop = t, hdrH = 18;
-  doc.box(L, TY(hdrTop + hdrH), 130, hdrH, 1.1);
-  doc.text(L + 6, TY(hdrTop + 13), 'ALLOWANCES', 9.5, true, '0 0 0.6');
-  doc.textR(mid - 100, TY(hdrTop + 13), 'STANDARD', 8, true);
-  doc.textR(mid - 10, TY(hdrTop + 13), 'PAYABLE', 8, true);
-  doc.box(mid + 10, TY(hdrTop + hdrH), 130, hdrH, 1.1);
-  doc.text(mid + 16, TY(hdrTop + 13), 'DEDUCTIONS', 9.5, true, '0 0 0.6');
-  doc.textR(R, TY(hdrTop + 13), data.monthLabel || '', 9, true);
-  t = hdrTop + hdrH + 2;
-  const bodyTop = t;
+  // company name + tagline
+  const nameX = L + 70;
+  doc.text(nameX, TY(42), WO_CO_NAME_1, 15, true, '#FFFFFF');
+  doc.text(nameX, TY(59), WO_CO_NAME_2, 11, true, '#FFFFFF');
+  doc.text(nameX, TY(76), WO_TAGLINE, 7.5, false, '#E7CFCB');
 
-  // allowances column (left)
-  let ta = t;
-  (data.allowances || []).forEach(a => {
-    doc.text(L + 4, TY(ta + 11), a.label, 8.5);
-    doc.textR(mid - 100, TY(ta + 11), fmt(a.standard), 8.5);
-    doc.textR(mid - 10, TY(ta + 11), fmt0(a.payable), 8.5);
-    ta += 17;
+  // PAY SLIP badge, top-right
+  const badgeW = 150, badgeH = 42;
+  doc.roundedRect(R - badgeW, doc.h - 28 - badgeH, badgeW, badgeH, 10, NAVY_2);
+  doc.textC(R - badgeW / 2, TY(44), 'PAY SLIP', 11, true, '#FFFFFF');
+  doc.textC(R - badgeW / 2, TY(58), String(data.monthLabel || '').toUpperCase(), 8.5, false, '#D8DEE8');
+
+  // ---------- white card ----------
+  const cardTop = headerH + 8; // distance from top of page
+  const cardBottomMargin = 40;
+  const cardH = doc.h - cardTop - cardBottomMargin;
+  doc.roundedRect(L, cardBottomMargin, W, cardH, { tl: 16, tr: 16, bl: 0, br: 0 }, CARD_BG);
+
+  let t = cardTop + 28;
+
+  // "EMPLOYEE INFORMATION" + "N DAYS WORKED" pill
+  doc.text(L + 24, TY(t), 'EMPLOYEE INFORMATION', 11.5, true, NAVY);
+  const daysLabel = (data.daysWorked == null ? '' : data.daysWorked) + ' DAYS WORKED';
+  const pillW = Math.max(110, doc.twx(daysLabel, 8, true) + 28);
+  doc.roundedRect(R - 24 - pillW, doc.h - t - 10, pillW, 20, 10, RED);
+  doc.textC(R - 24 - pillW / 2, TY(t + 4), daysLabel, 8, true, '#FFFFFF');
+  t += 16;
+  doc.rule(L + 24, TY(t), R - 24, TY(t), 0.6, '#D6DCE6');
+  t += 18;
+
+  // employee info rows, zebra-striped
+  const infoRows = [
+    ['Employee Code', data.employeeCode],
+    ['Name', data.name],
+    ['Date of Joining', data.dateOfJoining],
+    ['Designation', data.designation],
+    ['Department', data.department],
+    ['Bank Name', data.bankName],
+    ['Bank Account No.', data.bankAccountNo],
+  ];
+  const rowH = 20;
+  infoRows.forEach(([label, value], i) => {
+    if (i % 2 === 0) doc.rect(L + 24, TY(t + 15), W - 48, rowH, ROW_ALT);
+    doc.text(L + 32, TY(t + 10), label, 8.5, false, SOFT);
+    doc.text(L + 220, TY(t + 10), String(value || ''), 9, true, INK);
+    t += rowH;
   });
-  // deductions column (right)
-  let td = t;
-  (data.deductions || []).forEach(d => {
-    doc.text(mid + 16, TY(td + 11), d.label, 8.5);
-    doc.textR(R - 4, TY(td + 11), fmt0(d.amount), 8.5);
-    td += 17;
-  });
+  t += 20;
 
-  const bodyBottom = Math.max(ta, td) + 6;
-  doc.box(L, TY(bodyBottom), 130, bodyBottom - bodyTop, 1.1);
-  doc.box(mid + 10, TY(bodyBottom), 130, bodyBottom - bodyTop, 1.1);
-  doc.rule(L, TY(bodyBottom), R, TY(bodyBottom), 1.1);
-  doc.rule(L, TY(hdrTop), L, TY(bodyBottom), 1.1);
-  doc.rule(R, TY(hdrTop), R, TY(bodyBottom), 1.1);
-  doc.rule(mid, TY(hdrTop), mid, TY(bodyBottom), 1.1);
+  // "PAY & DEDUCTIONS" heading with a short red accent bar
+  doc.rect(L + 24, TY(t + 10), 3, 12, RED);
+  doc.text(L + 34, TY(t), 'PAY & DEDUCTIONS', 11.5, true, NAVY);
+  t += 18;
 
-  // GROSS / TOTAL DEDUCTIONS row
-  t = bodyBottom + 2;
-  const grossH = 18;
-  doc.rule(L, TY(t + grossH), R, TY(t + grossH), 1.1);
-  doc.box(L, TY(t + grossH), 130, grossH, 1.1);
-  doc.text(L + 4, TY(t + 13), 'GROSS :', 9.5, true);
-  doc.textR(mid - 100, TY(t + 13), fmt0(data.grossStandard), 9.5, true);
-  doc.textR(mid - 10, TY(t + 13), fmt0(data.grossPayable), 9.5, true);
-  doc.box(mid + 10, TY(t + grossH), 130, grossH, 1.1);
-  doc.text(mid + 16, TY(t + 13), 'TOTAL CURRENT MONTH DEDUCTIONS:', 8, true);
-  doc.textR(R - 4, TY(t + 13), fmt0(data.totalDeductions), 9.5, true);
-  doc.rule(L, TY(t + grossH), L, TY(t), 1.1); doc.rule(R, TY(t + grossH), R, TY(t), 1.1); doc.rule(mid, TY(t + grossH), mid, TY(t), 1.1);
-  t += grossH;
+  // column header row
+  const colW = (W - 48) / 2;
+  const hdrH = 20;
+  doc.rect(L + 24, TY(t + hdrH), W - 48, hdrH, '#F0F3F8');
+  doc.text(L + 32, TY(t + 14), 'ALLOWANCES', 8.5, true, SOFT);
+  doc.textR(L + 24 + colW - 90, TY(t + 14), 'STANDARD', 7.5, true, SOFT);
+  doc.textR(L + 24 + colW - 8, TY(t + 14), 'PAYABLE', 7.5, true, SOFT);
+  doc.text(L + 24 + colW + 8, TY(t + 14), 'DEDUCTIONS', 8.5, true, SOFT);
+  doc.textR(R - 24, TY(t + 14), 'AMOUNT', 7.5, true, SOFT);
+  t += hdrH;
+
+  const allowances = data.allowances || [];
+  const deductions = data.deductions || [];
+  const lineCount = Math.max(allowances.length, deductions.length, 1);
+  for (let i = 0; i < lineCount; i++) {
+    if (i % 2 === 1) doc.rect(L + 24, TY(t + 18), W - 48, 18, ROW_ALT);
+    const a = allowances[i];
+    if (a) {
+      doc.text(L + 32, TY(t + 12), a.label, 8.5, false, INK);
+      doc.textR(L + 24 + colW - 90, TY(t + 12), fmt(a.standard), 8.5, false, INK);
+      doc.textR(L + 24 + colW - 8, TY(t + 12), fmt(a.payable), 8.5, true, INK);
+    }
+    const d = deductions[i];
+    if (d) {
+      doc.text(L + 24 + colW + 8, TY(t + 12), d.label, 8.5, false, INK);
+      doc.textR(R - 24, TY(t + 12), fmt0(d.amount), 8.5, true, INK);
+    }
+    t += 18;
+  }
+  t += 16;
+
+  // GROSS PAY / TOTAL DEDUCTIONS
+  doc.text(L + 24, TY(t), 'GROSS PAY', 8.5, true, SOFT);
+  doc.text(L + 24 + colW + 8, TY(t), 'TOTAL DEDUCTIONS', 8.5, true, SOFT);
+  t += 16;
+  doc.text(L + 24, TY(t), fmt0(data.grossPayable), 14, true, NAVY);
+  doc.text(L + 24 + colW + 8, TY(t), fmt0(data.totalDeductions), 14, true, NAVY);
+  t += 26;
 
   // ---------- Loan Sanctioned ----------
-  const loanTop = t, loanH = 60;
-  doc.box(L, TY(loanTop + loanH), W, loanH, 1.1);
-  doc.text(L + 4, TY(loanTop + 13), 'LOAN SANCTIONED:', 9, true);
-  if (data.loan) {
-    doc.textR(L + 150, TY(loanTop + 13), fmt0(data.loan.sanctioned), 9);
-    doc.text(L + 170, TY(loanTop + 13), 'Current Month Deduction', 8, true);
-    doc.textR(L + 340, TY(loanTop + 13), fmt0(data.loan.currentMonthDeduction), 9);
-    doc.text(L + 360, TY(loanTop + 13), 'Total Deduction:', 8, true);
-    doc.textR(L + 470, TY(loanTop + 13), fmt0(data.loan.totalDeduction), 9);
-    doc.text(L + 4, TY(loanTop + 30), 'Balance:', 8, true);
-    doc.textR(L + 150, TY(loanTop + 30), fmt0(data.loan.balance), 9);
-  } else {
-    doc.text(L + 170, TY(loanTop + 13), 'Current Month Deduction', 8, true, '0.6 0.6 0.6');
-    doc.text(L + 360, TY(loanTop + 13), 'Total Deduction:', 8, true, '0.6 0.6 0.6');
-    doc.text(L + 4, TY(loanTop + 30), 'Balance:', 8, true, '0.6 0.6 0.6');
-  }
-  t = loanTop + loanH;
+  const loanH = 56;
+  doc.roundedRect(L + 24, doc.h - t - loanH, W - 48, loanH, 10, '#F3F5F9');
+  doc.rect(L + 24, doc.h - t - loanH, 4, loanH, RED);
+  doc.text(L + 38, TY(t + 16), 'LOAN SANCTIONED', 9, true, NAVY);
+  doc.textR(L + 38 + 150, TY(t + 16), data.loan ? fmt0(data.loan.sanctioned) : '—', 9, true, INK);
+  const loanColW = (W - 48 - 190) / 3;
+  const loanColX = L + 220;
+  const loanCols = [
+    ['Current Month Deduction', data.loan ? fmt0(data.loan.currentMonthDeduction) : '—'],
+    ['Total Deduction', data.loan ? fmt0(data.loan.totalDeduction) : '—'],
+    ['Balance', data.loan ? fmt0(data.loan.balance) : '—'],
+  ];
+  loanCols.forEach(([label, value], i) => {
+    const cx = loanColX + i * loanColW;
+    doc.text(cx, TY(t + 16), label, 7.5, false, SOFT);
+    doc.text(cx, TY(t + 32), value, 10, true, INK);
+  });
+  t += loanH + 18;
 
   // ---------- Net Amount Payable ----------
-  // Rounded exactly once, then reused for BOTH the headline figure and the
-  // spelled-out words — computing amountWords() from the raw unrounded
-  // float (e.g. 17741.93) while the figure shows fmt0's rounded 17,742
-  // produced a payslip whose own two halves disagreed with each other.
   const netRounded = Math.round(+data.netPayable || 0);
-  const netTop = t, netH = 40;
-  doc.box(L, TY(netTop + netH), 220, netH, 1.1);
-  doc.text(L + 8, TY(netTop + 23), 'NET AMOUNT PAYABLE :', 9.5, true);
-  doc.textR(L + 212, TY(netTop + 23), fmt0(netRounded), 11, true);
-  doc.box(L + 220, TY(netTop + netH), W - 220, netH, 1.1);
-  doc.text(L + 228, TY(netTop + 16), 'In Words :', 8.5, true);
-  const words = amountWords(netRounded);
-  const wrapped = doc.wrap(words, W - 220 - 90, 8.5, false);
-  let wy = netTop + 16;
-  wrapped.slice(0, 2).forEach((ln, i) => { doc.text(L + 290, TY(wy), ln, 8.5); wy += 11; });
-  t = netTop + netH + 16;
+  const netH = 46;
+  doc.roundedRect(L + 24, doc.h - t - netH, W - 48, netH, 10, NET_BG);
+  doc.rect(L + 24, doc.h - t - netH, 4, netH, RED);
+  doc.text(L + 38, TY(t + 19), 'NET AMOUNT PAYABLE', 10, true, NAVY);
+  doc.text(L + 38, TY(t + 34), 'PKR', 8.5, false, SOFT);
+  doc.textR(R - 24, TY(t + 30), fmt0(netRounded), 22, true, RED);
+  t += netH + 20;
 
-  doc.text(L, TY(t), 'Note :', 8, true, '0.65 0.1 0.1');
-  doc.text(L + 40, TY(t), 'This is Electronic Generated Document Does Not Require Signature', 8, false, '0.65 0.1 0.1');
+  // ---------- footer ----------
+  doc.rule(L + 24, TY(t), R - 24, TY(t), 0.5, '#D6DCE6');
+  t += 14;
+  doc.text(L + 24, TY(t), 'This is an electronically generated document and does not require a signature.', 7.5, false, SOFT);
+  doc.textR(R - 24, TY(t), 'PTIS • PAYROLL', 7.5, true, SOFT);
 
   if (password) doc.encrypt(password);
   return doc.bytes();

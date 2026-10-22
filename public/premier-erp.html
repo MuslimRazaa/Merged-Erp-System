@@ -2037,7 +2037,7 @@ async function prsSendPayslips(id,monthLabel,employeeCount){
 async function prsPollPayslipJob(jobId,total){
   const el=document.getElementById('prs-send-progress');if(!el)return;
   let job;
-  try{job=await api('/api/payroll/saved/payslips/status/'+jobId);}
+  try{job=await api('/api/payroll/payslips/status/'+jobId);}
   catch(e){el.innerHTML='<div class="empty">Lost track of this job — '+esc(e.message)+'</div>';return;}
   const done=job.sent+job.failed+job.skipped;
   el.innerHTML=

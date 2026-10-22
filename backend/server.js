@@ -27,6 +27,8 @@ process.on('unhandledRejection', (err) => { console.error('[unhandled-rejection]
 process.on('uncaughtException', (err) => { console.error('[uncaught-exception]', err); });
 
 const path = require('path');
+const fs = require('fs');
+const zlib = require('zlib');
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -84,6 +86,56 @@ app.use('/api/payroll', payrollRouter);
 app.use('/api/crm', crmRouter);
 app.use('/api/records', recordsRouter);
 app.use('/api/employee-files', employeeFilesRouter);
+
+// public/index.html, premier-erp.html (2MB+ hand-rolled SPA files, no build
+// step) and public/ir-drawings.js (~4MB) are all large enough that serving
+// them uncompressed from the live site has been observed being cut off
+// mid-response by whatever sits in front of this app (Apache + Phusion
+// Passenger) — the connection gets closed partway through, truncating
+// whichever file mid-statement. For the HTML files that means NOTHING in
+// their one big inline <script> ever becomes defined (every onclick handler
+// throws "X is not defined"); for ir-drawings.js it's a straight
+// "SyntaxError: Invalid or unexpected token" on the truncated file itself.
+// Pre-gzipping these ONCE at startup and serving the compressed bytes
+// directly cuts the transfer to a fraction of the size. Deliberately uses
+// Node's built-in zlib, not the `compression` npm package — a prior attempt
+// with that package risked crashing the whole app if a deploy's
+// `npm install` step didn't run, which zlib (always present in Node core)
+// can't.
+const GZIPPED_ASSETS = new Map(); // relative filename -> {raw, gzipped, contentType}
+for (const [name, contentType] of [
+  ['index.html', 'text/html; charset=UTF-8'],
+  ['premier-erp.html', 'text/html; charset=UTF-8'],
+  ['ir-drawings.js', 'application/javascript; charset=UTF-8'],
+]) {
+  const abs = path.join(PUBLIC_DIR, name);
+  if (fs.existsSync(abs)) {
+    const raw = fs.readFileSync(abs);
+    GZIPPED_ASSETS.set(name, { raw, gzipped: zlib.gzipSync(raw), contentType });
+  }
+}
+function serveGzippedAsset(name) {
+  return (req, res) => {
+    const entry = GZIPPED_ASSETS.get(name);
+    res.setHeader('Content-Type', entry.contentType);
+    if ((req.headers['accept-encoding'] || '').includes('gzip')) {
+      res.setHeader('Content-Encoding', 'gzip');
+      res.send(entry.gzipped);
+    } else {
+      res.send(entry.raw);
+    }
+  };
+}
+if (GZIPPED_ASSETS.has('index.html')) {
+  app.get('/', serveGzippedAsset('index.html'));
+  app.get('/index.html', serveGzippedAsset('index.html'));
+}
+if (GZIPPED_ASSETS.has('premier-erp.html')) {
+  app.get('/premier-erp.html', serveGzippedAsset('premier-erp.html'));
+}
+if (GZIPPED_ASSETS.has('ir-drawings.js')) {
+  app.get('/ir-drawings.js', serveGzippedAsset('ir-drawings.js'));
+}
 
 // Serve the existing HTML/JS front end unchanged.
 app.use(express.static(PUBLIC_DIR));

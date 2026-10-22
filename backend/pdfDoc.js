@@ -102,12 +102,70 @@ PdfDoc.prototype={
    }
    return t*size/1000;
  },
+ // Accepts either a "#RRGGBB" hex color or an already-built "r g b" operand
+ // everywhere a color is passed, so callers can use plain hex throughout.
+ _col(c){return /^#/.test(c||'')?this.hex(c):(c||'0 0 0');},
  text(x,y,s,size,bold,color){size=size||9;
-   this.cur.ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
- rect(x,y,w2,h2,fill){this.cur.ops.push((fill||'0.93 0.94 0.96')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re f');},
+   this.cur.ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+this._col(color)+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
+ rect(x,y,w2,h2,fill){this.cur.ops.push(this._col(fill||'0.93 0.94 0.96')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re f');},
+ // "#RRGGBB" -> "r g b" PDF color operand (0-1 floats), same convention
+ // every other color here uses (e.g. rect's default '0.93 0.94 0.96').
+ hex(h){
+   h=String(h||'#000000').replace('#','');
+   if(h.length===3)h=h.split('').map(c=>c+c).join('');
+   const r=parseInt(h.slice(0,2),16)/255,g=parseInt(h.slice(2,4),16)/255,b=parseInt(h.slice(4,6),16)/255;
+   return r.toFixed(3)+' '+g.toFixed(3)+' '+b.toFixed(3);
+ },
+ // Filled rectangle with independently-roundable corners — true bezier
+ // corners (k=0.5523, the standard quarter-circle bezier approximation).
+ // r is either one radius for all 4 corners, or {tl,tr,bl,br} so e.g. a
+ // card can round its top corners only. fillColor is a "#RRGGBB" hex or an
+ // already-built "r g b" operand (hex() is applied automatically when it
+ // looks like hex).
+ roundedRect(x,y,w,h,r,fillColor){
+   const rr=(r&&typeof r==='object')?r:{tl:r,tr:r,bl:r,br:r};
+   const tl=rr.tl||0,tr=rr.tr||0,bl=rr.bl||0,br=rr.br||0;
+   const k=0.5522847498;
+   const p=n=>n.toFixed(2);
+   let d=p(x+bl)+' '+p(y)+' m ';
+   d+=p(x+w-br)+' '+p(y)+' l ';
+   if(br)d+=p(x+w-br+k*br)+' '+p(y)+' '+p(x+w)+' '+p(y+br-k*br)+' '+p(x+w)+' '+p(y+br)+' c ';
+   d+=p(x+w)+' '+p(y+h-tr)+' l ';
+   if(tr)d+=p(x+w)+' '+p(y+h-tr+k*tr)+' '+p(x+w-tr+k*tr)+' '+p(y+h)+' '+p(x+w-tr)+' '+p(y+h)+' c ';
+   d+=p(x+tl)+' '+p(y+h)+' l ';
+   if(tl)d+=p(x+tl-k*tl)+' '+p(y+h)+' '+p(x)+' '+p(y+h-tl+k*tl)+' '+p(x)+' '+p(y+h-tl)+' c ';
+   d+=p(x)+' '+p(y+bl)+' l ';
+   if(bl)d+=p(x)+' '+p(y+bl-k*bl)+' '+p(x+bl-k*bl)+' '+p(y)+' '+p(x+bl)+' '+p(y)+' c ';
+   d+='h';
+   this.cur.ops.push(this._col(fillColor)+' rg '+d+' f');
+ },
+ // Horizontal linear-gradient fill, approximated with N thin vertical
+ // strips — this writer has no PDF shading-pattern support, and ~50 strips
+ // is visually indistinguishable from a true gradient at normal zoom/print.
+ gradientH(x,y,w,h,fromHex,toHex,steps){
+   steps=steps||50;
+   fromHex=String(fromHex).replace('#','');toHex=String(toHex).replace('#','');
+   const fr=parseInt(fromHex.slice(0,2),16),fg=parseInt(fromHex.slice(2,4),16),fb=parseInt(fromHex.slice(4,6),16);
+   const tr=parseInt(toHex.slice(0,2),16),tg=parseInt(toHex.slice(2,4),16),tb=parseInt(toHex.slice(4,6),16);
+   const sw=w/steps;
+   for(let i=0;i<steps;i++){
+     const t=i/(steps-1);
+     const r=((fr+(tr-fr)*t)/255).toFixed(3),g=((fg+(tg-fg)*t)/255).toFixed(3),b=((fb+(tb-fb)*t)/255).toFixed(3);
+     this.cur.ops.push(r+' '+g+' '+b+' rg '+(x+i*sw).toFixed(2)+' '+y.toFixed(2)+' '+(sw+0.6).toFixed(2)+' '+h.toFixed(2)+' re f');
+   }
+ },
+ // Arbitrary filled polygon — points: [[x,y],[x,y],...] — used for the
+ // diagonal accent shapes layered over the header gradient.
+ polygon(points,fillColor){
+   if(!points.length)return;
+   let d=points[0][0].toFixed(2)+' '+points[0][1].toFixed(2)+' m ';
+   for(let i=1;i<points.length;i++)d+=points[i][0].toFixed(2)+' '+points[i][1].toFixed(2)+' l ';
+   d+='h';
+   this.cur.ops.push(this._col(fillColor)+' rg '+d+' f');
+ },
  line(x1,y1,x2,y2){this.cur.ops.push('0.6 0.6 0.65 RG 0.5 w '+x1.toFixed(1)+' '+y1.toFixed(1)+' m '+x2.toFixed(1)+' '+y2.toFixed(1)+' l S');},
- rule(x1,y1,x2,y2,lw,col){this.cur.ops.push((col||'0 0 0')+' RG '+(lw||0.9)+' w '+x1.toFixed(1)+' '+y1.toFixed(1)+' m '+x2.toFixed(1)+' '+y2.toFixed(1)+' l S');},
- box(x,y,w2,h2,lw,col){this.cur.ops.push((col||'0 0 0')+' RG '+(lw||0.9)+' w '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re S');},
+ rule(x1,y1,x2,y2,lw,col){this.cur.ops.push(this._col(col)+' RG '+(lw||0.9)+' w '+x1.toFixed(1)+' '+y1.toFixed(1)+' m '+x2.toFixed(1)+' '+y2.toFixed(1)+' l S');},
+ box(x,y,w2,h2,lw,col){this.cur.ops.push(this._col(col)+' RG '+(lw||0.9)+' w '+x.toFixed(1)+' '+y.toFixed(1)+' '+w2.toFixed(1)+' '+h2.toFixed(1)+' re S');},
  textC(cx,y,s,size,bold,color){this.text(cx-this.twx(s,size,bold)/2,y,s,size,bold,color);},
  textR(xr,y,s,size,bold,color){this.text(xr-this.twx(s,size,bold),y,s,size,bold,color);},
  uText(x,y,s,size,bold,color){this.text(x,y,s,size,bold,color);this.rule(x,y-2.5,x+this.twx(s,size,bold),y-2.5,0.8,color||'0 0 0');},
