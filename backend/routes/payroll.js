@@ -37,10 +37,11 @@
    1-for-1 swap, so there's no "smallest first" ordering to worry about
    anymore. A missing-check-in Late can never be cancelled this way — it
    always counts.
-   Per-Day Rate = Gross Salary ÷ (days in the PAYROLL MONTH — 30/31/28/29,
-   whichever calendar month the "To" date falls in). This is fixed by the
-   month, NOT by how many days happen to be in the selected date range — a
-   1-day range and a 20-day range in the same September both divide by 30.
+   Per-Day Rate = Gross Salary ÷ (days in the SELECTED RANGE itself, i.e.
+   totalDaysInRange = To − From + 1). This follows whatever range is
+   actually picked, NOT a fixed calendar month — From 26-Sep to 25-Oct
+   divides by 30, From 26-Sep to 22-Oct divides by 27, regardless of which
+   month(s) the range crosses.
    Payslip breakdown (each its own column):
      Net Salary = Gross Salary − Other Deductions − Late Deduction − Income Tax − Loan Deduction
      Other Deductions = Per-Day Rate × (Absent Days + Unpaid Leave Days)
@@ -54,10 +55,9 @@
                           posted to erp_loan_payments (once per employee per locked month) —
                           /generate only previews the number.
    The columns always add up: Net = Per-Day Rate × Payable Days − Income Tax − Loan Deduction,
-   where Payable Days = the payroll month's days (or fewer, for a shorter range) minus Absent,
-   Unpaid Leave and Late Penalty days. A 25th-to-25th cycle is 31–32 calendar days but
-   a month is 28–31 pay days: the extra calendar days are NOT paid on top, they only
-   make absences count — earlier every extra day was paid as if it were a normal day.
+   where Payable Days = the selected range's own day count minus Absent, Unpaid Leave
+   and Late Penalty days — so a fully-attended custom range always nets out to the
+   full Gross Salary, prorated only by whatever was actually marked Absent/Unpaid/Late.
    ============================================================ */
 'use strict';
 const express = require('express');
@@ -206,11 +206,9 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
   if (mode === 'department' && !departments.length) return { error: 'Select at least one department.', status: 400 };
 
   const totalDaysInRange = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
-  // Per-Day Rate always divides by the days in the PAYROLL MONTH (30 for
-  // September, 31 for August/October, ...) — never by however many days
-  // happen to be in the selected range. The payroll month follows the "To"
-  // date (the company's cycle is 25th-to-25th, e.g. 25-Aug to 25-Sep is
-  // September's payroll), same rule the frontend's Payroll Month field uses.
+  // daysInMonth is informational only now (shown alongside totalDaysInRange
+  // so HR can see how the selected range compares to a plain calendar
+  // month) — Per-Day Rate itself divides by totalDaysInRange, see below.
   const toDate = new Date(to + 'T00:00:00');
   const daysInMonth = new Date(toDate.getFullYear(), toDate.getMonth() + 1, 0).getDate();
 
@@ -316,17 +314,22 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
 
     const latePenaltyDays = Math.floor(lateCount / 3);
     const paidDays = presentDays + weeklyOffDays + holidayDays + paidLeaveDays;
-    // Payable days = a full pay month (or the range, if shorter) less every
-    // deducted day. NOT paidDays − penalty: a 25th-to-25th cycle is 31–32
-    // calendar days against a 30-day pay month, so counting every paid calendar
-    // day paid the extra days on top of the salary and hid absences.
-    const baseDays = Math.min(totalDaysInRange, daysInMonth);
+    // Payable days = the SELECTED RANGE itself less every deducted day — the
+    // divisor below (perDayRate) is tied to this exact range, not a fixed
+    // calendar month, so there's no separate "extra calendar days" concept
+    // to cap against anymore: a 20-day range pays out of 20 days, a 31-day
+    // range pays out of 31, whatever was actually selected.
+    const baseDays = totalDaysInRange;
     const netPaidDays = Math.max(0, baseDays - absentDays - unpaidLeaveDays - latePenaltyDays);
 
     const profile = profileById.get(meta.employeeId);
     const grossSalary = profile && profile.gross_salary != null ? Number(profile.gross_salary) : null;
     const salaryMissing = grossSalary == null;
-    const perDayRate = grossSalary != null ? grossSalary / daysInMonth : null;
+    // Per-Day Rate = Gross Salary ÷ however many days are in the SELECTED
+    // range (From..To), not a fixed calendar-month length — a 27-day
+    // custom range divides by 27, a 30-day 26th-to-25th cycle divides by
+    // 30, whatever the user actually picked.
+    const perDayRate = grossSalary != null ? grossSalary / totalDaysInRange : null;
 
     const loanInfo = loanByEmployee.get(meta.employeeId) || null;
     const loanId = loanInfo ? loanInfo.loanId : null;

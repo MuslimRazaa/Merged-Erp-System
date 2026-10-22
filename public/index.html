@@ -1833,7 +1833,7 @@ function prRenderReport(){
 // and gets the table with no Payslip column, same as before).
 function prBuildRowsTableHtml(rows,runId){
   if(!rows.length)return '<div class="empty">No employees matched this selection.</div>';
-  return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Salary Divisor (Days in Month)</th><th class="num">Selected Range (Days)</th><th class="num">Per Day Rate</th>'+
+  return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Days in Calendar Month</th><th class="num">Salary Divisor (Selected Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
      '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
@@ -1891,7 +1891,7 @@ function pinTableHead(el){
   handler();
 }
 function prReportGrid(){
-  const headers=['Emp Code','Name','Department','Gross Salary','Salary Divisor (Days in Month)','Selected Range (Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Net Salary','Field Allowance','Gross Payable'];
+  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Net Salary','Field Allowance','Gross Payable'];
   const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
