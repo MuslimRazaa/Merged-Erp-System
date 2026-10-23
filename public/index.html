@@ -591,56 +591,114 @@ const S=(k,l,o,extra)=>({k,l,t:'select',o,...(extra||{})});
 const A=(k,l)=>({k,l,t:'area'});
 const A2=(k,l)=>({k,l,t:'area',half:1});  // textarea that stays in its column instead of spanning the row
 const FILEF=(k,l)=>({k,l,t:'file'});  // a single optional image/PDF attachment, right in the fields grid like any other field
-/* ============ single-attachment field (one image or PDF per field, not a multi-file panel) ============
-   Stored separately from the record itself (localStorage 'att1_<id>', same
-   pattern as the Employees photo's 'pic_<id>') so the main records array
-   stays small and fast to parse — the record only ever holds plain field
-   values. FILE_STAGE holds a picked-but-not-yet-saved file (or the string
-   'REMOVE' for an explicit removal) keyed by the input's DOM id, applied to
-   storage once Save actually runs and the record's id is known. */
+/* ============ single-attachment field (one image or PDF per field, not a
+   multi-file panel) — server-backed, same erp_record_files table/endpoints
+   the multi-file Attached Documents panel uses (routes/records.js), just
+   constrained to "at most one file per record" here in the JS. USED TO be
+   stored as a data: URL in localStorage ('att1_<id>') — an item's photo
+   only ever existed in the ONE browser that uploaded it, invisible to
+   every other sign-in/device even though the record itself (name, code,
+   price...) was already properly saved on the server. recMigrateLocal()
+   rescues anything already stuck there; every pick/save from here on goes
+   straight to the server.
+   FILE_SRV caches the one attached file's metadata per record id (null =
+   confirmed none, undefined = not loaded yet). FILE_STAGE holds a
+   picked-but-not-yet-uploaded Blob (or the string 'REMOVE' for an explicit
+   removal), keyed by the input's DOM id — applied once Save actually runs
+   and the record's id is known (fileFieldApplyStaged). */
 let FILE_STAGE={};
-function fileFieldGet(id){return lsGet('att1_'+id,null);}
-function fileFieldSet(id,v){lsSet('att1_'+id,v);}
+const FILE_SRV={};
+async function fileFieldLoad(k,id,domId){
+  if(!id)return;
+  try{
+    const list=await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files');
+    FILE_SRV[id]=list&&list.length?list[0]:null;
+  }catch(e){FILE_SRV[id]=null;}
+  if(domId){const hint=document.getElementById('file-hint-'+domId);if(hint)hint.innerHTML=fileFieldHintInner(k,id,domId);}
+  filePreviewRefresh(k,id);
+}
+function fileFieldHintInner(k,id,domId){
+  const fl=FILE_SRV[id];
+  if(!fl)return '';
+  return 'Current: '+esc(fl.name)+' — <a href="javascript:void(0)" onclick="attViewSrv(\''+k+'\',\''+id+'\','+fl.id+')">view</a> | <a href="javascript:void(0)" onclick="fileFieldClear(\''+domId+'\')">remove</a>';
+}
 function fileFieldPick(inputEl,domId){
   const f=inputEl.files&&inputEl.files[0];if(!f)return;
   const isImg=(f.type||'').startsWith('image/'),isPdf=f.type==='application/pdf';
   if(!isImg&&!isPdf){alert('Only images or PDF files are supported here.');inputEl.value='';return;}
-  if(isPdf&&f.size>3*1048576){alert('PDF is larger than 3 MB — attach a smaller copy.');inputEl.value='';return;}
-  const r=new FileReader();
-  r.onload=()=>{
-    if(isImg){
+  if(f.size>15*1048576){alert('File is larger than 15 MB — attach a smaller copy.');inputEl.value='';return;}
+  if(isImg){
+    const r=new FileReader();
+    r.onload=()=>{
       const img=new Image();
       img.onload=()=>{
-        const mx=480,sc=Math.min(1,mx/Math.max(img.width,img.height));
+        const mx=1600,sc=Math.min(1,mx/Math.max(img.width,img.height));
         const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
         cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
-        FILE_STAGE[domId]={name:f.name,type:'image/jpeg',size:f.size,data:cv.toDataURL('image/jpeg',0.82)};
-        fileFieldNote(domId,'Selected: '+f.name+' (will be saved)');
+        cv.toBlob(blob=>{
+          FILE_STAGE[domId]={name:f.name.replace(/\.[^.]+$/,'')+'.jpg',blob};
+          fileFieldNote(domId,'Selected: '+f.name+' (will be saved)');
+        },'image/jpeg',0.85);
       };
       img.src=r.result;
-    }else{
-      FILE_STAGE[domId]={name:f.name,type:f.type,size:f.size,data:r.result};
-      fileFieldNote(domId,'Selected: '+f.name+' (will be saved)');
-    }
-  };
-  r.readAsDataURL(f);
+    };
+    r.readAsDataURL(f);
+  }else{
+    FILE_STAGE[domId]={name:f.name,blob:f};
+    fileFieldNote(domId,'Selected: '+f.name+' (will be saved)');
+  }
 }
 function fileFieldClear(domId){FILE_STAGE[domId]='REMOVE';fileFieldNote(domId,'Will be removed on save.');}
 function fileFieldNote(domId,text){
   const el=document.getElementById(domId);if(!el)return;
-  let note=el.parentElement.querySelector('.file-sel-note');
-  if(!note){note=document.createElement('div');note.className='hint file-sel-note';note.style.marginTop='4px';el.insertAdjacentElement('afterend',note);}
+  let note=el.parentElement.querySelector('.file-pick-note');
+  if(!note){note=document.createElement('div');note.className='hint file-pick-note';note.style.marginTop='4px';el.insertAdjacentElement('afterend',note);}
   note.textContent=text;
 }
+// Applies one field's staged pick/removal AFTER the record itself is
+// confirmed saved (so the record id is definitely known). This field is
+// "at most one file", so a new pick first deletes whatever was already
+// attached, then uploads the new one; a REMOVE just deletes.
+async function fileFieldApplyStaged(k,id,domId){
+  const staged=FILE_STAGE[domId];
+  delete FILE_STAGE[domId];
+  if(!staged)return;
+  try{
+    const existing=await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files');
+    for(const ex of existing)await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+ex.id,{method:'DELETE'});
+    if(staged!=='REMOVE'){
+      const fd=new FormData();fd.append('files',staged.blob,staged.name);
+      await api('/api/records/'+k+'/'+encodeURIComponent(id)+'/files',{method:'POST',body:fd});
+    }
+    delete FILE_SRV[id];
+  }catch(e){toast('Attachment NOT saved — '+e.message,'err');}
+}
 /* Preview shown at the bottom of the View/Edit modal — small image, or an
-   inline PDF viewer — for whichever module has a FILEF() field. */
+   inline PDF viewer — for whichever module has a FILEF() field. Just a
+   placeholder here; filePreviewRefresh() (called once fileFieldLoad's
+   lookup resolves) fills it in. */
 function filePreviewHtml(id,m){
-  if(!m.fields.some(f=>f.t==='file'))return '';
-  const fl=id?fileFieldGet(id):null;
-  if(!fl)return '';
-  if((fl.type||'').startsWith('image/'))return '<div style="margin-top:14px"><img src="'+fl.data+'" alt="" style="max-width:160px;max-height:160px;border-radius:8px;display:block"></div>';
-  if(fl.type==='application/pdf')return '<div style="margin-top:14px"><div class="hint" style="margin-bottom:6px">'+esc(fl.name)+'</div><iframe src="'+fl.data+'" style="width:100%;height:420px;border:1px solid var(--line);border-radius:8px"></iframe></div>';
-  return '<div class="hint" style="margin-top:14px">Attached: '+esc(fl.name)+'</div>';
+  if(!m.fields.some(f=>f.t==='file')||!id)return '';
+  return '<div id="file-preview-'+id+'"></div>';
+}
+async function filePreviewRefresh(k,id){
+  const el=document.getElementById('file-preview-'+id);if(!el)return;
+  const fl=FILE_SRV[id];
+  if(!fl){el.innerHTML='';return;}
+  try{
+    const res=await fetch('/api/records/'+k+'/'+encodeURIComponent(id)+'/files/'+fl.id+'/download',{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+    if(!res.ok)throw new Error('download failed');
+    const url=URL.createObjectURL(await res.blob());
+    if((fl.type||'').startsWith('image/'))el.innerHTML='<div style="margin-top:14px"><img src="'+url+'" alt="" style="max-width:220px;max-height:220px;border-radius:8px;display:block"></div>';
+    else if(fl.type==='application/pdf')el.innerHTML='<div style="margin-top:14px"><div class="hint" style="margin-bottom:6px">'+esc(fl.name)+'</div><iframe src="'+url+'" style="width:100%;height:420px;border:1px solid var(--line);border-radius:8px"></iframe></div>';
+    else el.innerHTML='<div class="hint" style="margin-top:14px">Attached: '+esc(fl.name)+'</div>';
+  }catch(e){el.innerHTML='<div class="hint" style="margin-top:14px;color:#C2372B">Could not load attachment preview.</div>';}
+}
+const FILE_SUMMARY={}; // module -> {recordId: count} | undefined (not loaded)
+async function fileSummaryLoad(k){
+  try{FILE_SUMMARY[k]=await api('/api/records/'+k+'/files-summary');}
+  catch(e){FILE_SUMMARY[k]={};}
+  if(modKey()===k&&!editId)renderListOnly();
 }
 /* Auto-numbered record counter — a plain running number per module.
    Assigned once, when the record is first saved (highest so far + 1), and
@@ -5419,21 +5477,49 @@ const REC_AT={},REC_BUSY={};
    first time it's reached. INSERT-IGNORE on the server, so it never
    overwrites or duplicates anything already there. */
 async function recMigrateLocal(k){
-  if(lsGet('recmig_'+k,false))return;
-  const local=coll(k);
-  if(local.length)await api('/api/records/'+k+'/import',{method:'POST',body:JSON.stringify({records:local})});
-  for(const rec of local){
-    const files=attGet(rec.id);
-    while(files.length){
-      const f=files[0];
-      const blob=await (await fetch(f.data)).blob();
-      const fd=new FormData();fd.append('files',blob,f.name);
-      await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files',{method:'POST',body:fd});
-      files.shift();attSet(rec.id,files); // drop each local copy only after the server has it
+  if(!lsGet('recmig_'+k,false)){
+    const local=coll(k);
+    if(local.length)await api('/api/records/'+k+'/import',{method:'POST',body:JSON.stringify({records:local})});
+    for(const rec of local){
+      const files=attGet(rec.id);
+      while(files.length){
+        const f=files[0];
+        const blob=await (await fetch(f.data)).blob();
+        const fd=new FormData();fd.append('files',blob,f.name);
+        await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files',{method:'POST',body:fd});
+        files.shift();attSet(rec.id,files); // drop each local copy only after the server has it
+      }
+      try{localStorage.removeItem(P+'att_'+rec.id);}catch(e){}
     }
-    try{localStorage.removeItem(P+'att_'+rec.id);}catch(e){}
+    lsSet('recmig_'+k,true);
   }
-  lsSet('recmig_'+k,true);
+  // Item Master's single-attachment field (FILEF/'att1_<id>') used to be
+  // localStorage-only — same kind of rescue as above, just a different key
+  // and gated separately (a browser that already finished the main
+  // migration above, before this fix existed, would otherwise never run
+  // this part and a photo someone already attached would stay orphaned).
+  if(!lsGet('recmig1_'+k,false)){
+    const hasFileField=MODULES[k]&&MODULES[k].fields.some(f=>f.t==='file');
+    if(hasFileField){
+      for(const rec of coll(k)){
+        const fl=lsGet('att1_'+rec.id,null);
+        if(fl&&fl.data){
+          try{
+            // Another browser/device may have already migrated this exact
+            // record's attachment — never add a second file on top of it.
+            const already=await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files');
+            if(!already.length){
+              const blob=await (await fetch(fl.data)).blob();
+              const fd=new FormData();fd.append('files',blob,fl.name);
+              await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files',{method:'POST',body:fd});
+            }
+          }catch(e){console.warn('Attachment migrate failed for',rec.id,e.message);}
+        }
+        try{localStorage.removeItem(P+'att1_'+rec.id);}catch(e){}
+      }
+    }
+    lsSet('recmig1_'+k,true);
+  }
 }
 async function recPull(k,force){
   if(REC_BUSY[k])return REC_BUSY[k];
@@ -5729,10 +5815,11 @@ function fieldInput(f,v,idPrefix,onSelectChange){
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
   if(f.t==='file'){
     // v is the record's id here (passed in by the caller), not a field
-    // value — there's nothing to look up yet for a brand new record.
-    const existing=v?fileFieldGet(v):null;
+    // value. The hint div starts empty — fileFieldLoad() (called by whoever
+    // rendered this, once it's actually in the DOM) fills it in once the
+    // server lookup resolves; nothing to look up yet for a brand new record.
     return '<input type="file" id="'+idPrefix+f.k+'" accept="image/*,application/pdf" onchange="fileFieldPick(this,\''+idPrefix+f.k+'\')">'+
-      (existing?'<div class="hint" style="margin-top:4px">Current: '+esc(existing.name)+' — <a href="javascript:void(0)" onclick="fileFieldClear(\''+idPrefix+f.k+'\')">remove</a></div>':'');
+      '<div class="hint file-sel-note" id="file-hint-'+idPrefix+f.k+'" style="margin-top:4px"></div>';
   }
   return '<input id="'+idPrefix+f.k+'" type="'+(f.t==='number'?'number':f.t==='date'?'date':'text')+'"'+(f.t==='number'?' step="0.01"':'')+(f.t==='number'&&f.nospin?' class="nospin-num"':'')+' value="'+esc(v)+'"'+(f.ph?' placeholder="'+esc(f.ph)+'"':'')+'>';
 }
@@ -5815,22 +5902,24 @@ function renderModule(){
   const list=m.nolist?'':'<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
     expBtns('list-zone',k)+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
-    '<div class="tblwrap" id="list-zone">'+listTable(m,rows)+'</div></div></div>';
+    '<div class="tblwrap" id="list-zone">'+listTable(m,rows,k)+'</div></div></div>';
   document.getElementById('content').innerHTML=kpis+form+list;
   if(watchedFields.size)applyConditionalFields(m,'f-');
   if(m.polines)poSyncAmountField();
+  if(m.fields.some(f=>f.t==='file'))fileSummaryLoad(k);
 }
-function listTable(m,rows){
+function listTable(m,rows,k){
   if(!rows.length)return '<div class="empty">No records yet — add the first one above.</div>';
   const cols=m.list;
   const label=k2=>{const f=m.fields.find(f=>f.k===k2);return f?f.l:({amount:'Amount',attachment:'Attachment'}[k2]||k2);};
   const isNumCol=c=>{const f=m.fields.find(f=>f.k===c);return (f&&f.t==='number')||(!f&&c==='amount');};
   const ac=m.actionsCol;
+  const fsum=FILE_SUMMARY[k];
   return '<table><thead><tr>'+cols.map(c=>'<th'+(isNumCol(c)?' class="num"':'')+'>'+esc(label(c))+'</th>').join('')+'<th class="no-print">'+(ac?'Actions':'')+'</th></tr></thead><tbody>'+
     (m.list_presorted?rows.slice():rows.slice().reverse()).map(r=>'<tr'+(ac?'':' class="rowlink" onclick="editRec(\''+r.id+'\')"')+'>'+cols.map(c=>{
-      // Virtual column — the file itself lives in separate storage (see
-      // FILEF()/fileFieldGet), never as a plain value on the record.
-      if(c==='attachment'){const has=!!fileFieldGet(r.id);return '<td><span class="pill '+(has?'g':'')+'">'+(has?'Yes':'No')+'</span></td>';}
+      // Virtual column — the file itself lives in erp_record_files, never
+      // as a plain value on the record (see FILE_SUMMARY/fileSummaryLoad).
+      if(c==='attachment'){const has=!!(fsum&&fsum[r.id]);return '<td><span class="pill '+(has?'g':'')+'">'+(fsum?(has?'Yes':'No'):'…')+'</span></td>';}
       const f=m.fields.find(f=>f.k===c);let v=r[c];
       if(f&&f.t==='computed')v=f.fn(r);
       if(m.badge&&v!=null&&v!==''&&String(v)===String(m.badge(r))){
@@ -5854,6 +5943,7 @@ function viewRec(id){
     return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><div style="flex:0 0 160px;color:var(--faint,#98A2B3);font-size:12.5px">'+esc(f.l)+'</div><div style="flex:1;font-size:13px">'+esc(v||'—')+'</div></div>';
   }).join('');
   document.getElementById('recview-body').innerHTML=rows+filePreviewHtml(id,m);
+  if(m.fields.some(f=>f.t==='file'))fileFieldLoad(k,id,null);
   openModal('recviewmodal');
 }
 let REC_EDIT_ID=null;
@@ -5870,6 +5960,7 @@ function editRecModal(id){
     filePreviewHtml(id,m);
   document.getElementById('recedit-err').style.display='none';
   if(watchedFields.size)applyConditionalFields(m,'mf-');
+  m.fields.filter(f=>f.t==='file').forEach(f=>fileFieldLoad(k,id,'mf-'+f.k));
   openModal('recimodal');
 }
 async function recEditSave(){
@@ -5882,15 +5973,12 @@ async function recEditSave(){
   err.style.display='none';
   m.fields.forEach(f=>{if(f.t==='computed'||f.t==='file')return;const el=document.getElementById('mf-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
-  m.fields.filter(f=>f.t==='file').forEach(f=>{
-    const staged=FILE_STAGE['mf-'+f.k];
-    if(staged==='REMOVE')fileFieldSet(rec.id,null);
-    else if(staged)fileFieldSet(rec.id,staged);
-    delete FILE_STAGE['mf-'+f.k];
-  });
+  // File fields live in erp_record_files, applied below AFTER the record
+  // itself is confirmed saved — see fileFieldApplyStaged.
   if(isSrv(k)){
     try{
       const saved=await api('/api/records/'+k+'/'+encodeURIComponent(rec.id),{method:'PUT',body:JSON.stringify(rec)});
+      await Promise.all(m.fields.filter(f=>f.t==='file').map(f=>fileFieldApplyStaged(k,saved.id,'mf-'+f.k)));
       const i=data.findIndex(x=>x.id===saved.id);if(i>=0)data[i]=saved;
       collSet(k,data);REC_AT[k]=0;
       closeModal('recimodal');renderListOnly();toast('Updated.','ok');
@@ -5913,7 +6001,7 @@ function renderListOnly(){
   const q=filterQ.toLowerCase();
   const rows=coll(k).filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
   if(m.sort)rows.sort(m.sort);
-  const z=document.getElementById('list-zone');if(z)z.innerHTML=listTable(m,rows);
+  const z=document.getElementById('list-zone');if(z)z.innerHTML=listTable(m,rows,k);
 }
 async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
@@ -5927,14 +6015,9 @@ async function saveRec(){
   const prevErpRole=rec.erprole,prevShiftStart=rec.shiftstart; // snapshot BEFORE the form overwrites — only push what actually changed
   m.fields.forEach(f=>{if(f.t==='computed'||f.t==='file')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
-  // File fields live in separate storage keyed by the record's (now-known) id
-  // — never on the record itself — so there's nothing to assign to rec[f.k].
-  m.fields.filter(f=>f.t==='file').forEach(f=>{
-    const staged=FILE_STAGE['f-'+f.k];
-    if(staged==='REMOVE')fileFieldSet(rec.id,null);
-    else if(staged)fileFieldSet(rec.id,staged);
-    delete FILE_STAGE['f-'+f.k];
-  });
+  // File fields live in erp_record_files, applied below AFTER the record
+  // itself is confirmed saved (so its id is definitely known) — see
+  // fileFieldApplyStaged. Nothing to assign to rec[f.k] here.
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
@@ -5943,6 +6026,7 @@ async function saveRec(){
   if(isSrv(k)){
     try{
       const saved=await api('/api/records/'+k+(wasNew?'':'/'+encodeURIComponent(rec.id)),{method:wasNew?'POST':'PUT',body:JSON.stringify(rec)});
+      await Promise.all(m.fields.filter(f=>f.t==='file').map(f=>fileFieldApplyStaged(k,saved.id,'f-'+f.k)));
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
       collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');

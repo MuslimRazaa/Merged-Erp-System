@@ -571,7 +571,7 @@ const { sendMail, mailConfigured } = require('../mailer');
 // not a bug. The loan instalment (row.loanId/row.loanDeduction) is already
 // LOCKED at save time too — POST /save actually posted it as a real
 // erp_loan_payments row, so re-downloading this payslip never re-deducts it.
-async function buildPayslipData(row, monthLabel) {
+async function buildPayslipData(row, monthLabel, fromDate, toDate) {
   const [[p]] = await pool.query(
     `SELECT designation, join_date, bank_name, account_no, salary, hra, utility_allowance
      FROM erp_employee_profile WHERE employee_id = ?`, [row.employeeId]
@@ -633,7 +633,7 @@ async function buildPayslipData(row, monthLabel) {
   return {
     employeeCode: row.employeeCode,
     name: row.employeeName,
-    dateOfJoining: profile.join_date ? dmyMon(dateOnly(profile.join_date)) : '',
+    payslipDateRange: (fromDate && toDate) ? (dmyMon(fromDate) + ' to ' + dmyMon(toDate)) : '',
     designation: profile.designation || '',
     department: row.department || '',
     bankName: profile.bank_name || '',
@@ -671,7 +671,7 @@ router.get('/saved/:id/payslip/:employeeId', requireHr, async (req, res) => {
   const report = JSON.parse(run.data);
   const row = (report.rows || []).find((r) => String(r.employeeId) === String(req.params.employeeId));
   if (!row) return res.status(404).json({ error: 'That employee is not in this payroll run.' });
-  const data = await buildPayslipData(row, run.month_label);
+  const data = await buildPayslipData(row, run.month_label, dateOnly(run.from_date), dateOnly(run.to_date));
   const bytes = buildPayslipPdf(data, row.employeeCode);
   await audit(req.erpUser.employeeId, 'payslip-downloaded', `${run.month_label}: ${row.employeeName}`);
   res.setHeader('Content-Type', 'application/pdf');
@@ -713,7 +713,7 @@ router.post('/saved/:id/payslips/send', requireHr, async (req, res) => {
         continue;
       }
       try {
-        const data = await buildPayslipData(row, run.month_label);
+        const data = await buildPayslipData(row, run.month_label, dateOnly(run.from_date), dateOnly(run.to_date));
         const bytes = buildPayslipPdf(data, row.employeeCode);
         await sendMail({
           to: email,

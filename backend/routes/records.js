@@ -135,6 +135,20 @@ router.delete('/:module/:id', requireWrite, async (req, res) => {
 /* ---------------- attached documents ---------------- */
 const fileMeta = (f) => ({ id: f.id, name: f.file_name, type: f.mime_type, size: f.file_size, at: f.uploaded_at });
 
+// GET /api/records/:module/files-summary — { recordId: fileCount, ... } for
+// every record in this module that has at least one file, in one request —
+// lets a list screen show a per-row "has attachment" pill without an N+1
+// request per row.
+router.get('/:module/files-summary', async (req, res) => {
+  const [rows] = await pool.query(
+    'SELECT record_id, COUNT(*) c FROM erp_record_files WHERE module = ? GROUP BY record_id',
+    [req.params.module]
+  );
+  const out = {};
+  rows.forEach((r) => { out[r.record_id] = r.c; });
+  res.json(out);
+});
+
 router.get('/:module/:id/files', async (req, res) => {
   const [rows] = await pool.query(
     'SELECT id, file_name, mime_type, file_size, uploaded_at FROM erp_record_files WHERE module = ? AND record_id = ? ORDER BY id',

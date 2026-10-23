@@ -11,11 +11,22 @@
    profile/loan lookups, this just lays it out).
    ============================================================ */
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const { PdfDoc } = require('./pdfDoc');
 
 const WO_CO_NAME_1 = 'PREMIER TUBULAR';
 const WO_CO_NAME_2 = 'INSPECTION SERVICES (PVT.) LTD';
-const WO_TAGLINE = 'THE STRONGEST LINK';
+
+// Loaded once at startup, not per-PDF — same 18KB JPEG embedded in every
+// payslip, no reason to re-read it from disk on every request.
+let LOGO_DATA_URL = null;
+try {
+  const logoBytes = fs.readFileSync(path.join(__dirname, 'assets', 'ptisLogo.jpg'));
+  LOGO_DATA_URL = 'data:image/jpeg;base64,' + logoBytes.toString('base64');
+} catch (e) {
+  console.error('[payslip] could not load assets/ptisLogo.jpg — falling back to a "PT" text mark:', e.message);
+}
 
 // Brand palette — same navy/red already used elsewhere in the ERP's own UI
 // (public/index.html's --side / --rose CSS variables), so the payslip
@@ -80,15 +91,23 @@ function buildPayslipPdf(data, password) {
     [doc.w * 0.78, doc.h - headerH],
   ], RED_DARK);
 
-  // logo mark
-  doc.roundedRect(L, doc.h - 36 - 56, 56, 56, 14, '#FFFFFF');
-  doc.textC(L + 28, doc.h - 36 - 56 + 20, 'PT', 20, true, NAVY);
+  // logo mark — real company logo (ptisLogo.jpg, 300x200) on a white
+  // rounded card, same landscape aspect ratio so it's never stretched.
+  // Falls back to a plain "PT" text mark if the file couldn't be read.
+  const logoW = 76, logoH = 52, logoPad = 5;
+  const logoX = L, logoY = doc.h - 36 - logoH;
+  doc.roundedRect(logoX, logoY, logoW, logoH, 12, '#FFFFFF');
+  if (LOGO_DATA_URL) {
+    doc.imageAt(LOGO_DATA_URL, logoX + logoPad, logoY + logoPad, logoW - 2 * logoPad, logoH - 2 * logoPad);
+  } else {
+    doc.textC(logoX + logoW / 2, logoY + logoH / 2 - 7, 'PT', 20, true, NAVY);
+  }
 
-  // company name + tagline
-  const nameX = L + 70;
-  doc.text(nameX, TY(42), WO_CO_NAME_1, 15, true, '#FFFFFF');
-  doc.text(nameX, TY(59), WO_CO_NAME_2, 11, true, '#FFFFFF');
-  doc.text(nameX, TY(76), WO_TAGLINE, 7.5, false, '#E7CFCB');
+  // company name — no separate tagline line here, the logo image itself
+  // already carries "The Strongest Link".
+  const nameX = logoX + logoW + 14;
+  doc.text(nameX, TY(48), WO_CO_NAME_1, 15, true, '#FFFFFF');
+  doc.text(nameX, TY(66), WO_CO_NAME_2, 11, true, '#FFFFFF');
 
   // PAY SLIP badge, top-right
   const badgeW = 150, badgeH = 42;
@@ -118,7 +137,7 @@ function buildPayslipPdf(data, password) {
   const infoRows = [
     ['Employee Code', data.employeeCode],
     ['Name', data.name],
-    ['Date of Joining', data.dateOfJoining],
+    ['Payslip Date', data.payslipDateRange],
     ['Designation', data.designation],
     ['Department', data.department],
     ['Bank Name', data.bankName],
