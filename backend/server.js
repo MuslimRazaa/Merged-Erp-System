@@ -102,21 +102,38 @@ app.use('/api/employee-files', employeeFilesRouter);
 // with that package risked crashing the whole app if a deploy's
 // `npm install` step didn't run, which zlib (always present in Node core)
 // can't.
-const GZIPPED_ASSETS = new Map(); // relative filename -> {raw, gzipped, contentType}
-for (const [name, contentType] of [
+// Re-gzipped when the file on disk changes, not only at startup. Caching it
+// once meant an edited front end kept being served as it was when the
+// process started: the page looked unchanged, which reads as "the change
+// didn't work" rather than "the server is still holding the old copy" — a
+// whole afternoon can go into chasing that. A stat() per request on three
+// files costs nothing next to gzipping two megabytes, and the gzip only
+// happens again when the bytes actually differ.
+const ASSET_TYPES = [
   ['index.html', 'text/html; charset=UTF-8'],
   ['premier-erp.html', 'text/html; charset=UTF-8'],
   ['ir-drawings.js', 'application/javascript; charset=UTF-8'],
-]) {
+];
+const GZIPPED_ASSETS = new Map(); // relative filename -> {raw, gzipped, contentType, mtimeMs, size}
+function loadGzippedAsset(name, contentType) {
   const abs = path.join(PUBLIC_DIR, name);
-  if (fs.existsSync(abs)) {
-    const raw = fs.readFileSync(abs);
-    GZIPPED_ASSETS.set(name, { raw, gzipped: zlib.gzipSync(raw), contentType });
-  }
+  let st;
+  try { st = fs.statSync(abs); } catch (e) { return null; }
+  const have = GZIPPED_ASSETS.get(name);
+  if (have && have.mtimeMs === st.mtimeMs && have.size === st.size) return have;
+  const raw = fs.readFileSync(abs);
+  const entry = { raw, gzipped: zlib.gzipSync(raw), contentType,
+                  mtimeMs: st.mtimeMs, size: st.size };
+  GZIPPED_ASSETS.set(name, entry);
+  if (have) console.log('[assets] re-read ' + name + ' (' + raw.length + ' bytes)');
+  return entry;
 }
+for (const [name, contentType] of ASSET_TYPES) loadGzippedAsset(name, contentType);
 function serveGzippedAsset(name) {
+  const contentType = (ASSET_TYPES.find((a) => a[0] === name) || [])[1];
   return (req, res) => {
-    const entry = GZIPPED_ASSETS.get(name);
+    // If the file has been deleted since startup, the copy in hand still works.
+    const entry = loadGzippedAsset(name, contentType) || GZIPPED_ASSETS.get(name);
     res.setHeader('Content-Type', entry.contentType);
     if ((req.headers['accept-encoding'] || '').includes('gzip')) {
       res.setHeader('Content-Encoding', 'gzip');
