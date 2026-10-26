@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Premier ERP — Operations, Compliance & Accounting</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b3b6f">
+<meta name="application-name" content="PTIS Inspection">
+<link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -291,7 +296,7 @@ body.locked #app{display:none}
       <span id="userchip"></span>
       <div class="chip-sync offline" id="syncchip"><div class="dot"></div><span id="synctext">Local only</span></div>
       <button class="btn ghost small" onclick="syncNow()">Sync now</button>
-      <button class="btn ghost small" onclick="openModal('syncmodal')" title="Server settings">⚙</button>
+      <button class="btn ghost small" onclick="offlineWhoRender();openModal('syncmodal')" title="Server settings">⚙</button>
       <button class="btn ghost small" onclick="backup()">Backup</button>
       <button class="btn ghost small" onclick="document.getElementById('restore-file').click()">Restore</button>
       <input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreFile(event)">
@@ -301,6 +306,7 @@ body.locked #app{display:none}
 </main>
 </div>
 
+<div id="swbar-slot"></div>
 <div class="modal" id="syncmodal"><div class="box">
   <h3>Server sync settings</h3>
   <p>All work is always saved in this browser first. With a server URL set, changes push automatically when online and pull on load. Point at the tubular-suite backend <code>/api</code> base URL.</p>
@@ -308,6 +314,22 @@ body.locked #app{display:none}
   <div class="field" style="margin-top:9px"><label>API token</label><input id="sync-token" placeholder="Bearer token"></div>
   <div class="field" style="margin-top:9px"><label>Auto-sync interval (minutes, 0 = manual)</label><input id="sync-interval" type="number" value="5" min="0"></div>
   <div class="synclog" id="synclog">No sync activity yet.</div>
+  <div class="field" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    <label>Offline app on this machine</label>
+    <div id="sw-panel" style="font-size:12.5px;line-height:1.5"></div>
+  </div>
+  <div class="field" id="sw-release-wrap" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    <label>Version released to the field</label>
+    <div id="sw-release" style="font-size:12.5px;line-height:1.5"></div>
+  </div>
+  <div class="field" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    <label>Waiting to reach the server</label>
+    <div id="outbox-list" style="font-size:12.5px;line-height:1.5"></div>
+  </div>
+  <div class="field" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    <label>Offline sign-in on this machine</label>
+    <div id="offline-who" style="font-size:12.5px;line-height:1.5"></div>
+  </div>
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('syncmodal')">Close</button><button class="btn" onclick="saveSyncSettings()">Save settings</button></div>
 </div></div>
 
@@ -580,8 +602,106 @@ body.locked #app{display:none}
    sync engine can push/pull each set independently.
    ================================================================ */
 const P='perp_';
-function lsGet(k,d){try{const v=JSON.parse(localStorage.getItem(P+k));return v==null?d:v;}catch(e){return d;}}
-function lsSet(k,v){try{localStorage.setItem(P+k,JSON.stringify(v));}catch(e){alert('Save failed: '+e.message);}}
+/* ---- where the data actually lives -------------------------------------
+   localStorage holds about five megabytes for the whole origin. One
+   inspection report with its photographs can be a megabyte, so a few
+   reports in and a save fails - and in the field there is nobody to fix
+   it. IndexedDB has the room, so that is the store of record.
+
+   lsGet stays a synchronous read, because everything in this file reads
+   it that way: every stored key is kept in memory and read from there.
+   Writes go to memory at once, to IndexedDB a moment later, and to
+   localStorage only while they fit - the code that runs as this file is
+   parsed reads storage before IndexedDB can be opened, and a browser with
+   IndexedDB blocked must still work. */
+const MEM=new Map();
+(function(){        // what this machine already holds, before anything asks
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith(P))MEM.set(k,localStorage.getItem(k));
+    }
+  }catch(e){}
+})();
+let IDB=null;
+function kvGet(full){const v=MEM.get(full);return v===undefined?null:v;}
+function kvSet(full,str){
+  MEM.set(full,str);
+  idbPut(full,str);
+  /* While it fits. A full localStorage is no longer an error - the value
+     is safe in IndexedDB - so it is only worth telling the user when
+     there is no IndexedDB to fall back on. */
+  try{localStorage.setItem(full,str);}
+  catch(e){ if(!IDB&&IDB_OPENED)alert('Save failed: '+e.message); }
+}
+function kvDel(full){
+  MEM.delete(full);
+  idbPut(full,null);
+  try{localStorage.removeItem(full);}catch(e){}
+}
+function lsGet(k,d){try{const v=JSON.parse(kvGet(P+k));return v==null?d:v;}catch(e){return d;}}
+function lsSet(k,v){kvSet(P+k,JSON.stringify(v));}
+function lsDel(k){kvDel(P+k);}
+/* ---- IndexedDB ---------------------------------------------------------
+   Writes are batched into one transaction per tick: saving a report
+   rewrites its whole collection, and a screen can do that several times
+   in a row. A transaction that fails puts its keys back in the queue, so
+   the next write retries them rather than dropping them. */
+let IDB_OPENED=false,IDB_Q=new Map(),IDB_T=null;
+function idbOpen(){
+  return new Promise(res=>{
+    let rq;
+    try{rq=indexedDB.open('premier_erp',1);}catch(e){return res(null);}
+    rq.onupgradeneeded=()=>{
+      const db=rq.result;
+      if(!db.objectStoreNames.contains('kv'))db.createObjectStore('kv');
+    };
+    rq.onsuccess=()=>res(rq.result);
+    rq.onerror=()=>res(null);
+    rq.onblocked=()=>res(null);
+  });
+}
+function idbPut(full,str){
+  IDB_Q.set(full,str);                     // queued until the store opens
+  if(IDB&&!IDB_T)IDB_T=setTimeout(idbFlush,0);
+}
+function idbFlush(){
+  IDB_T=null;
+  if(!IDB||!IDB_Q.size)return;
+  const batch=IDB_Q;IDB_Q=new Map();
+  const back=()=>batch.forEach((v,k)=>{if(!IDB_Q.has(k))IDB_Q.set(k,v);});
+  try{
+    const st=IDB.transaction('kv','readwrite').objectStore('kv');
+    batch.forEach((v,k)=>{ if(v==null)st.delete(k); else st.put(v,k); });
+    st.transaction.onerror=back;
+    st.transaction.onabort=back;
+  }catch(e){ back(); }
+}
+/* Open the store and read it into memory. Where both stores hold a key,
+   IndexedDB wins: it is the one that kept working when localStorage
+   filled up. Anything only localStorage has is carried across, which is
+   what happens the first time a machine runs this version. */
+async function idbBoot(){
+  IDB=await idbOpen();
+  IDB_OPENED=true;
+  if(!IDB){IDB_Q.clear();return false;}
+  const rows=await new Promise(res=>{
+    const out=[];
+    try{
+      const cur=IDB.transaction('kv','readonly').objectStore('kv').openCursor();
+      cur.onsuccess=()=>{const c=cur.result;if(!c)return res(out);out.push([c.key,c.value]);c.continue();};
+      cur.onerror=()=>res(out);
+    }catch(e){res(out);}
+  });
+  const fromIdb=new Set();
+  rows.forEach(([k,v])=>{
+    if(typeof k==='string'&&k.startsWith(P)&&typeof v==='string'){MEM.set(k,v);fromIdb.add(k);}
+  });
+  // first run on this machine: what only localStorage has moves in
+  [...MEM.keys()].forEach(k=>{if(!fromIdb.has(k)&&!IDB_Q.has(k))IDB_Q.set(k,MEM.get(k));});
+  if(IDB_Q.size)idbFlush();
+  return fromIdb.size>0;
+}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // Toast notification — replaces bare alert()/inline error text for things the
 // user should notice but not have to dismiss with a click. type: 'ok'|'err'|'info'.
@@ -810,8 +930,11 @@ apiq2:{g:'Compliance',ic:'✦',name:'API Q2 Clause Matrix',fields:[S('clause','A
 };
 function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(+r.allow||0)+(+r.ot||0)-(+r.ded||0)).toFixed(2)};}
 
-/* ---- migration: calibration equipment id field renamed to eqid ---- */
-(function(){
+/* ---- migration: calibration equipment id field renamed to eqid ----
+   Called from the boot sequence, once the store has been read: run while
+   this file was parsed it would only see what localStorage happened to
+   hold, and stamp an empty eqid onto every other row. */
+function calibMigrate(){
   const rows=lsGet('calibrations',[]);let changed=false;
   rows.forEach(r=>{
     if(r.eqid===undefined&&r.id!==undefined&&!/^r[a-z0-9]{9,}$/.test(String(r.id))){
@@ -819,7 +942,7 @@ function C_NET(){return {k:'net',l:'Net pay',t:'computed',fn:r=>((+r.basic||0)+(
     }else if(r.eqid===undefined){r.eqid='';}
   });
   if(changed)lsSet('calibrations',rows);
-})();
+}
 
 /* ============ navigation / routing ============ */
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
@@ -836,6 +959,33 @@ const EXTRA_NAV={
   // 'Compliance':[{id:'dcr_list',ic:'🔁',name:'DCR'}]
 };
 let route=lsGet('ui_route','dashboard');
+/* The installed app's shortcuts open a screen directly: "New inspection
+   report" from the launcher should land on the form, not on whatever screen
+   was last used. It cannot be acted on here - canSee answers false for
+   everything until we know who this is - so it is noted and applied by
+   whoever establishes the session, and only if it names a screen they may
+   see. */
+let BOOT_GO=null;
+try{ BOOT_GO=new URLSearchParams(location.search).get('go')||null; }catch(e){}
+/* Is this the name of a screen that exists? The parameter comes in off the
+   address bar, so "can this role see the group it belongs to" is not
+   enough on its own: routeGroup answers 'Home' for anything it does not
+   recognise, so an unknown name would be accepted, written to ui_route,
+   and the app would open on a blank screen from then on. */
+function routeKnown(r){
+  if(!r||typeof r!=='string')return false;
+  if(r==='dashboard'||r==='users')return true;
+  if(r.startsWith('m_'))return !!MODULES[r.slice(2)];
+  return Object.keys(EXTRA_NAV).some(g=>(EXTRA_NAV[g]||[]).some(x=>
+    x.id===r||(x.children||[]).some(c=>c.id===r)));
+}
+function bootGoTake(){
+  if(!BOOT_GO)return false;
+  const want=BOOT_GO;BOOT_GO=null;       // once, not on every re-render
+  if(!routeKnown(want)||!canSee(routeGroup(want)))return false;
+  route=want;lsSet('ui_route',route);
+  return true;
+}
 // Explicit tab order for a group \u2014 a mix of EXTRA_NAV route ids (dedicated
 // backend-driven screens) and MODULES keys (generic localStorage CRUD
 // screens, rendered as 'm_'+key) in the exact sequence they should appear.
@@ -918,9 +1068,16 @@ async function api(path,opts={}){
   // the browser sets multipart/form-data with the correct boundary itself;
   // overriding it here would corrupt the upload.
   const isFormData=typeof FormData!=='undefined'&&opts.body instanceof FormData;
-  const res=await fetch(path,{...opts,headers:{...(isFormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
+  /* A request that never reached the server is marked `offline`, so a
+     caller can tell "the server said no" from "there is no server".
+     Everything that comes back with a status - 401, 403, 500 - is the
+     server's answer and stands on its own. */
+  let res;
+  try{
+    res=await fetch(path,{...opts,headers:{...(isFormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
+  }catch(e){throw Object.assign(new Error('No connection to the server.'),{offline:true,cause:e});}
   const body=await res.json().catch(()=>({}));
-  if(res.status===401){localStorage.removeItem('erp_jwt');throw new Error(body.error||'Session expired — please log in again.');}
+  if(res.status===401){localStorage.removeItem('erp_jwt');throw Object.assign(new Error(body.error||'Session expired \u2014 please log in again.'),{authFailed:true});}
   // Extra fields an endpoint's error body carries beyond .message (e.g.
   // payroll's {locked:true, monthLabel:'September 2026'}) ride along on the
   // thrown Error itself, so a caller that needs them doesn't have to
@@ -928,6 +1085,98 @@ async function api(path,opts={}){
   // are unaffected.
   if(!res.ok)throw Object.assign(new Error(body.error||res.statusText),body);
   return body;
+}
+/* ================================================================
+   SIGNING IN WITH NO INTERNET
+
+   An inspector on a remote site has to be able to open this app, and
+   /api/auth/login needs a network. So a machine is taught to check the
+   password itself.
+
+   At a successful online sign-in - the one moment the password is in hand
+   - PBKDF2-SHA256 is run over it against a fresh 16-byte salt, and the
+   salt and the derived bytes are stored. The password itself is never
+   stored and never derivable from what is: that is the whole point of a
+   slow KDF with a high iteration count. Signing in offline derives the
+   same bytes from what was typed and compares them.
+
+   The role and profile the server returned are kept beside the verifier,
+   so an offline session carries exactly the permissions the server last
+   granted - not more.
+
+   None of this involves the server and the server is unchanged.
+   ================================================================ */
+const OFF_ITER=310000;                      // deliberately slow to derive
+function offlineAble(){
+  // PBKDF2 lives in crypto.subtle, which browsers only expose on https or
+  // localhost - the same condition a service worker needs, so a correctly
+  // served install always has it.
+  return typeof crypto!=='undefined'&&crypto.subtle&&crypto.getRandomValues;
+}
+function offHex(buf){return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+function offBytes(hex){const o=new Uint8Array(hex.length/2);for(let i=0;i<o.length;i++)o[i]=parseInt(hex.substr(i*2,2),16);return o;}
+async function offDerive(pw,saltHex,iter){
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits(
+    {name:'PBKDF2',salt:offBytes(saltHex),iterations:iter,hash:'SHA-256'},key,256);
+  return offHex(bits);
+}
+/* Compared without leaking, through the difference, how much of it matched. */
+function offSame(a,b){
+  if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;
+  let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);
+  return d===0;
+}
+function offVault(){return lsGet('offline_auth',{});}
+function offVaultSet(v){lsSet('offline_auth',v);}
+/* Remember this sign-in, so the next one can happen with no network. */
+async function offlineRemember(employeeId,pw,user){
+  if(!offlineAble()||!employeeId||!pw)return false;
+  try{
+    const salt=offHex(crypto.getRandomValues(new Uint8Array(16)));
+    const hash=await offDerive(pw,salt,OFF_ITER);
+    const v=offVault();
+    v[String(employeeId).toLowerCase()]={salt,iter:OFF_ITER,hash,user,at:Date.now()};
+    offVaultSet(v);
+    return true;
+  }catch(e){console.warn('offline sign-in could not be prepared:',e.message);return false;}
+}
+/* Check a password against what this machine remembers. Returns the stored
+   user on a match, null on a mismatch, and undefined when there is nothing
+   remembered for that ID - three different things the caller has to say
+   three different ways. */
+async function offlineVerify(employeeId,pw){
+  const rec=offVault()[String(employeeId||'').toLowerCase()];
+  if(!rec||!rec.salt||!rec.hash)return undefined;
+  if(!offlineAble())return undefined;
+  try{
+    const hash=await offDerive(pw,rec.salt,rec.iter||OFF_ITER);
+    return offSame(hash,rec.hash)?rec.user:null;
+  }catch(e){return undefined;}
+}
+function offlineKnown(){return Object.keys(offVault()).length>0;}
+/* Deliberate, and separate from signing out: signing out in the field must
+   leave the inspector able to sign back in. */
+function offlineForget(){
+  if(!confirm('Forget offline sign-in on this machine?\n\nAfter this, signing in here will need a connection to the server until the next successful online sign-in.'))return;
+  lsDel('offline_auth');
+  offlineWhoRender();
+  toast('This machine will no longer sign in offline.','ok');
+}
+/* An offline session has no server token, so nothing that needs one is
+   attempted; everything else reads the local store and works. */
+function offlineApply(user){
+  SESSION={uid:user.id,user:user.employeeId,name:user.name,role:user.role,
+           desig:user.desig||'',at:new Date().toISOString(),offline:true};
+  lsSet('session',SESSION);
+  document.getElementById('login').style.display='none';
+  document.body.classList.remove('locked');
+  if(!canSee(routeGroup(route)))route='dashboard';
+  bootGoTake();
+  const chip=document.getElementById('userchip');
+  if(chip)chip.outerHTML=userChip();
+  nav();render();
+  updateSyncBar();
 }
 function lerr(msg){const e=document.getElementById('l-err');e.textContent=msg;e.style.display='block';}
 /* ---------------- Admin / User login tabs ---------------- */
@@ -967,7 +1216,28 @@ async function doLogin(){
     if(LOGIN_TYPE==='admin'&&!admin)return lerr('This account does not have Administrator access. Use the User login instead.');
     if(LOGIN_TYPE==='user'&&admin)return lerr('This is an Administrator account. Use the Admin login instead.');
     applySession(r);
-  }catch(e){lerr(e.message);}
+    offlineRemember(employeeId,pw,r.user);   // so the next one needs no network
+  }catch(e){
+    /* The server said no - wrong password, no ERP role - and that answer
+       stands whether or not this machine could also check it. */
+    if(!e.offline)return lerr(e.message);
+    // No answer at all: fall back to what this machine remembers.
+    lerr('No connection to the server \u2014 checking this machine\u2019s records\u2026');
+    const user=await offlineVerify(employeeId,pw);
+    if(user===undefined){
+      return lerr(offlineKnown()
+        ?'No connection to the server, and this machine has no offline sign-in for '+employeeId+'. Sign in once with a connection first.'
+        :offlineAble()
+          ?'No connection to the server, and nobody has signed in on this machine yet. The first sign-in needs a connection.'
+          :'No connection to the server. Offline sign-in needs the app to be served over https (or from localhost) \u2014 tell your administrator.');
+    }
+    if(user===null)return lerr('Wrong employee ID or password.');
+    const admin=user.role==='Administrator';
+    if(LOGIN_TYPE==='admin'&&!admin)return lerr('This account does not have Administrator access. Use the User login instead.');
+    if(LOGIN_TYPE==='user'&&admin)return lerr('This is an Administrator account. Use the Admin login instead.');
+    offlineApply(user);
+    toast('Signed in offline \u2014 your work is saved on this machine and will sync when a connection returns.','info');
+  }
 }
 function applySession(r){
   localStorage.setItem('erp_jwt',r.token);
@@ -978,12 +1248,21 @@ function applySession(r){
   document.getElementById('login').style.display='none';
   document.body.classList.remove('locked');
   if(!canSee(routeGroup(route)))route='dashboard';
+  bootGoTake();
   const chip=document.getElementById('userchip');
   if(chip)chip.outerHTML=userChip();
   nav();render();
   pullSharedMaster();recBootstrap();
   updateSyncBar();scheduleAutoSync();
   lvPollPending();
+  /* There is a fresh token now. Anything the queue was holding because the
+     last one had expired goes straight away, rather than waiting for a
+     timer or for somebody to find the button. */
+  OB_HALT='';
+  obDrain().then(n=>{
+    if(n){syncLog('Sent '+n+' queued item(s).');render();}
+    obPanelRender();updateSyncBar();
+  });
   if(navigator.onLine)setTimeout(syncNow,800);
 }
 function logout(){
@@ -4206,7 +4485,7 @@ async function crmLoadQuotationRefs(){
 }
 let CRM_QREF_AT=0;
 function crmQuoteRefEnsure(){
-  if(Date.now()-CRM_QREF_AT<15000&&localStorage.getItem(P+'quotes')!=null)return;
+  if(Date.now()-CRM_QREF_AT<15000&&kvGet(P+'quotes')!=null)return;
   CRM_QREF_AT=Date.now();
   crmLoadQuotationRefs().then(()=>{if(route.startsWith('m_'))recRefreshRefs('quotes');}).catch(()=>{});
 }
@@ -5655,7 +5934,7 @@ async function recMigrateLocal(k){
         await api('/api/records/'+k+'/'+encodeURIComponent(rec.id)+'/files',{method:'POST',body:fd});
         files.shift();attSet(rec.id,files); // drop each local copy only after the server has it
       }
-      try{localStorage.removeItem(P+'att_'+rec.id);}catch(e){}
+      lsDel('att_'+rec.id);
     }
     lsSet('recmig_'+k,true);
   }
@@ -5681,7 +5960,7 @@ async function recMigrateLocal(k){
             }
           }catch(e){console.warn('Attachment migrate failed for',rec.id,e.message);}
         }
-        try{localStorage.removeItem(P+'att1_'+rec.id);}catch(e){}
+        lsDel('att1_'+rec.id);
       }
     }
     lsSet('recmig1_'+k,true);
@@ -5689,13 +5968,13 @@ async function recMigrateLocal(k){
 }
 async function recPull(k,force){
   if(REC_BUSY[k])return REC_BUSY[k];
-  if(!force&&REC_AT[k]&&localStorage.getItem(P+k)!=null&&Date.now()-REC_AT[k]<15000)return false; // never throttle an empty cache
+  if(!force&&REC_AT[k]&&kvGet(P+k)!=null&&Date.now()-REC_AT[k]<15000)return false; // never throttle an empty cache
   REC_BUSY[k]=(async()=>{
     try{
       await recMigrateLocal(k);
       const list=await api('/api/records/'+k);
       REC_AT[k]=Date.now();
-      if(localStorage.getItem(P+k)===JSON.stringify(list))return false;
+      if(kvGet(P+k)===JSON.stringify(list))return false;
       lsSet(k,list);return true;
     }catch(e){console.warn('records pull failed ('+k+'):',e.message);return false;}
     finally{delete REC_BUSY[k];}
@@ -5729,7 +6008,7 @@ async function recBootstrap(){
   const res=await Promise.all([...SERVER_MODS].filter(k=>MODULES[k]&&canSee(MODULES[k].g)).map(k=>recPull(k,true)));
   if(res.some(Boolean)&&!editId)render();
 }
-function recClearCache(){SERVER_MODS.forEach(k=>{try{localStorage.removeItem(P+k);}catch(e){}delete REC_AT[k];});try{localStorage.removeItem(P+'quotes');}catch(e){}CRM_QREF_AT=0;}
+function recClearCache(){SERVER_MODS.forEach(k=>{lsDel(k);delete REC_AT[k];});lsDel('quotes');CRM_QREF_AT=0;}
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
@@ -6190,13 +6469,34 @@ async function saveRec(){
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
+    const now=new Date().toISOString();
+    if(wasNew&&!rec.createdAt)rec.createdAt=now;
+    rec.updatedAt=now;
     try{
       const saved=await api('/api/records/'+k+(wasNew?'':'/'+encodeURIComponent(rec.id)),{method:wasNew?'POST':'PUT',body:JSON.stringify(rec)});
       await Promise.all(m.fields.filter(f=>f.t==='file').map(f=>fileFieldApplyStaged(k,saved.id,'f-'+f.k)));
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
       collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
-    }catch(e){toast('NOT saved — '+e.message,'err');} // form stays open with everything typed, nothing lost
+    }catch(e){
+      /* The server refused it - a Viewer account, a validation fault - and
+         that is worth stopping for, with the form still open and nothing
+         typed lost. */
+      if(!e.offline){toast('NOT saved \u2014 '+e.message,'err');return;}
+      /* But there is simply no connection, and a work order typed on a rig
+         has to survive that. It is written here, marked as waiting, and
+         queued. This used to write nothing at all: the inspector was told
+         it had not saved, offline, where there was nothing they could do,
+         and what they typed went when the form closed. */
+      rec._dirty=true;rec._sync='pending';
+      const cur=coll(k);const i=cur.findIndex(r=>r.id===rec.id);
+      if(i>=0)cur[i]=rec;else cur.push(rec);
+      collSet(k,cur);
+      obEnqueue({kind:'rec',module:k,recId:rec.id,
+                 label:rec.no||rec.code||rec.name||rec.id,body:JSON.stringify(rec)});
+      editId=null;render();
+      toast('No connection \u2014 saved on this machine and queued for the server.','info');
+    }
     return;
   }
   if(wasNew)data.push(rec);
@@ -6221,10 +6521,17 @@ async function delRec(id){
   const k=modKey();const rec=coll(k).find(r=>r.id===id);
   if(isSrv(k)){
     try{await api('/api/records/'+k+'/'+encodeURIComponent(id),{method:'DELETE'});}
-    catch(e){toast('NOT deleted — '+e.message,'err');return;}
+    catch(e){
+      if(!e.offline){toast('NOT deleted \u2014 '+e.message,'err');return;}
+      // offline: take it off this machine and queue the deletion
+      obEnqueue({kind:'del',module:k,recId:id});
+      collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;render();
+      toast('No connection \u2014 removed here and queued for the server.','info');
+      return;
+    }
     collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;render();toast('Deleted.','ok');return;
   }
-  collSet(k,coll(k).filter(r=>r.id!==id));try{localStorage.removeItem(P+'att_'+id);localStorage.removeItem(P+'pic_'+id);localStorage.removeItem(P+'att1_'+id);}catch(e){}render();
+  collSet(k,coll(k).filter(r=>r.id!==id));lsDel('att_'+id);lsDel('pic_'+id);lsDel('att1_'+id);render();
   if(k==='employees'&&rec&&rec.isoId){
     try{await api('/api/shared/employees/'+rec.isoId,{method:'DELETE'});}
     catch(e){alert('Deleted locally, but could NOT delete from ISO/LMS: '+e.message+'\nAsk an ERP Administrator to remove it from there too.');}
@@ -10188,16 +10495,24 @@ function irtFileDrop(i){ irtPendingFiles().splice(i,1); render(); }
 /* Sends the documents that were waiting. The caller takes them off the
    queue before filing starts, so a report that fails to reach the server
    cannot leave its document behind for the next one. */
-function irtFlushFiles(id,files){
-  files=files||[];
-  if(!files.length)return Promise.resolve();
-  const fd=new FormData();
-  files.forEach(f=>fd.append('files',f,f.name));
-  return api('/api/records/'+IR_LIB+'/'+encodeURIComponent(id)+'/files',{method:'POST',body:fd})
-    .then(()=>toast(files.length+' document(s) filed with the report.','ok'))
-    .catch(e=>toast('The report was saved, but its document was not — '+e.message+
-      '. Open the report in Saved Reports and attach it again.','err'));
+/* A File from a form input cannot be stored and cannot wait: it is a
+   handle on something the page is holding, and it is gone on reload. So the
+   bytes are read out and kept in the store beside the job that will send
+   them. */
+function irtQueueFile(recId,file){
+  const jobId=uid();
+  const r=new FileReader();
+  r.onload=()=>{
+    lsSet(obFileKey(jobId),{name:file.name,type:file.type,data:r.result});
+    obEnqueue({id:jobId,kind:'file',module:IR_LIB,recId,fileName:file.name});
+  };
+  r.onerror=()=>toast('Could not read "'+file.name+'" \u2014 attach it again from Saved Reports.','err');
+  r.readAsDataURL(file);
 }
+/* irtFlushFiles used to upload a report's documents here, in the .then() of
+   the report's own push - which is why, offline, they were cleared off the
+   card and never sent. The queue carries them now (irtQueueFile), and this
+   is gone rather than left lying about for someone to call again. */
 function irtAttachHtml(t){
   if(!t.attach)return '';
   /* A report already in the library has somewhere to keep a file, so it is
@@ -11392,22 +11707,28 @@ function irStore(){
   const rec=JSON.parse(JSON.stringify(IR));
   // a specimen that has been worked on and filed is somebody's report now
   delete rec._local;
+  const now=new Date().toISOString();
   if(!rec.id){rec.id=uid();}
-  rec.savedAt=new Date().toISOString();
+  /* When it was first filed and when it was last touched, kept apart: a
+     report amended three weeks later is still the report of that day's
+     inspection, and the library sorts by the one and the queue reasons
+     about the other. */
+  if(!rec.createdAt)rec.createdAt=now;
+  rec.updatedAt=now;
+  rec.savedAt=now;                       // what the library has always read
   const i=lib.findIndex(r=>r.id===rec.id);
   if(i>=0)lib[i]=rec;else lib.push(rec);
-  rec._dirty=true;                       // cleared once the server has it
+  rec._dirty=true;rec._sync='pending';   // cleared once the server has it
   lsSet('ir_library',lib);
-  // taken off the queue before anything is sent: if filing never reaches
-  // the server the document must not stay behind for the next report
+  /* The documents come off the entry card - they belong to this report now,
+     not to the next one - and go into the queue with it. They used to be
+     cleared here and uploaded only inside the push's .then(), so offline
+     they were cleared, never sent, and never mentioned again. */
   const att=irtPendingFiles().slice();
   irtPendingClear();
-  api('/api/records/'+IR_LIB,{method:'POST',body:JSON.stringify(irLibClean(rec))})
-    .then(()=>{const l=irLibLocal(),x=l.find(r=>r.id===rec.id);if(x){delete x._dirty;irLibSetLocal(l);}
-      // the record now exists on the server, so a document waiting on the
-      // entry card has somewhere to go
-      return irtFlushFiles(rec.id,att);})
-    .catch(e=>toast('Saved here, but not sent to the server yet \u2014 '+e.message,'err'));
+  obEnqueue({kind:'rec',module:IR_LIB,recId:rec.id,
+             label:rec.fields.no||rec.id,body:JSON.stringify(irLibClean(rec))});
+  att.forEach(f=>irtQueueFile(rec.id,f));
   // Filed — clear the form down to a blank report of the same type so the next
   // one can be typed straight away. The saved copy lives in the library; open
   // it from Saved Reports to amend it.
@@ -11428,6 +11749,403 @@ function irStore(){
    inspectors need. */
 const IR_LIB='ir_library';
 let IR_LIB_AT=0,IR_LIB_BUSY=null;
+/* ================================================================
+   THE OUTBOX
+
+   Everything that has to reach the server goes through here, and nothing
+   else talks to it on a save. A save writes to this machine and leaves a
+   job; the queue delivers it whenever there is a connection.
+
+   The queue lives in the store, so it survives a reload, a crash and a
+   week in a truck. A job is only taken off it once the server has
+   confirmed it - and because every record carries the id this browser
+   chose, and the server upserts by that id, sending one twice is harmless.
+
+   A job the server REFUSES is a different thing from a job that could not
+   be sent. The first is this job's own problem: it is marked, set aside
+   after a few attempts, and the queue goes on past it, so one unacceptable
+   report cannot hold up the ones filed after it. The second means there is
+   no connection, and the whole pass stops and waits.
+   ================================================================ */
+const OB_KEY='outbox',OB_GIVEUP=5;    // attempts before a refusal is set aside
+function obAll(){return lsGet(OB_KEY,[]);}
+function obSet(q){lsSet(OB_KEY,q);}
+function obLive(){return obAll().filter(j=>!j.blocked);}
+function obCount(){return obLive().length;}
+function obBlocked(){return obAll().filter(j=>j.blocked);}
+/* How many reports are waiting - the thing an inspector actually wants to
+   know. Counted by report, not by job: a report and its two photographs
+   are one report waiting, not three. */
+function obPendingReports(){
+  return new Set(obAll().filter(j=>j.module===IR_LIB&&!j.blocked).map(j=>j.recId)).size;
+}
+function obPendingFor(module,recId){
+  return obAll().some(j=>j.module===module&&j.recId===recId&&!j.blocked);
+}
+/* A file's bytes are too big to sit in the job, and a File object cannot be
+   stored at all, so the bytes go in the store under the job's own key. */
+function obFileKey(id){return 'ob_file_'+id;}
+function obEnqueue(job){
+  const q=obAll();
+  job.id=job.id||uid();
+  job.at=job.at||new Date().toISOString();
+  job.tries=0;job.lastErr='';delete job.blocked;
+  if(job.kind==='del'){
+    /* Deleted after being saved offline: the save never happened as far as
+       the server is concerned, so neither has to. */
+    const doomed=q.filter(j=>j.module===job.module&&j.recId===job.recId);
+    if(doomed.some(j=>j.kind==='rec')){
+      doomed.forEach(j=>{if(j.kind==='file')lsDel(obFileKey(j.id));});
+      obSet(q.filter(j=>!(j.module===job.module&&j.recId===job.recId)));
+      obBump();return null;
+    }
+  }
+  /* A record saved three times before a connection returns is sent once, as
+     it finally stands. Files are each their own job and never coalesce. */
+  if(job.kind!=='file'){
+    const i=q.findIndex(j=>j.kind===job.kind&&j.module===job.module&&j.recId===job.recId);
+    if(i>=0){q[i]=job;obSet(q);obBump();return job.id;}
+  }
+  q.push(job);obSet(q);obBump();
+  return job.id;
+}
+function obDrop(id){
+  obSet(obAll().filter(j=>j.id!==id));
+  lsDel(obFileKey(id));
+}
+function obNote(id,err,fatal){
+  const q=obAll(),j=q.find(x=>x.id===id);
+  if(!j)return;
+  j.tries=(j.tries||0)+1;
+  j.lastErr=err;
+  j.lastTry=new Date().toISOString();
+  /* Set aside, not thrown away: it stays in the queue, visible, with a
+     Retry beside it. */
+  if(fatal||j.tries>=OB_GIVEUP)j.blocked=true;
+  obSet(q);
+}
+function obRetryAll(){
+  const q=obAll();
+  q.forEach(j=>{delete j.blocked;j.tries=0;j.lastErr='';});
+  obSet(q);
+  toast('Queued again \u2014 '+q.length+' item(s).','ok');
+  obDrain().then(()=>{obPanelRender();updateSyncBar();});
+}
+function obDiscard(id){
+  const j=obAll().find(x=>x.id===id);
+  if(!j)return;
+  if(!confirm('Discard this item?\n\n'+obJobLabel(j)+'\n\nIt stays saved on this machine, but it will never be sent to the server.'))return;
+  obDrop(id);obPanelRender();updateSyncBar();
+}
+function obJobLabel(j){
+  if(j.kind==='file')return 'Document "'+(j.fileName||'file')+'" for '+j.module+' '+j.recId;
+  if(j.kind==='del')return 'Deletion of '+j.module+' '+j.recId;
+  return (j.module===IR_LIB?'Report ':'Record ')+(j.label||j.recId);
+}
+/* ---- sending one job ------------------------------------------------- */
+async function obRun(j){
+  if(j.kind==='rec'){
+    // POST upserts by the id the browser chose, so a retry is harmless
+    return api('/api/records/'+j.module,{method:'POST',body:j.body});
+  }
+  if(j.kind==='del'){
+    try{return await api('/api/records/'+j.module+'/'+encodeURIComponent(j.recId),{method:'DELETE'});}
+    catch(e){
+      // already gone is the outcome this job wanted
+      if(/not found/i.test(e.message))return {ok:true};
+      throw e;
+    }
+  }
+  if(j.kind==='file'){
+    const f=lsGet(obFileKey(j.id),null);
+    if(!f||!f.data)throw Object.assign(new Error('The file is no longer on this machine.'),{fatal:true});
+    const blob=await (await fetch(f.data)).blob();
+    const fd=new FormData();fd.append('files',blob,f.name||'file');
+    return api('/api/records/'+j.module+'/'+encodeURIComponent(j.recId)+'/files',{method:'POST',body:fd});
+  }
+  throw Object.assign(new Error('Unknown job kind "'+j.kind+'".'),{fatal:true});
+}
+/* Why the last pass stopped, when it stopped for a reason the person can
+   do something about. Not stored: the next pass finds out again, and a
+   remembered reason would outlive the thing it described. */
+let OB_HALT='';
+function obHalt(){return OB_HALT;}
+let OB_BUSY=null;
+/* The guard is set from out here, not from inside the pass. Written as
+   `OB_BUSY=(async()=>{...})()` the body runs first, and a pass that returns
+   without ever awaiting - offline, which is the common case - reached its
+   own `finally` and cleared the guard BEFORE the assignment put a resolved
+   promise there. Every later pass then saw a truthy guard, returned that
+   stale promise, and sent nothing for the rest of the session. */
+function obDrain(){
+  if(OB_BUSY)return OB_BUSY;
+  OB_BUSY=obDrainOnce().finally(()=>{OB_BUSY=null;});
+  return OB_BUSY;
+}
+async function obDrainOnce(){
+  if(!navigator.onLine)return 0;
+  // an offline session has no server token to send with
+  if(!SESSION||SESSION.offline||!localStorage.getItem('erp_jwt')){
+    OB_HALT=SESSION&&SESSION.offline?'auth':'';
+    return 0;
+  }
+  let sent=0;
+  for(const snap of obAll()){
+    const j=obAll().find(x=>x.id===snap.id);
+    if(!j||j.blocked)continue;                 // superseded, or set aside
+    /* A document can only be attached to a record the server has, so a
+       file waits while the record it belongs to is still queued. */
+    if(j.kind==='file'&&obAll().some(x=>x.kind==='rec'&&x.recId===j.recId&&!x.blocked))continue;
+    try{
+      await obRun(j);
+      obDrop(j.id);
+      obSynced(j);
+      sent++;
+    }catch(e){
+      /* A 401 is the token, not the work. The sign-in token lasts hours
+         and an inspector can be out for days, so this is the ordinary way
+         a long trip ends - and counting it against the jobs set the whole
+         queue aside and stopped sync for good. Leave the queue exactly as
+         it is; signing in again sends it. */
+      if(e.authFailed){OB_HALT='auth';break;}
+      obNote(j.id,e.message,e.fatal);
+      /* Nothing got through at all - the rest will not either, and
+         trying them would only run their attempt counts up. */
+      if(e.offline){OB_HALT='';break;}
+    }
+  }
+  if(sent)OB_HALT='';
+  return sent;
+}
+/* The record this job was carrying is now on the server, so the local copy
+   stops being marked as waiting. */
+function obSynced(j){
+  if(j.kind!=='rec')return;
+  if(j.module===IR_LIB){
+    const lib=irLibLocal(),r=lib.find(x=>x.id===j.recId);
+    if(r&&(r._dirty||r._sync!=='synced')){delete r._dirty;r._sync='synced';irLibSetLocal(lib);}
+    return;
+  }
+  const cur=coll(j.module),r=cur.find(x=>x.id===j.recId);
+  if(r&&(r._dirty||r._sync!=='synced')){delete r._dirty;r._sync='synced';collSet(j.module,cur);}
+}
+/* Something was queued: try it now if there is a connection, and in any
+   case show the new count. */
+let OB_T=null;
+function obBump(){
+  updateSyncBar();
+  if(OB_T)clearTimeout(OB_T);
+  OB_T=setTimeout(()=>{OB_T=null;obDrain().then(n=>{if(n)render();obPanelRender();updateSyncBar();});},300);
+}
+/* ================================================================
+   THE INSTALLED APP
+
+   The service worker is what makes this open on a site with no internet:
+   it keeps the page, the drawings and pdf-lib on the machine. Once it is
+   registered the machine runs the build it installed, so an update stops
+   being automatic and becomes a decision - which is how it was asked for.
+
+   A new build installs and waits. This asks the server whether that build
+   has been released to the field, and only then offers it. Applying it is
+   a click, never a background reload: nobody loses a half-typed report to
+   one.
+   ================================================================ */
+let SW_REG=null,SW_WAITING=null,SW_VER=null,SW_RELOADING=false;
+function swAble(){
+  /* Both a service worker and the cryptography offline sign-in needs are
+     withheld on plain http, which is why these two turn on together. */
+  return 'serviceWorker' in navigator&&window.isSecureContext;
+}
+async function swVersion(){
+  try{SW_VER=await api('/api/app-version');}catch(e){SW_VER=null;}
+  return SW_VER;
+}
+/* Is there a build sitting on this machine, installed and waiting? */
+function swHasWaiting(){return !!(SW_REG&&SW_REG.waiting);}
+/* Should it be offered? If one is waiting, yes - and that is the whole
+   test, because the server hands out only the released build. A worker
+   that installed itself here is therefore a build somebody deliberately
+   released; there is nothing left for this side to second-guess. */
+function swMayOffer(){return swHasWaiting();}
+function swBannerHtml(){
+  if(!swMayOffer())return '';
+  return '<div id="swbar" class="no-print" style="display:flex;align-items:center;gap:10px;'+
+    'padding:8px 14px;background:#0b3b6f;color:#fff;font-size:12.5px">'+
+    '<span>A new version of the app is ready on this machine.</span>'+
+    '<span style="flex:1"></span>'+
+    '<button class="btn small" onclick="swApply()">Apply and reload</button>'+
+    '<button class="btn ghost small" style="color:#fff;border-color:#ffffff66" onclick="swDismiss()">Later</button>'+
+    '</div>';
+}
+function swBannerRender(){
+  const slot=document.getElementById('swbar-slot');
+  if(!slot)return;
+  slot.innerHTML=lsGet('sw_dismissed','')===((SW_VER&&SW_VER.build)||'?')?'':swBannerHtml();
+}
+function swDismiss(){
+  lsSet('sw_dismissed',(SW_VER&&SW_VER.build)||'?');
+  swBannerRender();
+  toast('Left as it is. Apply it from Server settings whenever you like.','info');
+}
+/* The one place skipWaiting is asked for, and only ever from a click. */
+function swApply(){
+  if(!swHasWaiting())return toast('Nothing is waiting to be applied.','info');
+  /* The editor draft is written to the store as it is typed and offered
+     back after a reload, so this cannot lose a report - but say so, since
+     a reload mid-report is alarming. */
+  SW_RELOADING=true;
+  lsDel('sw_dismissed');
+  SW_REG.waiting.postMessage({type:'activate'});
+  /* If the worker does not take over - it may already have - reload
+     anyway rather than leaving the person looking at a dead button. */
+  setTimeout(()=>{if(SW_RELOADING)location.reload();},2500);
+}
+async function swRegister(){
+  if(!swAble())return;
+  try{
+    SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+  }catch(e){console.warn('the app could not be installed for offline use:',e.message);return;}
+  await swVersion();
+  /* A worker already waiting from a previous visit. */
+  if(SW_REG.waiting)swBannerRender();
+  SW_REG.addEventListener('updatefound',()=>{
+    const w=SW_REG.installing;
+    if(!w)return;
+    w.addEventListener('statechange',async()=>{
+      // 'installed' with a controller already present means: waiting
+      if(w.state==='installed'&&navigator.serviceWorker.controller){
+        await swVersion();
+        swBannerRender();
+      }
+    });
+  });
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(!SW_RELOADING)return;          // somebody else's activation; leave it
+    SW_RELOADING=false;
+    location.reload();
+  });
+}
+/* Asked for from Server settings. A check costs one request and is the
+   thing to try when a machine seems to be running something old. */
+async function swCheck(){
+  await swVersion();swReleaseRender();
+  if(!swAble())return toast('This app is not being served over https, so it cannot be installed for offline use.','err');
+  if(!SW_REG)return toast('The app is not installed on this machine yet \u2014 reload once with a connection.','err');
+  try{
+    await SW_REG.update();
+    await swVersion();
+    swBannerRender();swPanelRender();
+    toast(swHasWaiting()?'A new version is ready \u2014 see the bar at the top.':'This machine is running the current version.','ok');
+  }catch(e){toast('Could not check: '+e.message,'err');}
+}
+function swPanelHtml(){
+  if(!swAble())
+    return '<span class="pill r">Not installed</span> Offline use needs the app served over https (or from localhost).';
+  const v=SW_VER;
+  const lines=[];
+  lines.push(navigator.serviceWorker.controller
+    ?'<span class="pill g">Installed</span> This machine can open the app with no internet.'
+    :'<span class="pill b">Installing</span> Finishing the offline copy \u2014 keep this page open a moment.');
+  if(v)lines.push('<div>Serving: <code>'+esc(v.build)+'</code>'+
+    (v.released?'':' <span class="hint">(nothing released yet \u2014 whatever is on the server)</span>')+'</div>');
+  if(swHasWaiting())
+    lines.push('<div><span class="pill b">Update ready</span> '+
+      '<button class="btn small" onclick="swApply()">Apply and reload</button></div>');
+  lines.push('<div style="margin-top:8px">'+
+    '<button class="btn ghost small" onclick="swCheck()">Check for updates</button> '+
+    '<button class="btn ghost small" style="color:#b42318" onclick="swForget()">Remove offline copy</button></div>');
+  return lines.join('');
+}
+/* What to reach for when a machine behaves as though it is running
+   something old. Here rather than in the browser's developer tools,
+   because somebody will have to do this over a phone one day. */
+async function swForget(){
+  if(!confirm('Remove the offline copy from this machine?\n\n'+
+    'Saved reports and anything waiting to be sent are NOT touched \u2014 they are stored separately.\n\n'+
+    'The app will need a connection to open until it has installed itself again.'))return;
+  try{
+    const regs=await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r=>r.unregister()));
+    const names=await caches.keys();
+    await Promise.all(names.filter(n=>n.startsWith('premier-erp-')).map(n=>caches.delete(n)));
+    toast('Offline copy removed. Reload with a connection to install it again.','ok');
+    SW_REG=null;swPanelRender();swBannerRender();
+  }catch(e){toast('Could not remove it: '+e.message,'err');}
+}
+/* ---- releasing a build to the field ---------------------------------
+   One decision for every machine, so it is Administrator-only here as
+   well as on the server, and it asks before it acts. */
+function swReleaseHtml(){
+  if(!isAdmin())return '';
+  const v=SW_VER;
+  if(!v)return '<span class="hint">The server could not be reached, so there is nothing to release.</span>';
+  const out=[];
+  out.push('<div>On the server now: <code>'+esc(v.staged||'?')+'</code>'+
+    (v.stagedPending?' <span class="pill b">not released</span>':' <span class="pill g">released</span>')+'</div>');
+  out.push('<div>The field is running: <code>'+esc(v.released||v.build)+'</code>'+
+    (v.releasedAt?' <span class="hint">since '+esc(String(v.releasedAt).slice(0,10))+
+      (v.releasedBy?', by '+esc(v.releasedBy):'')+'</span>':'')+'</div>');
+  if(v.stagedPending)
+    out.push('<div style="margin-top:6px"><button class="btn small" onclick="swRelease(\''+esc(v.staged)+'\')">'+
+      'Release this build to the field</button></div>');
+  const others=(v.builds||[]).filter(b=>b.build!==(v.released||v.build));
+  if(others.length){
+    out.push('<div style="margin-top:8px"><b>Kept on the server</b>'+
+      '<div class="hint">Releasing an earlier one puts the field back on it \u2014 that is the rollback.</div>'+
+      others.map(b=>'<div style="display:flex;align-items:center;gap:8px;padding:2px 0">'+
+        '<code>'+esc(b.build)+'</code><span class="hint">'+esc(String(b.at).slice(0,10))+'</span>'+
+        '<button class="btn ghost small" style="margin-left:auto" onclick="swRelease(\''+esc(b.build)+'\')">Release this</button>'+
+        '</div>').join('')+'</div>');
+  }
+  return out.join('');
+}
+function swReleaseRender(){
+  const el=document.getElementById('sw-release');
+  if(el)el.innerHTML=swReleaseHtml();
+}
+async function swRelease(build){
+  const v=SW_VER||{};
+  const back=(v.builds||[]).some(b=>b.build===build)&&build!==v.staged;
+  if(!confirm((back?'Put the field back on build ':'Release build ')+build+'?\n\n'+
+    'Every machine will be offered it the next time it has a connection, and '+
+    'each inspector chooses when to apply it. Nothing is applied for them.'))return;
+  try{
+    await api('/api/app-version/release',{method:'POST',body:JSON.stringify({build})});
+    await swVersion();
+    swReleaseRender();swPanelRender();
+    toast('Build '+build+' released. Machines will be offered it as they connect.','ok');
+  }catch(e){toast('Not released \u2014 '+e.message,'err');}
+}
+function swPanelRender(){
+  const el=document.getElementById('sw-panel');
+  if(el)el.innerHTML=swPanelHtml();
+}
+/* ---- what the inspector sees ---------------------------------------- */
+function obPanelHtml(){
+  const q=obAll();
+  if(!q.length)return '<span class="pill g">Nothing waiting</span> Everything saved here has reached the server.';
+  /* Two situations reach this: a token that expired while they were out of
+     range, and a session signed in offline that never had one. Both are
+     answered the same way, so the wording claims neither. */
+  const halt=OB_HALT==='auth'
+    ?'<div style="margin-bottom:6px"><span class="pill r">Sign in needed</span> '+
+     'This machine has no current sign-in with the server, so none of this can be sent yet. '+
+     'Sign in again with a connection and it all goes by itself \u2014 nothing here has been given up on.</div>'
+    :'';
+  const row=j=>'<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">'+
+    (j.blocked?'<span class="pill r">Set aside</span>':'<span class="pill b">Waiting</span>')+
+    '<span>'+esc(obJobLabel(j))+'</span>'+
+    (j.lastErr?'<span class="hint" title="'+esc(j.lastErr)+'">\u2014 '+esc(j.lastErr.slice(0,60))+'</span>':'')+
+    (j.blocked?'<button class="btn ghost small" style="margin-left:auto;color:#b42318" onclick="obDiscard(\''+j.id+'\')">Discard</button>':'')+
+    '</div>';
+  return halt+'<div>'+q.map(row).join('')+'</div>'+
+    '<button class="btn ghost small" style="margin-top:8px" onclick="obRetryAll()">Try all again now</button>';
+}
+function obPanelRender(){
+  const el=document.getElementById('outbox-list');
+  if(el)el.innerHTML=obPanelHtml();
+}
+
 function irLibLocal(){return lsGet('ir_library',[]);}
 function irLibSetLocal(v){lsSet('ir_library',v);}
 function irLibClean(r){const c=JSON.parse(JSON.stringify(r));delete c._dirty;return c;}
@@ -11443,20 +12161,22 @@ async function irLibMigrate(){
   }
   lsSet('irlibmig',true);
 }
+/* Reports flagged as unsent that the queue does not know about - filed by
+   a build before the queue existed, or left behind by a failed import -
+   are put on it. The sending itself is the queue's work now: this used to
+   walk the library and return at the first failure, which meant one report
+   the server refused kept every report filed after it from ever going. */
 async function irLibPush(){
-  const lib=irLibLocal();
-  let changed=false;
-  for(const r of lib){
+  irLibLocal().forEach(r=>{
     // _local: a record kept on this machine on purpose - the sample reports
     // are specimens to look at, not anybody's work, and the server is not
     // the place for them
-    if(!r||!r._dirty||r._local)continue;
-    try{
-      await api('/api/records/'+IR_LIB,{method:'POST',body:JSON.stringify(irLibClean(r))});
-      delete r._dirty;changed=true;
-    }catch(e){return false;}                // still offline; keep the flag
-  }
-  if(changed)irLibSetLocal(lib);
+    if(!r||!r._dirty||r._local)return;
+    if(obPendingFor(IR_LIB,r.id))return;
+    obEnqueue({kind:'rec',module:IR_LIB,recId:r.id,
+               label:(r.fields&&r.fields.no)||r.id,body:JSON.stringify(irLibClean(r))});
+  });
+  await obDrain();
   return true;
 }
 async function irLibPull(force){
@@ -11470,7 +12190,7 @@ async function irLibPull(force){
       IR_LIB_AT=Date.now();
       // anything saved here that hasn't reached the server yet must
       // survive, and so must anything kept here on purpose
-      const mine=irLibLocal().filter(r=>r&&(r._local||r._dirty)
+      const mine=irLibLocal().filter(r=>r&&(r._local||r._dirty||obPendingFor(IR_LIB,r.id))
                                         &&!server.some(s=>s.id===r.id));
       const merged=server.concat(mine);
       if(JSON.stringify(irLibLocal())===JSON.stringify(merged))return false;
@@ -11647,6 +12367,17 @@ function irPreviewAll(){
 /* A report's attached documents are not reached from this list: printing the
    report prints them after it, and they are added or removed on the report's
    own card, which opening it shows. */
+/* Where this report stands with the server, read off the queue rather
+   than off a flag on the record - the queue is what is actually going to
+   send it, so it is the only thing that can answer. */
+function irSyncPill(r){
+  if(r._local)return '<span class="pill">Specimen</span>';
+  const stuck=obBlocked().some(j=>j.module===IR_LIB&&j.recId===r.id);
+  if(stuck)return '<span class="pill r" title="The server would not take it \u2014 open Server settings">Needs attention</span>';
+  if(obPendingFor(IR_LIB,r.id))return '<span class="pill b" title="Saved on this machine; it will go when there is a connection">Pending</span>';
+  if(r._dirty)return '<span class="pill b" title="Saved on this machine, not yet sent">Pending</span>';
+  return '<span class="pill g" title="The server has this report">Synced</span>';
+}
 function irLibTable(){
   const lib=lsGet('ir_library',[]);
   if(!lib.length)return '<div class="empty">No saved reports yet — create one under Detailed Report.</div>';
@@ -11656,13 +12387,14 @@ function irLibTable(){
     'Show all '+lib.length+'</button></div></div>';
   const rows=irLibRows();
   if(!rows.length)return '<div class="empty">No saved report matches this search.</div>';
-  return '<table><thead><tr><th>Report ID</th><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th class="no-print"></th></tr></thead><tbody>'+
+  return '<table><thead><tr><th>Report ID</th><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th>Server</th><th class="no-print"></th></tr></thead><tbody>'+
   rows.map(r=>{
     const f=r.fields||{},h=irRecHeader(r),imgs=(r.items||[]).filter(x=>x.img).length;
     return '<tr><td><b>'+esc(f.docId||'—')+'</b></td><td>'+esc(f.no||'—')+'</td><td>'+esc(r.type)+'</td><td>'+esc(h.client)+'</td>'+
      '<td>'+esc(h.loc)+'</td><td>'+esc(h.wo)+'</td><td>'+esc(h.date)+'</td>'+
      '<td class="num">'+(r.items||[]).length+'</td><td class="num">'+(imgs||'')+'</td>'+
      '<td>'+String(r.savedAt||'').slice(0,10)+'</td>'+
+     '<td>'+irSyncPill(r)+'</td>'+
      '<td class="no-print" style="white-space:nowrap">'+
       '<button class="btn ghost small" onclick="irOpen(\''+r.id+'\')">Open</button> '+
       '<button class="btn ghost small" onclick="irPdfSaved(\''+r.id+'\')">↓ PDF</button> '+
@@ -11725,8 +12457,11 @@ function irDel(id){
   const lib=lsGet('ir_library',[]),gone=lib.find(r=>r.id===id);
   lsSet('ir_library',lib.filter(r=>r.id!==id));render();
   if(gone&&gone._local)return;            // the server never had it
-  api('/api/records/'+IR_LIB+'/'+encodeURIComponent(id),{method:'DELETE'})
-    .catch(e=>toast('Deleted here, but the server still has it \u2014 '+e.message,'err'));
+  /* Through the queue, like every other change. Asked here and raising a
+     toast on failure, a deletion made offline was simply never carried
+     out: the toast went, nobody could act on it, and the report came
+     back down on the next pull after the inspector had deleted it. */
+  obEnqueue({kind:'del',module:IR_LIB,recId:id});
 }
 
 /* ================================================================
@@ -11766,13 +12501,10 @@ function complianceSnapshot(){
 /* ================================================================
    BACKUP / RESTORE (all collections)
    ================================================================ */
-function allKeys(){
-  const ks=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.startsWith(P))ks.push(k);}
-  return ks;
-}
+function allKeys(){return [...MEM.keys()];}
 function backup(){
   const o={_app:'premier-erp',_at:new Date().toISOString(),data:{}};
-  allKeys().forEach(k=>{o.data[k]=localStorage.getItem(k);});
+  allKeys().forEach(k=>{o.data[k]=kvGet(k);});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(o)],{type:'application/json'}));
   a.download='premier-erp-backup-'+today()+'.json';a.click();
@@ -11784,7 +12516,7 @@ function restoreFile(ev){
     const o=JSON.parse(r.result);
     if(!o.data){alert('Not a valid backup file.');return;}
     if(!confirm('Restore backup from '+(o._at||'unknown date')+'? Current data with the same keys will be overwritten.'))return;
-    Object.entries(o.data).forEach(([k,v])=>localStorage.setItem(k,v));
+    Object.entries(o.data).forEach(([k,v])=>kvSet(k,v));
     location.reload();
   }catch(e){alert('Restore failed: '+e.message);}};
   r.readAsText(f);
@@ -11807,6 +12539,35 @@ function setSyncStatus(mode,text){
   bar.classList.remove('online','offline','err');bar.classList.add(mode);
   document.getElementById('synctext').textContent=text;
 }
+/* Who this machine can let in with no connection. Worth being able to
+   read before a laptop leaves for a site, and worth being able to clear
+   when it comes back. */
+function offlineWhoHtml(){
+  if(!offlineAble())
+    return '<span class="pill r">Not available</span> This app is being served over plain http, '+
+           'so the browser withholds the cryptography offline sign-in needs. Serve it over https '+
+           '(or from localhost) and it turns on by itself \u2014 a service worker needs the same thing.';
+  const v=offVault();
+  const ids=Object.keys(v);
+  if(!ids.length)
+    return 'Nobody yet. The first sign-in on this machine needs a connection; after that, '+
+           'that person can sign in here with no internet at all.';
+  return ids.map(k=>{
+      const u=v[k].user||{};
+      return '<div>\u2022 <b>'+esc(u.employeeId||k)+'</b> \u2014 '+esc(u.name||'')+
+             ' <span class="pill">'+esc(u.role||'')+'</span>'+
+             (v[k].at?' <span class="hint">since '+esc(today(new Date(v[k].at)))+'</span>':'')+'</div>';
+    }).join('')+
+    '<button class="btn ghost small" style="margin-top:8px" onclick="offlineForget()">Forget offline sign-in on this machine</button>';
+}
+function offlineWhoRender(){
+  const el=document.getElementById('offline-who');
+  if(el)el.innerHTML=offlineWhoHtml();
+  obPanelRender();swPanelRender();swReleaseRender();
+  // the release controls are an administrator's business and nobody else's
+  const wrap=document.getElementById('sw-release-wrap');
+  if(wrap)wrap.style.display=isAdmin()?'':'none';
+}
 function saveSyncSettings(){
   const cfg={url:document.getElementById('sync-url').value.trim().replace(/\/+$/,''),
    token:document.getElementById('sync-token').value.trim(),
@@ -11822,27 +12583,55 @@ function saveSyncSettings(){
 function syncSkip(k){
   if(k===SYNC_CFG_KEY||k===SYNC_META_KEY||k===P+'ui_route'||k===P+'session')return true;
   if(k.startsWith(P+'recmig_'))return true;
+  /* The report library is one value holding every report. Pushed as a blob
+     with last-write-wins, of two inspectors who both filed offline the one
+     who reconnects second replaces the other's whole library. Reports go
+     record by record through the outbox instead. */
+  if(k===P+'ir_library')return true;
+  /* This machine's list of what it still owes the server, and the bytes
+     waiting to go with it. Another machine must never receive either: it
+     would re-send work it never did, under its own user, and lose its own
+     queue in the process. */
+  if(k===P+OB_KEY||k.startsWith(P+'ob_file_'))return true;
+  /* The verifier that lets this machine sign somebody in with no
+     connection. Per-machine on purpose; it does not leave. */
+  if(k===P+'offline_auth')return true;
   return SERVER_MODS.has(k.slice(P.length))||k===P+'quotes'; // 'quotes' is a read-only mirror of the CRM quotations
 }
 function syncKeys(){return allKeys().filter(k=>!syncSkip(k));}
 function dirtyKeys(){
   const meta=syncMeta();
   return syncKeys().filter(k=>{
-    const v=localStorage.getItem(k);if(v==null)return false;
+    const v=kvGet(k);if(v==null)return false;
     return !meta[k]||meta[k].hash!==strHash(v);});
 }
 function updateSyncBar(){
-  const cfg=syncCfg();const d=dirtyKeys().length;
-  if(!cfg.url){setSyncStatus('offline','Local only');return;}
-  if(!navigator.onLine){setSyncStatus('offline',d?d+' queued':'Offline — saved locally');return;}
-  setSyncStatus('online',d?d+' pending':'Synced');
+  const cfg=syncCfg();
+  const d=dirtyKeys().length;
+  /* What is actually owed to the server, counted the way an inspector
+     thinks about it: in reports, not in requests. */
+  const reports=obPendingReports(),jobs=obCount(),stuck=obBlocked().length;
+  const owed=reports?reports+' report'+(reports===1?'':'s')+' pending sync'
+            :jobs?jobs+' item'+(jobs===1?'':'s')+' pending sync':'';
+  const warn=stuck?' \u00b7 '+stuck+' needs attention':'';
+  /* A dead token is the one state where what is owed is not going
+     anywhere until the person does something, so it is said first. */
+  if(OB_HALT==='auth'&&(reports||jobs)){
+    setSyncStatus('err',(owed||'Queue')+' \u00b7 sign in to send');return;
+  }
+  if(stuck){setSyncStatus('err',(owed||'Queue')+warn);return;}
+  if(!cfg.url){setSyncStatus('offline',owed||'Local only');return;}
+  if(!navigator.onLine){setSyncStatus('offline',owed||(d?d+' queued':'Offline \u2014 saved locally'));return;}
+  setSyncStatus('online',owed||(d?d+' pending':'Synced'));
 }
 let syncBusy=false;
 async function syncNow(){
   const cfg=syncCfg();
-  if(!cfg.url){openModal('syncmodal');return;}
+  if(!cfg.url){offlineWhoRender();openModal('syncmodal');return;}
   if(!navigator.onLine){syncLog('Offline — queued until connection returns.');updateSyncBar();return;}
   if(syncBusy)return;syncBusy=true;
+  await obDrain();                   // what we owe, before what we are given
+  obPanelRender();
   const headers={'Content-Type':'application/json'};
   if(cfg.token)headers['Authorization']='Bearer '+cfg.token;
   try{
@@ -11852,15 +12641,15 @@ async function syncNow(){
     const meta=syncMeta();let pulled=0;
     Object.entries(remote.keys||{}).forEach(([k,rec])=>{
       if(!k.startsWith(P)||syncSkip(k))return;
-      const localV=localStorage.getItem(k);
+      const localV=kvGet(k);
       const localTs=(meta[k]&&meta[k].ts)||0;
       const localDirty=localV!=null&&(!meta[k]||meta[k].hash!==strHash(localV));
       if(rec.ts>localTs&&!localDirty){
-        localStorage.setItem(k,rec.value);
+        kvSet(k,rec.value);
         meta[k]={ts:rec.ts,hash:strHash(rec.value)};pulled++;}
     });
     const push={};let pushed=0;
-    dirtyKeys().forEach(k=>{push[k]={value:localStorage.getItem(k),ts:Date.now()};pushed++;});
+    dirtyKeys().forEach(k=>{push[k]={value:kvGet(k),ts:Date.now()};pushed++;});
     if(pushed){
       const ps=await fetch(cfg.url+'/sync/push',{method:'POST',headers,body:JSON.stringify({keys:push})});
       if(!ps.ok)throw new Error('push HTTP '+ps.status);
@@ -11877,9 +12666,18 @@ let syncTimer=null;
 function scheduleAutoSync(){
   if(syncTimer)clearInterval(syncTimer);
   const cfg=syncCfg();
-  if(cfg.url&&cfg.interval>0)syncTimer=setInterval(()=>{if(navigator.onLine)syncNow();},cfg.interval*60000);
+  if(cfg.url&&cfg.interval>0)syncTimer=setInterval(()=>{if(navigator.onLine){obDrain().then(n=>{if(n){obPanelRender();updateSyncBar();}});syncNow();}},cfg.interval*60000);
 }
-window.addEventListener('online',()=>{updateSyncBar();syncLog('Connection restored.');if(syncCfg().url)syncNow();});
+window.addEventListener('online',()=>{
+  updateSyncBar();syncLog('Connection restored.');
+  /* The queue first: what this machine owes is work somebody did, and it
+     goes up before anything is pulled down over it. */
+  obDrain().then(n=>{
+    if(n){syncLog('Sent '+n+' queued item(s).');render();}
+    obPanelRender();updateSyncBar();
+    if(syncCfg().url)syncNow();
+  });
+});
 window.addEventListener('offline',()=>{updateSyncBar();syncLog('Connection lost — continuing offline.');});
 setInterval(updateSyncBar,5000);
 
@@ -11940,7 +12738,7 @@ function woDelete(id){
   const r=coll('workorders').find(x=>x.id===id);if(!r)return;
   if(!confirm('Delete work order '+(r.no||'')+' (Record No. '+(r.recno||'')+')?\nThis cannot be undone.'))return;
   collSet('workorders',coll('workorders').filter(x=>x.id!==id));
-  try{localStorage.removeItem(P+'att_'+id);}catch(e){}
+  lsDel('att_'+id);
   toast('Work Order deleted.','ok');render();
   api('/api/records/workorders/'+encodeURIComponent(id),{method:'DELETE'})
     .then(()=>{REC_AT['workorders']=0;})
@@ -12038,6 +12836,11 @@ document.addEventListener('dragleave',e=>{const dz=document.getElementById('ir-d
 document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop');if(dz){e.preventDefault();dz.classList.remove('drag');if(route==='insp_report')irPhotos(e.dataTransfer.files);}});
 /* ---- init ---- */
 (async function(){
+  /* The store first: until IndexedDB has been read into memory, every
+     collection is only as complete as localStorage's copy of it. */
+  await idbBoot();
+  calibMigrate();
+  route=lsGet('ui_route','dashboard');
   /* A reload starts a fresh report rather than reopening what was in the
      editor. The draft that was there is held to one side, not thrown away:
      losing an afternoon's typing to a stray refresh is worse than the
@@ -12052,6 +12855,7 @@ irMigrateReportNos();
   if(cfg.token)document.getElementById('sync-token').value=cfg.token;
   if(cfg.interval!=null)document.getElementById('sync-interval').value=cfg.interval;
   let restored=false;
+  const held=lsGet('session',null);
   if(localStorage.getItem('erp_jwt')){
     try{
       const u=await api('/api/auth/me');
@@ -12060,14 +12864,37 @@ irMigrateReportNos();
       document.getElementById('login').style.display='none';document.body.classList.remove('locked');
       const chip=document.getElementById('userchip');if(chip)chip.outerHTML=userChip();
       if(!canSee(routeGroup(route)))route='dashboard';
+      bootGoTake();
       nav();render();restored=true;
       pullSharedMaster();recBootstrap();
       lvPollPending();
-    }catch(e){localStorage.removeItem('erp_jwt');}
+    }catch(e){
+      /* Only an actual rejection signs anybody out. Being unable to reach
+         the server is the normal state on a remote site, and the session
+         this machine already has is carried on with - the token is kept
+         for when a connection returns. */
+      if(e.authFailed){localStorage.removeItem('erp_jwt');}
+      else if(held&&held.user&&offVault()[String(held.user).toLowerCase()]){
+        offlineApply(offVault()[String(held.user).toLowerCase()].user);
+        restored=true;
+        toast('Working offline \u2014 signed in from this machine\u2019s records.','info');
+      }
+    }
   }
   if(!restored)await showLogin();
   updateSyncBar();scheduleAutoSync();
+  /* Whatever was still owed when this machine was last closed - a report
+     filed on a rig last week - goes up now, before anything is pulled down
+     over it. */
+  if(navigator.onLine)obDrain().then(n=>{
+    if(n){syncLog('Sent '+n+' item(s) left from last time.');render();}
+    updateSyncBar();
+  });
   if(cfg.url&&navigator.onLine)setTimeout(syncNow,1500);
+  /* Last, and never blocking: the app is already usable by here, and
+     installing the offline copy is a few megabytes that should not stand
+     between an inspector and the form. */
+  swRegister();
 })();
 </script>
 </body>

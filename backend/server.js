@@ -34,7 +34,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const migrate = require('./migrate');
-const { router: authRouter } = require('./routes/auth');
+const { router: authRouter, requireAuth } = require('./routes/auth');
 const sharedRouter = require('./routes/shared');
 const syncRouter = require('./routes/sync');
 const attendanceRouter = require('./routes/attendance');
@@ -109,6 +109,213 @@ app.use('/api/employee-files', employeeFilesRouter);
 // whole afternoon can go into chasing that. A stat() per request on three
 // files costs nothing next to gzipping two megabytes, and the gzip only
 // happens again when the bytes actually differ.
+/* ============================================================
+   THE INSTALLED APP — service worker, manifest, and which build is live
+
+   An inspector's machine runs whatever build it installed, and goes on
+   running it until somebody here decides otherwise. Two things make that
+   work:
+
+   The build id comes from the BYTES of the files the service worker
+   caches. A service worker is an update when its own bytes differ, so
+   deriving the id from a date or a hand-bumped counter gets it wrong in
+   both directions - a redeploy of identical files looks like an update,
+   and an edited front end can look like nothing happened. Hashing the
+   files cannot be wrong about it.
+
+   And the build the field may move to is written down, not inferred from
+   a deploy. /api/app-version reports what is on disk and what has been
+   released; the app only offers an update when the build waiting on the
+   machine is the released one. Rolling back is naming the earlier build
+   again.
+   ============================================================ */
+const crypto = require('crypto');
+// the files whose contents decide what "this build" means
+const BUILD_FILES = ['index.html', 'ir-drawings.js', 'pdf-lib.min.js', 'sw.js', 'manifest.webmanifest'];
+let BUILD_CACHE = null;   // { id, stamp, at }
+/* The memo exists only to avoid rehashing a few megabytes during a burst
+   of requests, and it must not be able to MISS a change - which the obvious
+   version of it could. A stamp of size and whole-millisecond mtime calls
+   two different files identical when they happen to be the same length and
+   were written inside the same millisecond, which a deploy script does
+   routinely; some filesystems are coarser than that still. That is exactly
+   the mistake hashing the bytes was chosen to avoid, so:
+   nanosecond mtimes, and the memo is only trusted for a moment. */
+const BUILD_MEMO_MS = 1000;
+function buildId() {
+  const stamp = BUILD_FILES.map((f) => {
+    try {
+      const st = fs.statSync(path.join(PUBLIC_DIR, f), { bigint: true });
+      return f + ':' + st.size + ':' + st.mtimeNs;
+    } catch (e) { return f + ':-'; }
+  }).join('|');
+  if (BUILD_CACHE && BUILD_CACHE.stamp === stamp &&
+      Date.now() - BUILD_CACHE.at < BUILD_MEMO_MS) return BUILD_CACHE.id;
+  const h = crypto.createHash('sha256');
+  for (const f of BUILD_FILES) {
+    try { h.update(fs.readFileSync(path.join(PUBLIC_DIR, f))); } catch (e) { h.update('missing:' + f); }
+  }
+  const id = h.digest('hex').slice(0, 12);
+  const changed = !BUILD_CACHE || BUILD_CACHE.id !== id;
+  BUILD_CACHE = { id, stamp, at: Date.now() };
+  if (changed) console.log('[app] build ' + id);
+  return id;
+}
+
+const RELEASE_FILE = path.join(__dirname, '..', 'data', 'app-release.json');
+function releaseRead() {
+  try { return JSON.parse(fs.readFileSync(RELEASE_FILE, 'utf8')) || {}; }
+  catch (e) { return {}; }
+}
+function releaseWrite(rec) {
+  fs.mkdirSync(path.dirname(RELEASE_FILE), { recursive: true });
+  fs.writeFileSync(RELEASE_FILE, JSON.stringify(rec, null, 2));
+}
+/* ---- keeping each build, so a rollback can be a real one -------------
+   The files that make up a build are copied aside when they change. The
+   last few are kept: enough to go back from a bad release, not so many
+   that the disk fills with front ends. */
+const BUILDS_DIR = path.join(__dirname, '..', 'data', 'builds');
+const BUILDS_KEEP = 5;
+function buildDir(id) { return path.join(BUILDS_DIR, id); }
+function buildArchived(id) {
+  if (!/^[0-9a-f]{12}$/.test(id || '')) return false;
+  return BUILD_FILES.every((f) => { try { fs.accessSync(path.join(buildDir(id), f)); return true; } catch (e) { return false; } });
+}
+function buildsList() {
+  let names = [];
+  try { names = fs.readdirSync(BUILDS_DIR); } catch (e) { return []; }
+  return names
+    .filter((n) => /^[0-9a-f]{12}$/.test(n) && buildArchived(n))
+    .map((n) => {
+      let at = 0;
+      try { at = fs.statSync(buildDir(n)).mtimeMs; } catch (e) {}
+      return { build: n, at: new Date(at).toISOString() };
+    })
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+/* Copy what is on disk into its own directory, once. Called whenever the
+   build id is wanted, which is cheap because it returns immediately for a
+   build already there. */
+function buildArchive() {
+  const id = buildId();
+  if (buildArchived(id)) return id;
+  try {
+    fs.mkdirSync(buildDir(id), { recursive: true });
+    for (const f of BUILD_FILES) {
+      const from = path.join(PUBLIC_DIR, f);
+      try { fs.copyFileSync(from, path.join(buildDir(id), f)); } catch (e) { /* absent on disk */ }
+    }
+    console.log('[app] archived build ' + id);
+  } catch (e) { console.warn('[app] could not archive build ' + id + ': ' + e.message); return id; }
+  // the oldest beyond what we keep
+  const all = buildsList();
+  const rel = releaseRead().build;
+  all.slice(BUILDS_KEEP).forEach((b) => {
+    if (b.build === id || b.build === rel) return;      // never the live ones
+    try { fs.rmSync(buildDir(b.build), { recursive: true, force: true }); }
+    catch (e) {}
+  });
+  return id;
+}
+/* Which build this server actually serves: the released one, or - before
+   anything has been released, and on a development machine - whatever is
+   on disk. */
+function activeBuild() {
+  const rel = releaseRead().build;
+  if (rel && buildArchived(rel)) return rel;
+  return buildArchive();
+}
+/* Where a file of the serving build lives. */
+function activeFile(name) {
+  const id = activeBuild();
+  const archived = path.join(buildDir(id), name);
+  try { fs.accessSync(archived); return archived; } catch (e) {}
+  return path.join(PUBLIC_DIR, name);
+}
+
+/* The service worker, with this build's id written into it. Served from
+   here rather than as a static file for exactly one reason: its bytes have
+   to carry the id, because that is what makes the browser treat it as a
+   new worker. */
+app.get('/sw.js', (req, res) => {
+  const id = activeBuild();
+  let src;
+  try { src = fs.readFileSync(activeFile('sw.js'), 'utf8'); }
+  catch (e) { return res.status(404).type('application/javascript').send('/* no service worker on this server */'); }
+  res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+  // the worker script must never be served from a stale HTTP cache
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Service-Worker-Allowed', '/');
+  /* The id of the build being SERVED, which is the released one. This is
+     what makes releasing - and rolling back to - a build reach the field:
+     the bytes of this file change, so the browser installs a new worker,
+     and the app offers it. */
+  res.send(src.replace(/__BUILD__/g, id));
+});
+
+app.get('/manifest.webmanifest', (req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json; charset=UTF-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  try { res.send(fs.readFileSync(activeFile('manifest.webmanifest'))); }
+  catch (e) { res.status(404).json({ error: 'No manifest on this server.' }); }
+});
+
+/* What is on disk, and what the field has been told it may run. Left
+   unauthenticated like /api/health: it is the app's own version number,
+   and it is needed before anybody has signed in. */
+app.get('/api/app-version', (req, res) => {
+  const staged = buildArchive();          // what is on disk, kept aside
+  const serving = activeBuild();          // what this server hands out
+  const rel = releaseRead();
+  res.json({
+    // `build` is what a browser will be given, which is what the app has to
+    // compare itself against
+    build: serving,
+    staged,
+    // the staged build is waiting to be released when it is not the one
+    // being served
+    stagedPending: staged !== serving,
+    released: rel.build || null,
+    releasedAt: rel.at || null,
+    releasedBy: rel.by || null,
+    previous: rel.previous || null,
+    note: rel.note || '',
+    current: serving === staged,
+    builds: buildsList(),
+  });
+});
+
+/* Releasing a build, and rolling one back, are the same act: naming the
+   build the field may run. Administrator only - this decides what twenty
+   people in the field are running. */
+app.post('/api/app-version/release', requireAuth, (req, res) => {
+  if (req.erpUser.role !== 'Administrator') {
+    return res.status(403).json({ error: 'Administrator only.' });
+  }
+  const build = String((req.body && req.body.build) || '').trim();
+  if (!/^[0-9a-f]{12}$/.test(build)) {
+    return res.status(400).json({ error: 'A build id is twelve hex characters.' });
+  }
+  buildArchive();                         // make sure what is on disk is kept
+  /* Releasing a build the server cannot produce would take the whole field
+     offline at its next update check. */
+  if (!buildArchived(build)) {
+    return res.status(404).json({ error: 'That build is not kept on this server, so it cannot be served.' });
+  }
+  const rec = {
+    build,
+    at: new Date().toISOString(),
+    by: req.erpUser.employeeId,
+    note: String((req.body && req.body.note) || '').slice(0, 500),
+    // what it replaced, so an administrator can see what to go back to
+    previous: releaseRead().build || null,
+  };
+  releaseWrite(rec);
+  console.log('[app] released ' + build + ' by ' + rec.by);
+  res.json(rec);
+});
+
 const ASSET_TYPES = [
   ['index.html', 'text/html; charset=UTF-8'],
   ['premier-erp.html', 'text/html; charset=UTF-8'],
@@ -116,13 +323,17 @@ const ASSET_TYPES = [
 ];
 const GZIPPED_ASSETS = new Map(); // relative filename -> {raw, gzipped, contentType, mtimeMs, size}
 function loadGzippedAsset(name, contentType) {
-  const abs = path.join(PUBLIC_DIR, name);
+  /* From the build being served, not from whatever is on disk: deploying
+     the next front end must not change what the field is running. */
+  const abs = activeFile(name);
   let st;
   try { st = fs.statSync(abs); } catch (e) { return null; }
   const have = GZIPPED_ASSETS.get(name);
-  if (have && have.mtimeMs === st.mtimeMs && have.size === st.size) return have;
+  // the path is part of the identity now: a rollback changes it, and the
+  // gzipped copy in hand belongs to the build it came from
+  if (have && have.abs === abs && have.mtimeMs === st.mtimeMs && have.size === st.size) return have;
   const raw = fs.readFileSync(abs);
-  const entry = { raw, gzipped: zlib.gzipSync(raw), contentType,
+  const entry = { raw, gzipped: zlib.gzipSync(raw), contentType, abs,
                   mtimeMs: st.mtimeMs, size: st.size };
   GZIPPED_ASSETS.set(name, entry);
   if (have) console.log('[assets] re-read ' + name + ' (' + raw.length + ' bytes)');
