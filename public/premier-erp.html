@@ -376,6 +376,12 @@ body.locked #app{display:none}
   <div class="lerr" id="recedit-err" style="display:none"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('recimodal')">Cancel</button><button class="btn" onclick="recEditSave()">Save</button></div>
 </div></div>
+<div class="modal" id="glformmodal"><div class="box" style="max-width:480px">
+  <h3 id="glform-title">Form</h3>
+  <div id="glform-body"></div>
+  <div class="lerr" id="glform-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('glformmodal')">Cancel</button><button class="btn" id="glform-save-btn">Save</button></div>
+</div></div>
 <div class="modal" id="dcrmodal"><div class="box" style="max-width:980px;width:96vw;max-height:92vh">
   <h3 id="dcrmodal-title" style="text-align:center">Document Change Request Form</h3>
   <div id="dcrmodal-body"></div>
@@ -5476,6 +5482,20 @@ async function crmSvcImportRun(){
 
 function coll(k){return lsGet(k,[]);}
 function collSet(k,v){lsSet(k,v);}
+// Drops a server-confirmed save into the local cache immediately (so the
+// very next render shows it, without waiting for the next background
+// recPull) — same thing saveRec()/recEditSave() already do inline, pulled
+// out here since the Accounting module's several small server-backed
+// mutations (company, currency, account-within-a-company, journal entry)
+// all need the exact same two lines.
+function recUpsertLocal(k,saved){
+  const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
+  if(i>=0)cur[i]=saved;else cur.push(saved);
+  collSet(k,cur);REC_AT[k]=0;
+}
+function recRemoveLocal(k,id){
+  collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;
+}
 /* ============ server-backed registers ============
    Modules listed in SERVER_MODS keep their records in MySQL (erp_records /
    erp_record_files, routes/records.js) instead of only in this browser, so
@@ -7379,7 +7399,16 @@ function expT(id,name,kind){const tb=tblFrom(id);if(!tb){alert('Nothing to expor
 function expBtns(id,name){return '<button class="btn ghost small" title="Download CSV" onclick="expT(\''+id+'\',\''+name+'\',\'csv\')">CSV</button><button class="btn ghost small" title="Download Excel" onclick="expT(\''+id+'\',\''+name+'\',\'xls\')">Excel</button><button class="btn ghost small" title="Print / save as PDF" onclick="expT(\''+id+'\',\''+name+'\',\'pdf\')">PDF</button>';}
 
 /* ================================================================
-   ACCOUNTING — multi-company / multi-currency double-entry GL
+   ACCOUNTING — multi-company / multi-currency double-entry GL.
+   Server-backed (erp_records, same engine Item Master etc. use) via three
+   modules — glcompanies (each company's own chart of accounts lives
+   EMBEDDED in its own record, same shape as before), glcurrencies (global,
+   shared across companies) and gljournals (one record per posted entry).
+   Used to be ONE JSON blob in localStorage ('gl') — invisible to every
+   sign-in but whichever single browser entered it; glMigrateOldLocal()
+   below rescues anything already sitting in a browser's old 'gl' key the
+   first time this module loads after the fix, same rescue pattern as
+   Item Master's old localStorage attachments.
    ================================================================ */
 const DEF_COA=[['1000','Cash & Bank','Asset'],['1100','Accounts Receivable','Asset'],['1200','Inventory','Asset'],
  ['1500','Fixed Assets','Asset'],['1510','Accumulated Depreciation','Asset'],
@@ -7388,20 +7417,21 @@ const DEF_COA=[['1000','Cash & Bank','Asset'],['1100','Accounts Receivable','Ass
  ['4000','Inspection Services Revenue','Income'],['4100','Calibration Revenue','Income'],['4200','Rental & Other Income','Income'],['4900','FX Gain','Income'],
  ['5000','Direct Cost of Services','Expense'],['5100','Salaries & Wages','Expense'],['5200','Rent & Utilities','Expense'],
  ['5300','Consumables & Supplies','Expense'],['5400','Depreciation Expense','Expense'],['5500','Travel & Transport','Expense'],['5900','FX Loss','Expense'],['5950','Bank Charges','Expense']];
+const GL_DEF_CURRENCIES=[{code:'USD',name:'US Dollar',rate:1},{code:'AED',name:'UAE Dirham',rate:0.2723},{code:'EUR',name:'Euro',rate:1.09},{code:'GBP',name:'Pound Sterling',rate:1.27},{code:'SAR',name:'Saudi Riyal',rate:0.2667},{code:'PKR',name:'Pakistani Rupee',rate:0.0036}];
+// activeCo is a per-browser UI preference (which company you're currently
+// looking at) — deliberately NOT synced, so different people can browse
+// different companies at once without fighting over one shared value.
 function glData(){
-  let g=lsGet('gl',null);
-  if(!g||!g.companies||!g.companies.length){
-    g={companies:[{id:'co1',code:'PT-UAE',name:'Premier Tubular LLC',cur:'AED',notes:'UAE',coa:DEF_COA.map(a=>({code:a[0],name:a[1],type:a[2]}))}],
-       currencies:[{code:'USD',name:'US Dollar',rate:1},{code:'AED',name:'UAE Dirham',rate:0.2723},{code:'EUR',name:'Euro',rate:1.09},{code:'GBP',name:'Pound Sterling',rate:1.27},{code:'SAR',name:'Saudi Riyal',rate:0.2667},{code:'PKR',name:'Pakistani Rupee',rate:0.0036}],
-       journals:[],seq:0,activeCo:'co1'};
-    lsSet('gl',g);
-  }
-  return g;
+  const companies=coll('glcompanies'),currencies=coll('glcurrencies'),journals=coll('gljournals');
+  let activeCo=lsGet('gl_activeco',null);
+  if(!activeCo||!companies.some(c=>c.id===activeCo))activeCo=companies[0]?companies[0].id:null;
+  return {companies,currencies,journals,activeCo};
 }
-function glSet(g){lsSet('gl',g);}
+function glSetActive(id){lsSet('gl_activeco',id);}
 function glCo(g){return g.companies.find(c=>c.id===g.activeCo)||g.companies[0];}
 function glCur(g,code){return g.currencies.find(c=>c.code===code);}
 function fxCross(g,from,to){const f=glCur(g,from),t=glCur(g,to);if(!f||!t||!t.rate)return 1;return f.rate/t.rate;}
+function jeLabel(j){return 'JE-'+String(j.jeno||0).padStart(5,'0');}
 function glBalances(g,coId){
   const map={};
   g.journals.filter(j=>j.co===coId).forEach(j=>j.lines.forEach(l=>{
@@ -7416,90 +7446,250 @@ function glTypeTotals(g,c){
   return t;
 }
 function coPicker(g){
-  return '<div class="field" style="max-width:340px;margin-bottom:14px"><label>Active company</label><select onchange="const g=glData();g.activeCo=this.value;glSet(g);render()">'+
+  return '<div class="field" style="max-width:340px;margin-bottom:14px"><label>Active company</label><select onchange="glSetActive(this.value);render()">'+
     g.companies.map(c=>'<option value="'+c.id+'"'+(c.id===g.activeCo?' selected':'')+'>'+esc(c.code)+' — '+esc(c.name)+' ('+c.cur+')</option>').join('')+'</select></div>';
 }
+// One-time rescue of whatever's sitting in the OLD single-blob 'gl'
+// localStorage key (companies with their embedded coa, currencies,
+// journals) — uploaded via the same INSERT-IGNORE-safe /import endpoint
+// recMigrateLocal() already uses elsewhere, so running it twice (or from
+// two different browsers that both had local data) never duplicates.
+// In-flight guard (same idea as recPull()'s REC_BUSY) — glEnsure() runs on
+// every render() of a gl_* route, and render() can fire multiple times in
+// quick succession (e.g. a reload immediately followed by navigation).
+// Without this, two overlapping calls both see the 'glmig2' flag as not-yet-
+// set (it's only written at the very end, after several awaited uploads)
+// and BOTH re-run the whole migration, posting every old journal entry
+// twice with two different fresh uid()s. Caching the in-flight promise
+// means the second caller just awaits the first call's own result instead
+// of starting a second one.
+let GL_MIGRATE_PROMISE=null;
+function glMigrateOldLocal(){
+  if(lsGet('glmig2',false))return Promise.resolve();
+  if(GL_MIGRATE_PROMISE)return GL_MIGRATE_PROMISE;
+  GL_MIGRATE_PROMISE=(async()=>{
+    const old=lsGet('gl',null);
+    try{
+      if(old&&old.companies&&old.companies.length){
+        const companies=old.companies.map(c=>({id:c.id,code:c.code,name:c.name,cur:c.cur,notes:c.notes||'',coa:c.coa||[]}));
+        await api('/api/records/glcompanies/import',{method:'POST',body:JSON.stringify({records:companies})});
+        if(old.currencies&&old.currencies.length){
+          const currencies=old.currencies.map(x=>({id:x.code,code:x.code,name:x.name,rate:x.rate}));
+          await api('/api/records/glcurrencies/import',{method:'POST',body:JSON.stringify({records:currencies})});
+        }
+        if(old.journals&&old.journals.length){
+          // Deterministic id (derived from the OLD entry's own co+id, not a
+          // fresh uid()) so a retried/interrupted migration — e.g. the
+          // browser closed between this import call succeeding and the
+          // 'glmig2' flag being written — lands on the SAME id next time
+          // and the server's INSERT IGNORE naturally no-ops it, rather than
+          // posting the same old entry again under a new random id.
+          const journals=old.journals.map((j,i)=>{
+            const m=/^JE-0*(\d+)$/.exec(j.id);
+            const safeOld=String(j.id||i).replace(/[^A-Za-z0-9_-]/g,'');
+            return {id:('mig'+(j.co||'nc')+'_'+safeOld).slice(0,64),jeno:m?+m[1]:i+1,co:j.co,date:j.date,ref:j.ref,memo:j.memo,cur:j.cur,rate:j.rate,lines:j.lines};
+          });
+          await api('/api/records/gljournals/import',{method:'POST',body:JSON.stringify({records:journals})});
+        }
+        if(lsGet('gl_activeco',null)==null)lsSet('gl_activeco',old.activeCo||companies[0].id);
+      }
+      lsSet('glmig2',true);
+    }catch(e){console.warn('Accounting migrate failed:',e.message);} // don't set the flag — retry next visit
+    finally{GL_MIGRATE_PROMISE=null;}
+  })();
+  return GL_MIGRATE_PROMISE;
+}
+// Makes sure the standard currency list exists even on a brand-new install
+// that never had any local data to migrate — otherwise "Add company" would
+// have no base currency to offer. Also INSERT-IGNORE-safe, and same
+// in-flight guard as above.
+let GL_CURSEED_PROMISE=null;
+function glEnsureDefaultCurrencies(){
+  if(lsGet('glcurseed',false))return Promise.resolve();
+  if(GL_CURSEED_PROMISE)return GL_CURSEED_PROMISE;
+  GL_CURSEED_PROMISE=(async()=>{
+    try{
+      await api('/api/records/glcurrencies/import',{method:'POST',body:JSON.stringify({records:GL_DEF_CURRENCIES.map(x=>({id:x.code,...x}))})});
+      lsSet('glcurseed',true);
+    }catch(e){/* retry next visit */}
+    finally{GL_CURSEED_PROMISE=null;}
+  })();
+  return GL_CURSEED_PROMISE;
+}
+function glEnsure(){
+  glMigrateOldLocal().then(()=>glEnsureDefaultCurrencies()).then(()=>{
+    Promise.all(['glcompanies','glcurrencies','gljournals'].map(k=>recPull(k))).then(results=>{
+      if(results.some(Boolean)&&route.startsWith('gl_')&&!editId)render();
+    });
+  });
+}
+function glEmptyState(msg,btn){
+  document.getElementById('content').innerHTML='<div class="card"><div class="card-h">Accounting</div><div class="card-b"><div class="empty">'+esc(msg)+'</div>'+(btn||'')+'</div></div>';
+}
+/* ---- small shared Add/Edit form modal (Company / Currency / Account) ---- */
+function glFormShow(title,bodyHtml,onSave){
+  document.getElementById('glform-title').textContent=title;
+  document.getElementById('glform-body').innerHTML=bodyHtml;
+  document.getElementById('glform-err').style.display='none';
+  document.getElementById('glform-save-btn').onclick=onSave;
+  openModal('glformmodal');
+}
+function glFormErr(msg){const el=document.getElementById('glform-err');el.textContent=msg;el.style.display='block';}
 /* ---- companies ---- */
 function renderGlCompanies(){
   const g=glData();
+  if(!g.companies.length)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
   document.getElementById('content').innerHTML=coPicker(g)+
-  '<div class="card"><div class="card-h">Companies<span class="sp"></span><button class="btn" onclick="glCoAdd()">+ Add company</button></div><div class="card-b tblwrap">'+
+  '<div class="card"><div class="card-h">Companies<span class="sp"></span><button class="btn" onclick="glCoOpen(null)">+ Add company</button></div><div class="card-b tblwrap">'+
   '<table><thead><tr><th>Code</th><th>Name</th><th>Base currency</th><th>Notes</th><th class="num">Accounts</th><th class="num">Entries</th><th></th></tr></thead><tbody>'+
-  g.companies.map(c=>'<tr><td class="num">'+esc(c.code)+'</td><td><b>'+esc(c.name)+'</b></td><td><span class="pill b">'+c.cur+'</span></td><td>'+esc(c.notes||'')+'</td><td class="num">'+c.coa.length+'</td><td class="num">'+g.journals.filter(j=>j.co===c.id).length+'</td><td><button class="del" onclick="glCoDel(\''+c.id+'\')">✕</button></td></tr>').join('')+
+  g.companies.map(c=>'<tr><td class="num">'+esc(c.code)+'</td><td><b>'+esc(c.name)+'</b></td><td><span class="pill b">'+c.cur+'</span></td><td>'+esc(c.notes||'')+'</td><td class="num">'+c.coa.length+'</td><td class="num">'+g.journals.filter(j=>j.co===c.id).length+'</td><td style="white-space:nowrap"><button class="btn ghost small" onclick="glCoOpen(\''+c.id+'\')">Edit</button> <button class="del" onclick="glCoDel(\''+c.id+'\')">✕</button></td></tr>').join('')+
   '</tbody></table><div class="hint">Each company keeps its own chart of accounts and ledger in its own base currency. New companies start with the standard COA.</div></div></div>';
 }
-function glCoAdd(){
+function glCoOpen(id){
   const g=glData();
-  const code=prompt('Company code (e.g. PT-KSA):');if(!code)return;
-  const name=prompt('Company name:');if(!name)return;
-  const c=(prompt('Base currency code:','USD')||'USD').toUpperCase();
-  if(!glCur(g,c)){alert('Currency '+c+' not in FX table — add it first.');return;}
-  const id='co'+Date.now();
-  g.companies.push({id,code:code.toUpperCase(),name,cur:c,notes:'',coa:DEF_COA.map(a=>({code:a[0],name:a[1],type:a[2]}))});
-  g.activeCo=id;glSet(g);render();
+  const c=id?g.companies.find(x=>x.id===id):null;
+  if(!g.currencies.length){alert('No currencies set up yet — that should not happen; reload the page and try again.');return;}
+  glFormShow(c?'Edit company':'Add company',
+   '<div class="fgrid">'+
+   '<div class="field"><label>Code</label><input id="glf-code" value="'+esc(c?c.code:'')+'" placeholder="e.g. PT-KSA"></div>'+
+   '<div class="field"><label>Name</label><input id="glf-name" value="'+esc(c?c.name:'')+'" placeholder="Company legal name"></div>'+
+   '<div class="field"><label>Base currency</label><select id="glf-cur">'+g.currencies.map(x=>'<option'+((c?c.cur:'USD')===x.code?' selected':'')+'>'+x.code+'</option>').join('')+'</select></div>'+
+   '<div class="field full"><label>Notes</label><input id="glf-notes" value="'+esc(c?c.notes||'':'')+'"></div>'+
+   '</div>',
+   ()=>glCoSave(id));
 }
-function glCoDel(id){
+async function glCoSave(id){
+  const code=document.getElementById('glf-code').value.trim();
+  const name=document.getElementById('glf-name').value.trim();
+  const cur=document.getElementById('glf-cur').value;
+  const notes=document.getElementById('glf-notes').value.trim();
+  if(!code||!name)return glFormErr('Code and Name are required.');
+  const g=glData();
+  if(g.companies.some(c=>c.code.toLowerCase()===code.toLowerCase()&&c.id!==id))return glFormErr('A company with this code already exists.');
+  try{
+    let saved;
+    if(id){
+      const existing=g.companies.find(c=>c.id===id);
+      saved=await api('/api/records/glcompanies/'+encodeURIComponent(id),{method:'PUT',body:JSON.stringify({...existing,code,name,cur,notes})});
+    }else{
+      saved=await api('/api/records/glcompanies',{method:'POST',body:JSON.stringify({id:uid(),code,name,cur,notes,coa:DEF_COA.map(a=>({code:a[0],name:a[1],type:a[2]}))})});
+      glSetActive(saved.id);
+    }
+    recUpsertLocal('glcompanies',saved);
+    closeModal('glformmodal');render();toast('Saved.','ok');
+  }catch(e){glFormErr(e.message);}
+}
+async function glCoDel(id){
   const g=glData();
   if(g.companies.length<2){alert('At least one company is required.');return;}
-  if(g.journals.some(j=>j.co===id)&&!confirm('Company has journal entries. Delete company AND entries?'))return;
-  g.journals=g.journals.filter(j=>j.co!==id);
-  g.companies=g.companies.filter(c=>c.id!==id);
-  if(g.activeCo===id)g.activeCo=g.companies[0].id;
-  glSet(g);render();
+  const entries=g.journals.filter(j=>j.co===id);
+  if(entries.length&&!confirm('Company has '+entries.length+' journal entries. Delete company AND entries?'))return;
+  try{
+    for(const j of entries){await api('/api/records/gljournals/'+encodeURIComponent(j.id),{method:'DELETE'});recRemoveLocal('gljournals',j.id);}
+    await api('/api/records/glcompanies/'+encodeURIComponent(id),{method:'DELETE'});
+    recRemoveLocal('glcompanies',id);
+    if(g.activeCo===id){const left=coll('glcompanies');glSetActive(left[0]?left[0].id:null);}
+    render();toast('Company deleted.','ok');
+  }catch(e){toast('NOT deleted — '+e.message,'err');}
 }
 /* ---- fx ---- */
 function renderGlFx(){
   const g=glData(),c=glCo(g);
   document.getElementById('content').innerHTML=
-  '<div class="card"><div class="card-h">Currencies &amp; exchange rates<span class="sp"></span><button class="btn" onclick="glFxAdd()">+ Add currency</button></div><div class="card-b tblwrap">'+
-  '<table><thead><tr><th>Code</th><th>Name</th><th class="num">USD per 1 unit</th><th>Cross to '+c.cur+'</th><th></th></tr></thead><tbody>'+
+  '<div class="card"><div class="card-h">Currencies &amp; exchange rates<span class="sp"></span><button class="btn" onclick="glFxOpen(null)">+ Add currency</button></div><div class="card-b tblwrap">'+
+  '<table><thead><tr><th>Code</th><th>Name</th><th class="num">USD per 1 unit</th>'+(c?'<th>Cross to '+c.cur+'</th>':'')+'<th></th></tr></thead><tbody>'+
   g.currencies.map(x=>'<tr><td><b>'+x.code+'</b></td><td>'+esc(x.name)+'</td>'+
-   '<td class="num"><input type="number" step="0.000001" value="'+x.rate+'" style="width:110px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:5px 8px"'+(x.code==='USD'?' disabled':'')+' onchange="const g=glData();g.currencies.find(y=>y.code===\''+x.code+'\').rate=parseFloat(this.value)||0;glSet(g);render()"></td>'+
-   '<td class="num">1 '+x.code+' = '+(+fxCross(g,x.code,c.cur).toFixed(4))+' '+c.cur+'</td>'+
+   '<td class="num"><input type="number" step="0.000001" value="'+x.rate+'" style="width:110px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:5px 8px"'+(x.code==='USD'?' disabled':'')+' onchange="glFxRateChange(\''+x.code+'\',this)"></td>'+
+   (c?'<td class="num">1 '+x.code+' = '+(+fxCross(g,x.code,c.cur).toFixed(4))+' '+c.cur+'</td>':'')+
    '<td>'+(x.code!=='USD'?'<button class="del" onclick="glFxDel(\''+x.code+'\')">✕</button>':'')+'</td></tr>').join('')+
   '</tbody></table><div class="hint">All rates stored against USD. Cross rates derive automatically. Journal entries capture the rate at posting time — history never restates.</div></div></div>';
 }
-function glFxAdd(){
-  const g=glData();
-  const code=(prompt('Currency code (ISO):')||'').toUpperCase();if(!code)return;
-  if(glCur(g,code)){alert(code+' exists.');return;}
-  g.currencies.push({code,name:prompt('Currency name:')||code,rate:parseFloat(prompt('USD per 1 '+code+':'))||0});
-  glSet(g);render();
+async function glFxRateChange(code,el){
+  const rate=parseFloat(el.value)||0;
+  const g=glData();const x=g.currencies.find(y=>y.code===code);if(!x)return;
+  try{const saved=await api('/api/records/glcurrencies/'+encodeURIComponent(code),{method:'PUT',body:JSON.stringify({...x,rate})});recUpsertLocal('glcurrencies',saved);}
+  catch(e){toast('Rate NOT saved — '+e.message,'err');el.value=x.rate;}
 }
-function glFxDel(code){
+function glFxOpen(code){
+  const g=glData();
+  const x=code?g.currencies.find(c=>c.code===code):null;
+  glFormShow(x?'Edit currency':'Add currency',
+   '<div class="fgrid">'+
+   '<div class="field"><label>ISO code</label><input id="glf-code" value="'+esc(x?x.code:'')+'" placeholder="e.g. QAR"'+(x?' disabled':'')+'></div>'+
+   '<div class="field"><label>Name</label><input id="glf-name" value="'+esc(x?x.name:'')+'" placeholder="Currency name"></div>'+
+   '<div class="field"><label>USD per 1 unit</label><input id="glf-rate" type="number" step="0.000001" value="'+(x?x.rate:'')+'"></div>'+
+   '</div>',
+   ()=>glFxSave(code));
+}
+async function glFxSave(code){
+  const newCode=code||document.getElementById('glf-code').value.trim().toUpperCase();
+  const name=document.getElementById('glf-name').value.trim();
+  const rate=parseFloat(document.getElementById('glf-rate').value);
+  if(!newCode||!name||!(rate>0))return glFormErr('Code, name and a positive rate are required.');
+  const g=glData();
+  if(!code&&g.currencies.some(c=>c.code===newCode))return glFormErr(newCode+' already exists.');
+  try{
+    const saved=await api('/api/records/glcurrencies'+(code?'/'+encodeURIComponent(code):''),{method:code?'PUT':'POST',body:JSON.stringify({id:newCode,code:newCode,name,rate})});
+    recUpsertLocal('glcurrencies',saved);
+    closeModal('glformmodal');render();toast('Saved.','ok');
+  }catch(e){glFormErr(e.message);}
+}
+async function glFxDel(code){
   const g=glData();
   if(g.companies.some(c=>c.cur===code)){alert('A company uses '+code+' as base.');return;}
-  g.currencies=g.currencies.filter(c=>c.code!==code);glSet(g);render();
+  try{await api('/api/records/glcurrencies/'+encodeURIComponent(code),{method:'DELETE'});recRemoveLocal('glcurrencies',code);render();}
+  catch(e){toast('NOT deleted — '+e.message,'err');}
 }
 /* ---- coa ---- */
 function renderGlCoa(){
-  const g=glData(),c=glCo(g),bal=glBalances(g,c.id);
+  const g=glData(),c=glCo(g);
+  if(!c)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
+  const bal=glBalances(g,c.id);
   document.getElementById('content').innerHTML=coPicker(g)+
-  '<div class="card"><div class="card-h">Chart of accounts — '+esc(c.code)+'<span class="sp"></span><button class="btn" onclick="glCoaAdd()">+ Add account</button></div><div class="card-b tblwrap">'+
+  '<div class="card"><div class="card-h">Chart of accounts — '+esc(c.code)+'<span class="sp"></span><button class="btn" onclick="glCoaOpen()">+ Add account</button></div><div class="card-b tblwrap">'+
   '<table><thead><tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Balance ('+c.cur+')</th><th></th></tr></thead><tbody>'+
   c.coa.map(a=>{const b=bal[a.code]||{dr:0,cr:0};const net=(a.type==='Asset'||a.type==='Expense')?b.dr-b.cr:b.cr-b.dr;
    return '<tr><td class="num">'+a.code+'</td><td>'+esc(a.name)+'</td><td><span class="pill b">'+a.type+'</span></td><td class="num">'+fmt(net)+'</td><td><button class="del" onclick="glCoaDel(\''+a.code+'\')">✕</button></td></tr>';}).join('')+
   '</tbody></table></div></div>';
 }
-function glCoaAdd(){
-  const g=glData(),c=glCo(g);
-  const code=prompt('Account code:');if(!code)return;
-  if(c.coa.some(a=>a.code===code)){alert('Code exists.');return;}
-  const name=prompt('Account name:');if(!name)return;
-  const type=prompt('Type — Asset / Liability / Equity / Income / Expense:','Expense');
-  if(!['Asset','Liability','Equity','Income','Expense'].includes(type)){alert('Invalid type.');return;}
-  c.coa.push({code,name,type});c.coa.sort((a,b)=>a.code.localeCompare(b.code));glSet(g);render();
+function glCoaOpen(){
+  glFormShow('Add account',
+   '<div class="fgrid">'+
+   '<div class="field"><label>Account code</label><input id="glf-code" placeholder="e.g. 5600"></div>'+
+   '<div class="field"><label>Account name</label><input id="glf-name" placeholder="e.g. Marketing Expense"></div>'+
+   '<div class="field"><label>Type</label><select id="glf-type"><option>Asset</option><option>Liability</option><option>Equity</option><option>Income</option><option selected>Expense</option></select></div>'+
+   '</div>',
+   glCoaSave);
 }
-function glCoaDel(code){
+async function glCoaSave(){
+  const code=document.getElementById('glf-code').value.trim();
+  const name=document.getElementById('glf-name').value.trim();
+  const type=document.getElementById('glf-type').value;
+  if(!code||!name)return glFormErr('Code and name are required.');
+  const g=glData(),c=glCo(g);
+  if(c.coa.some(a=>a.code===code))return glFormErr('Code already exists.');
+  const coa=[...c.coa,{code,name,type}].sort((a,b)=>a.code.localeCompare(b.code));
+  try{
+    const saved=await api('/api/records/glcompanies/'+encodeURIComponent(c.id),{method:'PUT',body:JSON.stringify({...c,coa})});
+    recUpsertLocal('glcompanies',saved);
+    closeModal('glformmodal');render();toast('Account added.','ok');
+  }catch(e){glFormErr(e.message);}
+}
+async function glCoaDel(code){
   const g=glData(),c=glCo(g);
   if(g.journals.some(j=>j.co===c.id&&j.lines.some(l=>l.acct===code))){alert('Account has postings — cannot delete.');return;}
-  c.coa=c.coa.filter(a=>a.code!==code);glSet(g);render();
+  const coa=c.coa.filter(a=>a.code!==code);
+  try{
+    const saved=await api('/api/records/glcompanies/'+encodeURIComponent(c.id),{method:'PUT',body:JSON.stringify({...c,coa})});
+    recUpsertLocal('glcompanies',saved);render();
+  }catch(e){toast('NOT deleted — '+e.message,'err');}
 }
 
 /* ---- journal entries ---- */
 let JE_LINES=[];
 function renderGlJe(){
   const g=glData(),c=glCo(g);
+  if(!c)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
   if(!JE_LINES.length)JE_LINES=[{acct:'',desc:'',dr:'',cr:''},{acct:'',desc:'',dr:'',cr:''}];
   document.getElementById('content').innerHTML=coPicker(g)+
   '<div class="card"><div class="card-h">New journal entry — '+esc(c.code)+' ('+c.cur+')</div><div class="card-b">'+
@@ -7512,7 +7702,7 @@ function renderGlJe(){
   '<div style="margin-top:13px"><div class="jl jl-h"><div>Account</div><div>Line description</div><div style="text-align:right">Debit</div><div style="text-align:right">Credit</div><div></div></div>'+
   '<div id="je-lines"></div><button class="btn ghost small" onclick="JE_LINES.push({acct:\'\',desc:\'\',dr:\'\',cr:\'\'});drawJeLines()">+ Add line</button></div>'+
   '<div class="balbar bad" id="je-bal"></div>'+
-  '<div class="actions"><button class="btn" onclick="jePost()">Post entry</button><button class="btn ghost" onclick="JE_LINES=[];renderGlJe()">Clear</button></div></div></div>'+
+  '<div class="actions"><button class="btn" id="je-post-btn" onclick="jePost()">Post entry</button><button class="btn ghost" onclick="JE_LINES=[];renderGlJe()">Clear</button></div></div></div>'+
   '<div class="card"><div class="card-h">Posted entries — '+esc(c.code)+'<span class="sp"></span>'+expBtns('xt-je','journal-entries')+'</div><div class="card-b tblwrap" id="xt-je">'+glJeTable(g,c)+'</div></div>';
   drawJeLines();
 }
@@ -7535,31 +7725,44 @@ function jeBal(){
   el.className='balbar '+(ok?'ok':'bad');
   el.textContent='Dr '+fmt(dr)+' / Cr '+fmt(cr)+(ok?' — balanced':' — not balanced');
 }
-function jePost(){
+async function jePost(){
   const g=glData(),c=glCo(g);
   const{dr,cr}=jeTotals();
   if(!(dr>0&&Math.abs(dr-cr)<0.005)){alert('Entry must balance (debits = credits, > 0).');return;}
   if(JE_LINES.some(l=>((parseFloat(l.dr)||0)||(parseFloat(l.cr)||0))&&!l.acct)){alert('Every line with an amount needs an account.');return;}
-  g.seq++;
-  g.journals.push({id:'JE-'+String(g.seq).padStart(5,'0'),co:c.id,
+  const btn=document.getElementById('je-post-btn');if(btn){btn.disabled=true;btn.textContent='Posting…';}
+  const nextNo=g.journals.reduce((m,j)=>Math.max(m,+j.jeno||0),0)+1;
+  const rec={id:uid(),jeno:nextNo,co:c.id,
     date:document.getElementById('je-date').value||today(),
     ref:document.getElementById('je-ref').value,memo:document.getElementById('je-memo').value,
     cur:document.getElementById('je-cur').value,rate:parseFloat(document.getElementById('je-rate').value)||1,
-    lines:JE_LINES.filter(l=>(parseFloat(l.dr)||0)||(parseFloat(l.cr)||0)).map(l=>({acct:l.acct,desc:l.desc,dr:parseFloat(l.dr)||0,cr:parseFloat(l.cr)||0}))});
-  glSet(g);JE_LINES=[];render();
+    lines:JE_LINES.filter(l=>(parseFloat(l.dr)||0)||(parseFloat(l.cr)||0)).map(l=>({acct:l.acct,desc:l.desc,dr:parseFloat(l.dr)||0,cr:parseFloat(l.cr)||0}))};
+  try{
+    const saved=await api('/api/records/gljournals',{method:'POST',body:JSON.stringify(rec)});
+    recUpsertLocal('gljournals',saved);
+    JE_LINES=[];render();toast('Entry posted — '+jeLabel(saved)+'.','ok');
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Post entry';}
+    toast('NOT posted — '+e.message,'err');
+  }
 }
-function glJeDel(id){if(!confirm('Delete entry '+id+'?'))return;const g=glData();g.journals=g.journals.filter(j=>j.id!==id);glSet(g);render();}
+async function glJeDel(id){
+  if(!confirm('Delete this entry?'))return;
+  try{await api('/api/records/gljournals/'+encodeURIComponent(id),{method:'DELETE'});recRemoveLocal('gljournals',id);render();}
+  catch(e){toast('NOT deleted — '+e.message,'err');}
+}
 function glJeTable(g,c){
-  const list=g.journals.filter(j=>j.co===c.id).slice().reverse();
+  const list=g.journals.filter(j=>j.co===c.id).slice().sort((a,b)=>(+a.jeno||0)-(+b.jeno||0)).reverse();
   if(!list.length)return '<div class="empty">No journal entries yet.</div>';
   return '<table><thead><tr><th>Entry</th><th>Date</th><th>Ref</th><th>Memo</th><th>Cur</th><th class="num">Rate</th><th class="num">Amount</th><th class="num">Base ('+c.cur+')</th><th class="no-print"></th></tr></thead><tbody>'+
    list.map(j=>{const amt=j.lines.reduce((s,l)=>s+l.dr,0);
-    return '<tr><td><b>'+j.id+'</b></td><td>'+j.date+'</td><td>'+esc(j.ref||'')+'</td><td>'+esc(j.memo||'')+'</td><td>'+j.cur+'</td><td class="num">'+j.rate+'</td><td class="num">'+fmt(amt)+'</td><td class="num">'+fmt(amt*j.rate)+'</td><td class="no-print"><button class="del" onclick="glJeDel(\''+j.id+'\')">✕</button></td></tr>';}).join('')+'</tbody></table>';
+    return '<tr><td><b>'+jeLabel(j)+'</b></td><td>'+j.date+'</td><td>'+esc(j.ref||'')+'</td><td>'+esc(j.memo||'')+'</td><td>'+j.cur+'</td><td class="num">'+j.rate+'</td><td class="num">'+fmt(amt)+'</td><td class="num">'+fmt(amt*j.rate)+'</td><td class="no-print"><button class="del" onclick="glJeDel(\''+j.id+'\')">✕</button></td></tr>';}).join('')+'</tbody></table>';
 }
 /* ---- ledger ---- */
 let glAcctSel='';
 function renderGlLedger(){
   const g=glData(),c=glCo(g);
+  if(!c)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
   const acct=c.coa.find(a=>a.code===glAcctSel);
   let body='<div class="hint">Choose an account to view its ledger.</div>';
   if(acct){
@@ -7567,7 +7770,7 @@ function renderGlLedger(){
     g.journals.filter(j=>j.co===c.id).forEach(j=>j.lines.forEach(l=>{if(l.acct!==acct.code)return;
       const dr=l.dr*j.rate,crd=l.cr*j.rate;
       run+=(acct.type==='Asset'||acct.type==='Expense')?dr-crd:crd-dr;
-      rows.push('<tr><td>'+j.date+'</td><td>'+j.id+'</td><td>'+esc(j.ref||'')+'</td><td>'+esc(l.desc||j.memo||'')+'</td><td>'+j.cur+(j.cur!==c.cur?' @ '+j.rate:'')+'</td><td class="num">'+(dr?fmt(dr):'')+'</td><td class="num">'+(crd?fmt(crd):'')+'</td><td class="num">'+fmt(run)+'</td></tr>');}));
+      rows.push('<tr><td>'+j.date+'</td><td>'+jeLabel(j)+'</td><td>'+esc(j.ref||'')+'</td><td>'+esc(l.desc||j.memo||'')+'</td><td>'+j.cur+(j.cur!==c.cur?' @ '+j.rate:'')+'</td><td class="num">'+(dr?fmt(dr):'')+'</td><td class="num">'+(crd?fmt(crd):'')+'</td><td class="num">'+fmt(run)+'</td></tr>');}));
     body='<table><thead><tr><th>Date</th><th>Entry</th><th>Ref</th><th>Description</th><th>Cur</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead><tbody>'+(rows.join('')||'<tr><td colspan="8" class="empty">No postings.</td></tr>')+'</tbody></table>';
   }
   document.getElementById('content').innerHTML=coPicker(g)+
@@ -7576,7 +7779,9 @@ function renderGlLedger(){
 }
 /* ---- statements ---- */
 function renderGlTb(){
-  const g=glData(),c=glCo(g),bal=glBalances(g,c.id);
+  const g=glData(),c=glCo(g);
+  if(!c)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
+  const bal=glBalances(g,c.id);
   let tdr=0,tcr=0;
   const rows=c.coa.map(a=>{const b=bal[a.code];if(!b)return '';
     const net=b.dr-b.cr;const dr=net>0?net:0,crd=net<0?-net:0;tdr+=dr;tcr+=crd;
@@ -7603,7 +7808,9 @@ function sec2(g,c,type,sign){
   return {rows,tot};
 }
 function renderGlPl(){
-  const g=glData(),c=glCo(g),d=glPlData(g,c);
+  const g=glData(),c=glCo(g);
+  if(!c)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
+  const d=glPlData(g,c);
   document.getElementById('content').innerHTML=coPicker(g)+
   '<div class="card"><div class="card-h">Profit &amp; loss — '+esc(c.code)+' ('+c.cur+')<span class="sp"></span>'+expBtns('xt-pl','profit-and-loss')+'</div><div class="card-b tblwrap" id="xt-pl">'+
   '<table><thead><tr><th>Code</th><th>Account</th><th class="num">Amount</th></tr></thead><tbody>'+
@@ -7612,7 +7819,9 @@ function renderGlPl(){
   '<tr class="tot"><td colspan="2">NET '+(d.inc.tot-d.exp.tot>=0?'PROFIT':'LOSS')+'</td><td class="num">'+fmt(d.inc.tot-d.exp.tot)+'</td></tr></tbody></table></div></div>';
 }
 function renderGlBs(){
-  const g=glData(),c=glCo(g),d=glPlData(g,c);
+  const g=glData(),c=glCo(g);
+  if(!c)return glEmptyState('No companies yet.','<button class="btn" onclick="glCoOpen(null)">+ Add your first company</button>');
+  const d=glPlData(g,c);
   const ni=d.inc.tot-d.exp.tot;
   document.getElementById('content').innerHTML=coPicker(g)+
   '<div class="card"><div class="card-h">Balance sheet — '+esc(c.code)+' ('+c.cur+')<span class="sp"></span>'+expBtns('xt-bs','balance-sheet')+'</div><div class="card-b tblwrap" id="xt-bs">'+
@@ -10969,12 +11178,12 @@ function irDel(id){
    DASHBOARD
    ================================================================ */
 function renderDashboard(){
-  const g=glData(),c=glCo(g),t=glTypeTotals(g,c);
+  const g=glData(),c=glCo(g),t=c?glTypeTotals(g,c):null;
   const inv=coll('invoices'),ncr=coll('ncrs'),cal=coll('calibrations'),emp=coll('employees'),lib=lsGet('ir_library',[]);
   const ar=inv.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0);
   const kpis=[
    {l:'Outstanding AR',n:fmt(ar)},
-   {l:'Net income — '+c.code+' ('+c.cur+')',n:fmt(t.Income-t.Expense)},
+   ...(c?[{l:'Net income — '+c.code+' ('+c.cur+')',n:fmt(t.Income-t.Expense)}]:[]),
    {l:'Open NCRs',n:ncr.filter(r=>r.status!=='Closed').length,warn:ncr.some(r=>r.status!=='Closed')},
    {l:'Calibration overdue',n:cal.filter(r=>r.status==='Overdue').length,warn:cal.some(r=>r.status==='Overdue')},
    {l:'Active employees',n:emp.filter(r=>r.status==='Active').length},
@@ -11255,6 +11464,11 @@ function render(){
   if(!SESSION){return;}
   if(FORM_GUARD)return; // a form with unsaved input is open — see FORM_GUARD above; a foreground Save/Cancel will re-render explicitly
   if(route.startsWith('m_')&&(!canSee(routeGroup(route))||!MODULES[modKey()])){route='dashboard';} // !MODULES[...] guards a stale saved route to a module that's since been removed
+  // Accounting (gl_*) isn't built on the generic MODULES/recEnsure system
+  // above — it's its own hand-built screens over 3 server-backed modules
+  // (glcompanies/glcurrencies/gljournals), so it needs its own sync hook.
+  // Dashboard also needs it for the "Net income" KPI tile.
+  if((route.startsWith('gl_')||route==='dashboard')&&canSee('Accounting'))glEnsure();
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];

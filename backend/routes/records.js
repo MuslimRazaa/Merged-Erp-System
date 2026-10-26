@@ -33,6 +33,12 @@ const MODULE_GROUP = {
   // library. These used to live only in the browser that wrote them, so a
   // report (or contract, or lead) filed at one site was invisible elsewhere.
   workorders: 'Inspection', contracts: 'Inspection', ir_library: 'Inspection',
+  // Accounting (multi-company double-entry GL) — companies (each with its
+  // own embedded chart of accounts), currencies and journal entries used to
+  // live ONLY in the browser that entered them (a single JSON blob in
+  // localStorage), invisible to every other sign-in. Same fix as everything
+  // else above: real rows in erp_records, shared by everyone.
+  glcompanies: 'Accounting', glcurrencies: 'Accounting', gljournals: 'Accounting',
 };
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
