@@ -1,0 +1,50 @@
+{
+  "name": "Premier ERP — Inspection",
+  "short_name": "PTIS Inspection",
+  "description": "Inspection reports, work orders and M&TE for Premier Tubular Inspection Services. Works with no internet; what is filed in the field syncs when a connection returns.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#0b3b6f",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New inspection report",
+      "short_name": "New report",
+      "url": "/?go=insp_report"
+    },
+    {
+      "name": "Saved reports",
+      "short_name": "Saved",
+      "url": "/?go=insp_list"
+    }
+  ]
+}
