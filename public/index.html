@@ -777,7 +777,7 @@ grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','G
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),REF('item','Item (from Item Master)','items','name'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
@@ -827,7 +827,7 @@ const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
-  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'}],
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
   // DCR hidden from the sidebar for now at the user's request — the route,
   // screen and modal are all still fully built and working underneath;
@@ -1970,19 +1970,25 @@ function pinTableHead(el){
   el.addEventListener('scroll',handler);
   handler();
 }
-function prReportGrid(){
+// rep defaults to the live Generate-Payroll preview (PR_REPORT) but takes
+// any report shape — used directly with a SAVED run's own report (the
+// Payrolls tab's download buttons) so that export matches exactly what was
+// locked in, not a live re-generation.
+function prReportGrid(rep){
+  rep=rep||PR_REPORT;
   const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Net Salary','Field Allowance','Gross Payable'];
-  const rows=PR_REPORT.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
 // PdfDoc helper the Attendance Report uses, so the look is consistent.
-function prBuildPdfDoc(){
-  if(!PR_REPORT||!PR_REPORT.rows.length)return null;
-  const {headers,rows}=prReportGrid();
+function prBuildPdfDoc(rep){
+  rep=rep||PR_REPORT;
+  if(!rep||!rep.rows.length)return null;
+  const {headers,rows}=prReportGrid(rep);
   const fmtRows=rows.map(r=>r.map(c=>typeof c==='number'?fmt(c):(c==null?'':c)));
   const doc=new PdfDoc({landscape:true});
-  doc.header('PAYROLL — '+prMonthLabel(PR_REPORT.to).toUpperCase(),PR_REPORT.from+' to '+PR_REPORT.to);
+  doc.header('PAYROLL — '+prMonthLabel(rep.to).toUpperCase(),rep.from+' to '+rep.to);
   doc.table(headers,fmtRows);
   return doc;
 }
@@ -2070,6 +2076,125 @@ function prsRenderPayrollsList(){
 }
 function prsYearChanged(y){PRS_YEAR=y;prsLoadPayrolls();}
 
+// Bank disbursement file downloads for a saved payroll run (Payrolls tab).
+// The two files are a SPLIT, not a duplicate: an employee whose Bank Name
+// on file resolves to HBL (code 054) goes in HBL→HBL only; everyone else
+// (a different bank, OR a bank name that's missing/didn't match anything —
+// those still need SOME file, flagged rather than silently dropped) goes
+// in HBL→IBFT only. Never both, so uploading both files to the bank can
+// never double-pay anyone.
+// Shared prep: loads the run + employee bank/contact details (the saved
+// snapshot only has salary/attendance figures, never bank details — same
+// "locked financial totals, present-day personal details" split
+// buildPayslipData() already uses for payslips) and classifies each row.
+// Deliberately does NOT reuse the page-lifetime EMP_LIST cache other
+// screens rely on — this is building a real bank transfer file, so it
+// always re-fetches live, to never disburse against a bank detail that was
+// already stale by the time this export ran (e.g. HR corrected an account
+// number minutes ago, same tab).
+async function prsHblLoadRows(id){
+  const run=await api('/api/payroll/saved/'+id);
+  const freshEmpList=await api('/api/shared/employees');
+  EMP_LIST=freshEmpList; // still refresh the shared cache for every OTHER screen that reads it
+  const empById=new Map(freshEmpList.map(e=>[e.id,e]));
+  const items=run.report.rows.map(r=>{
+    const e=empById.get(r.employeeId);
+    const p=(e&&e.profile)||{};
+    const bank=hblBankCodeFor(p.bankName);
+    return {r,e,p,bank,isHbl:!!(bank&&bank.code==='054')};
+  });
+  return {run,items};
+}
+function prsHblIssuesFor(items,{needBankCode}){
+  const issues=[];
+  items.forEach(({r,p,bank})=>{
+    if(!p.accountNo)issues.push(r.employeeName+' ('+r.employeeCode+'): no bank account number on file');
+    if(needBankCode){
+      if(!p.bankName)issues.push(r.employeeName+' ('+r.employeeCode+'): no bank name on file — Bank Code left blank');
+      else if(!bank)issues.push(r.employeeName+' ('+r.employeeCode+'): bank name "'+p.bankName+'" did not match any known bank — Bank Code left blank');
+    }
+  });
+  return issues;
+}
+// Same-bank transfer (beneficiary's own account is at HBL) — no Bank Code
+// column needed, the destination is always HBL.
+async function prsExportHblHbl(id){
+  try{
+    const {run,items}=await prsHblLoadRows(id);
+    const inFile=items.filter(x=>x.isHbl);
+    const headers=['Beneficiary Name','Beneficiary Account Number','Transaction Amount','Customer Reference Number','Contact Number','Beneficiary Email Address','Purpose of Payment','Invoice Number','Account Title'];
+    const rows=inFile.map(({r,e,p})=>[
+      r.employeeName,
+      p.accountNo||'MISSING — update employee profile',
+      Math.round((+r.grossPayable||0)*100)/100,
+      r.employeeCode,
+      ((p.phoneCode||'')+(p.phoneNumber||''))||'',
+      (e&&e.email)||'',
+      HBL_SALARY_PURPOSE_CODE,
+      '',
+      p.accountTitle||'',
+    ]);
+    const grid=[headers].concat(rows);
+    dlXlsx(buildXlsxBlob(grid),'HBL-HBL_'+run.monthLabel.replace(/\s+/g,'_')+'_'+run.fromDate+'_to_'+run.toDate+'.xlsx');
+    const issues=prsHblIssuesFor(inFile,{needBankCode:false});
+    const other=items.length-inFile.length;
+    const tail=other?' ('+other+' other employee(s) use a different bank — see HBL→IBFT.)':'';
+    if(issues.length)toast(issues.length+' row(s) have missing bank details — check the sheet before uploading. First: '+issues[0]+tail,'err');
+    else toast('HBL→HBL file downloaded — '+rows.length+' employee(s).'+tail,'ok');
+  }catch(e){toast('Export failed — '+e.message,'err');}
+}
+// Inter-bank transfer (beneficiary's account is at a DIFFERENT bank, or a
+// bank that couldn't be confidently identified — see hblBankCodeFor()).
+// Column order and the Purpose of Payment code (021 = Salary, per the
+// user's explicit instruction — NOT 012 "Employee Salary Payment") came
+// straight from the two reference PDFs the user supplied; also shown on
+// Accounting → "Purpose & Bank Codes".
+async function prsExportHblIbft(id){
+  try{
+    const {run,items}=await prsHblLoadRows(id);
+    const inFile=items.filter(x=>!x.isHbl);
+    const headers=['Beneficiary Name','Beneficiary Account Number','Transaction Amount','Customer Reference No','Bank Code','Beneficiary Contact No','Beneficiary Email Address','Purpose of Payment','Reference # 3','Invoice Number','Account Title'];
+    const rows=inFile.map(({r,e,p,bank})=>[
+      r.employeeName,
+      p.accountNo||'MISSING — update employee profile',
+      Math.round((+r.grossPayable||0)*100)/100,
+      r.employeeCode,
+      bank?bank.code:'',
+      ((p.phoneCode||'')+(p.phoneNumber||''))||'',
+      (e&&e.email)||'',
+      HBL_SALARY_PURPOSE_CODE,
+      r.employeeCode,
+      '',
+      p.accountTitle||'',
+    ]);
+    const grid=[headers].concat(rows);
+    dlXlsx(buildXlsxBlob(grid),'HBL-IBFT_'+run.monthLabel.replace(/\s+/g,'_')+'_'+run.fromDate+'_to_'+run.toDate+'.xlsx');
+    const issues=prsHblIssuesFor(inFile,{needBankCode:true});
+    const other=items.length-inFile.length;
+    const tail=other?' ('+other+' other employee(s) bank with HBL — see HBL→HBL.)':'';
+    if(issues.length)toast(issues.length+' row(s) have missing/unmatched bank details — check the sheet before uploading to the bank. First: '+issues[0]+tail,'err');
+    else toast('HBL→IBFT file downloaded — '+rows.length+' employee(s).'+tail,'ok');
+  }catch(e){toast('Export failed — '+e.message,'err');}
+}
+// PDF / Excel re-fetch the run's own locked snapshot (not a live
+// re-generation) so what downloads always matches exactly what was saved,
+// same guarantee prsViewPayroll() already relies on.
+async function prsExportSavedPdf(id){
+  try{
+    const run=await api('/api/payroll/saved/'+id);
+    const doc=prBuildPdfDoc(run.report);
+    if(!doc)return toast('Nothing to export.','err');
+    doc.out('Payroll_'+run.monthLabel.replace(/\s+/g,'_')+'_'+run.fromDate+'_to_'+run.toDate);
+  }catch(e){toast('Export failed — '+e.message,'err');}
+}
+async function prsExportSavedXlsx(id){
+  try{
+    const run=await api('/api/payroll/saved/'+id);
+    const {headers,rows}=prReportGrid(run.report);
+    const grid=[headers].concat(rows.map(r=>r.map(c=>c==null?'':c)));
+    dlXlsx(buildXlsxBlob(grid),'payroll-'+run.fromDate+'_to_'+run.toDate+'.xlsx');
+  }catch(e){toast('Export failed — '+e.message,'err');}
+}
 // Expands the full employee-by-employee table for one saved month, right
 // below the Payrolls list — reads straight from that run's stored snapshot
 // (GET /saved/:id), never recomputed, so it always matches exactly what
@@ -2085,7 +2210,12 @@ async function prsViewPayroll(id){
     const missing=rep.rows.filter(r=>r.salaryMissing).length;
     detail.innerHTML='<div class="card"><div class="card-h">'+esc(run.monthLabel)+' — full payroll'+
       '<span class="hint" style="font-weight:400"> — '+esc(run.fromDate)+' to '+esc(run.toDate)+' · '+esc(run.mode?(run.mode==='department'?'Department-wise':'Employee-wise'):'—')+' · saved by '+esc(run.savedByName||'')+' on '+esc(String(run.savedAt||'').slice(0,16).replace('T',' '))+'</span>'+
-      '<span class="sp"></span><button class="btn ghost small" onclick="document.getElementById(\'prs-detail\').innerHTML=\'\'">✕ Close</button>'+
+      '<span class="sp"></span>'+
+      '<button class="btn ghost small" title="HBL to HBL transfer format (coming soon)" onclick="prsExportHblHbl('+id+')">HBL→HBL</button> '+
+      '<button class="btn ghost small" title="HBL to IBFT transfer format (coming soon)" onclick="prsExportHblIbft('+id+')">HBL→IBFT</button> '+
+      '<button class="btn ghost small" title="Download as PDF" onclick="prsExportSavedPdf('+id+')">↓ PDF</button> '+
+      '<button class="btn ghost small" title="Download as Excel workbook" onclick="prsExportSavedXlsx('+id+')">↓ Excel</button> '+
+      '<button class="btn ghost small" onclick="document.getElementById(\'prs-detail\').innerHTML=\'\'">✕ Close</button>'+
      '</div><div class="card-b">'+
       '<div class="kpis"><div class="kpi"><span>Employees</span><b>'+rep.rows.length+'</b></div><div class="kpi"><span>Total Payable</span><b>'+fmt(rep.rows.reduce((s,r)=>s+(r.grossPayable||0),0))+'</b></div><div class="kpi"><span>Missing Salary</span><b'+(missing?' class="warn"':'')+'>'+missing+'</b></div></div>'+
       '<div class="tblwrap sticky-thead" id="prs-detail-table" style="margin-top:10px">'+prBuildRowsTableHtml(rep.rows,id)+'</div>'+
@@ -7415,6 +7545,87 @@ function expBtns(id,name){return '<button class="btn ghost small" title="Downloa
    first time this module loads after the fix, same rescue pattern as
    Item Master's old localStorage attachments.
    ================================================================ */
+// 1-Link member bank codes (HBL Pay Business Banking platform) — used by
+// the Payroll / Slips "HBL → IBFT" bank disbursement export to turn each
+// employee's free-text Bank Name on file into the numeric code the bank's
+// own upload format expects. Also shown as a reference table on the
+// Accounting → "Purpose & Bank Codes" tab. Source: "Bank Codes List.pdf"
+// supplied by the user, Oct 2026.
+const HBL_BANK_CODES=[
+ ['054','Habib Bank Ltd/Konnect'],['095','Advans Microfinance Bank Ltd'],['031','Al Baraka Islamic Bank Limited'],
+ ['014','Allied Bank Limited'],['011','Apna Microfinance Bank'],['017','Askari Bank Limited'],
+ ['053','Bank Alfalah Limited'],['023','Bank Al Habib Limited'],['021','Bank Islami Pakistan Limited'],
+ ['061','Bank Of Khyber'],['083','Bank Of Punjab'],['013','Dubai Islamic Bank Limited'],
+ ['060','Faysal Bank Limited'],['091','Finca Microfinance Bank'],['106','FINJA Emi Bank'],
+ ['092','First Women Bank Limited'],['064','Habib Metropolitan Bank Ltd'],['101','HBL Microfinance Bank/FirstPay'],
+ ['094','ICBC'],['018','JS Bank Limited'],['102','Khushhali Microfinance Bank Ltd'],
+ ['062','MCB Bank Limited'],['097','MCB Islamic Banking'],['089','Meezan Bank Ltd'],
+ ['093','Mobilink Microfinance Bank Ltd/Jazz Cash'],['070','National Bank Pakistan'],['104','NayaPay'],
+ ['096','NRSP Microfinance Bank Ltd'],['0091','PayMax'],['107','SadaPay'],
+ ['028','SAMBA Bank'],['066','Silk Bank Limited'],['043','Sindh Bank Limited'],
+ ['085','Soneri Bank Limited'],['038','Standard Chartered Bank'],['081','Summit Bank'],
+ ['105','TAG'],['019','Easypaisa / Telenor Microfinance Bank'],['090','UBank / UPaisa'],
+ ['086','United Bank Limited'],['0092','Zarai Taraqiati Bank Limited'],
+];
+// Common short names/abbreviations an employee's free-text Bank Name field
+// might actually contain, mapped to the exact official name above — tried
+// FIRST (exact alias match) before falling back to fuzzy substring
+// matching against the official names themselves.
+const HBL_BANK_ALIASES={
+ 'hbl':'Habib Bank Ltd/Konnect','habib bank':'Habib Bank Ltd/Konnect','konnect':'Habib Bank Ltd/Konnect',
+ 'al baraka':'Al Baraka Islamic Bank Limited','abl':'Allied Bank Limited','allied bank':'Allied Bank Limited',
+ 'askari':'Askari Bank Limited','bank alfalah':'Bank Alfalah Limited','alfalah':'Bank Alfalah Limited',
+ 'al habib':'Bank Al Habib Limited','bank al habib':'Bank Al Habib Limited','bankislami':'Bank Islami Pakistan Limited',
+ 'bank islami':'Bank Islami Pakistan Limited','bop':'Bank Of Punjab','bank of punjab':'Bank Of Punjab',
+ 'bok':'Bank Of Khyber','bank of khyber':'Bank Of Khyber','dib':'Dubai Islamic Bank Limited',
+ 'dubai islamic':'Dubai Islamic Bank Limited','faysal':'Faysal Bank Limited','js bank':'JS Bank Limited',
+ 'mcb islamic':'MCB Islamic Banking','mcb':'MCB Bank Limited','meezan':'Meezan Bank Ltd',
+ 'jazzcash':'Mobilink Microfinance Bank Ltd/Jazz Cash','jazz cash':'Mobilink Microfinance Bank Ltd/Jazz Cash',
+ 'mobilink':'Mobilink Microfinance Bank Ltd/Jazz Cash','nbp':'National Bank Pakistan','national bank':'National Bank Pakistan',
+ 'samba':'SAMBA Bank','silkbank':'Silk Bank Limited','silk bank':'Silk Bank Limited','sindh bank':'Sindh Bank Limited',
+ 'soneri':'Soneri Bank Limited','scb':'Standard Chartered Bank','standard chartered':'Standard Chartered Bank',
+ 'telenor':'Easypaisa / Telenor Microfinance Bank','easypaisa':'Easypaisa / Telenor Microfinance Bank',
+ 'ubl':'United Bank Limited','united bank':'United Bank Limited','ztbl':'Zarai Taraqiati Bank Limited',
+ 'habib metro':'Habib Metropolitan Bank Ltd','hmb':'Habib Metropolitan Bank Ltd','icbc':'ICBC',
+};
+function hblNorm(s){return String(s||'').toLowerCase().replace(/\b(limited|ltd|bank|the)\b/g,'').replace(/[^a-z0-9]+/g,' ').trim();}
+// Returns {code,name} for the best match, or null if nothing matches —
+// callers must handle null explicitly (flag it, never silently guess a
+// wrong bank code on a real money-transfer file).
+function hblBankCodeFor(bankNameText){
+  const raw=String(bankNameText||'').trim().toLowerCase();
+  if(!raw)return null;
+  if(HBL_BANK_ALIASES[raw]){const name=HBL_BANK_ALIASES[raw];const hit=HBL_BANK_CODES.find(b=>b[1]===name);return hit?{code:hit[0],name:hit[1]}:null;}
+  const n=hblNorm(bankNameText);
+  if(!n)return null;
+  for(const [alias,name] of Object.entries(HBL_BANK_ALIASES)){if(n===hblNorm(alias)){const hit=HBL_BANK_CODES.find(b=>b[1]===name);if(hit)return {code:hit[0],name:hit[1]};}}
+  let best=null,bestLen=0;
+  for(const [code,name] of HBL_BANK_CODES){
+    const bn=hblNorm(name);
+    if((n.includes(bn)||bn.includes(n))&&bn.length>bestLen){best={code,name};bestLen=bn.length;}
+  }
+  return best;
+}
+// HBL Pay Business Banking "Purpose of Payment" codes — Payroll's IBFT
+// export always uses 021 (Salary) per the user's instruction; the rest are
+// kept here purely as an on-screen reference (Accounting → "Purpose & Bank
+// Codes" tab) since some OTHER payment type might need a different code
+// one day. Source: "Purpose_of_Payment_User_Guide_HBL_Pay_Business_Banking.pdf".
+const HBL_PURPOSE_CODES=[
+ ['011','Vendor and Supply Payments'],['012','Employee Salary Payment'],['013','Employee Compensation'],
+ ['014','Pension Payment'],['015','Miscellaneous expense'],['016','Loan Payment'],
+ ['017','Charity, Donations and Aid'],['018','Fund Management'],['019','Consultant Payments'],
+ ['020','Procurement of Raw Goods'],['022','Logistics'],['023','Rental and Lease Payments'],
+ ['024','Insurance Premium and Claim Settlements'],['025','Coupon'],['026','Treasury Payments'],
+ ['028','Custom Duties and Taxes'],['029','Dividends'],['032','Payment to Growers and Farmers'],
+ ['034','Merchant Payment'],['035','POS Merchant Settlement'],['036','Fund investment'],
+ ['037','Bill Payment'],['038','Educational Payment'],['039','Credit Card Payments'],
+ ['040','Subscription / Membership Fee / Rental Payments'],['041','Travelling'],['030','Corporate Payment'],
+ ['033','Government Payments'],['027','Dividends'],['031','Vendor Payments'],
+ ['021','Salary'],['042','Research and Development Service'],['043','Freight on Import and Export'],
+ ['044','Refunds, Reversals on IPO Subscriptions'],['045','Loan Repayment and Settlement'],['046','Remittance Payment for other Bank Account holders'],
+];
+const HBL_SALARY_PURPOSE_CODE='021'; // "Salary" — per the user's explicit instruction, not "012 Employee Salary Payment"
 const DEF_COA=[['1000','Cash & Bank','Asset'],['1100','Accounts Receivable','Asset'],['1200','Inventory','Asset'],
  ['1500','Fixed Assets','Asset'],['1510','Accumulated Depreciation','Asset'],
  ['2000','Accounts Payable','Liability'],['2100','Accrued Expenses','Liability'],['2200','Taxes Payable','Liability'],['2500','Loans Payable','Liability'],
@@ -7853,6 +8064,24 @@ function renderGlCons(){
   '<table><thead><tr><th>Code</th><th>Company</th><th>Base → '+consCur+'</th><th class="num">Assets</th><th class="num">Liabilities</th><th class="num">Revenue</th><th class="num">Expenses</th><th class="num">Net income</th></tr></thead><tbody>'+rows+
   '<tr class="tot"><td colspan="3">GROUP TOTAL ('+consCur+')</td><td class="num">'+fmt(gt.Asset)+'</td><td class="num">'+fmt(gt.Liability)+'</td><td class="num">'+fmt(gt.Income)+'</td><td class="num">'+fmt(gt.Expense)+'</td><td class="num">'+fmt(gt.Income-gt.Expense)+'</td></tr></tbody></table>'+
   '<div class="hint">Each company converts from its base currency at the current FX table rate (period-end method). Posted entries are never restated.</div></div></div>';
+}
+// Reference tables for the bank-file exports used elsewhere (Payroll /
+// Slips → a saved run → "HBL→IBFT"): the 1-Link bank codes HBL's upload
+// format expects, and HBL's Purpose-of-Payment codes. Static reference
+// data, not pulled from the server — these only change if HBL reissues the
+// lists, at which point HBL_BANK_CODES/HBL_PURPOSE_CODES above get edited
+// directly. (The two source PDFs themselves aren't hosted here — only
+// their contents, transcribed into these two tables.)
+function renderGlRefs(){
+  document.getElementById('content').innerHTML=
+  '<div class="card"><div class="card-h">1-Link Bank Codes<span class="sp"></span>'+expBtns('xt-bankcodes','hbl-bank-codes')+'</div><div class="card-b tblwrap" id="xt-bankcodes">'+
+  '<table><thead><tr><th>Code</th><th>Bank</th></tr></thead><tbody>'+
+   HBL_BANK_CODES.map(([code,name])=>'<tr><td class="num">'+esc(code)+'</td><td>'+esc(name)+'</td></tr>').join('')+
+  '</tbody></table><div class="hint">Used by Payroll / Slips → a saved month → "HBL→IBFT" to turn each employee’s Bank Name on file into the code the bank’s upload format expects.</div></div></div>'+
+  '<div class="card"><div class="card-h">HBL Purpose of Payment Codes<span class="sp"></span>'+expBtns('xt-purposecodes','hbl-purpose-of-payment-codes')+'</div><div class="card-b tblwrap" id="xt-purposecodes">'+
+  '<table><thead><tr><th>Code</th><th>Purpose of Payment</th></tr></thead><tbody>'+
+   HBL_PURPOSE_CODES.map(([code,name])=>'<tr'+(code===HBL_SALARY_PURPOSE_CODE?' style="background:var(--teal-t)"':'')+'><td class="num">'+esc(code)+'</td><td>'+esc(name)+(code===HBL_SALARY_PURPOSE_CODE?' <span class="pill g">used for Payroll</span>':'')+'</td></tr>').join('')+
+  '</tbody></table><div class="hint">Payroll’s HBL→IBFT export always uses code '+HBL_SALARY_PURPOSE_CODE+' (Salary).</div></div></div>';
 }
 
 /* ================================================================
@@ -11784,7 +12013,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -11798,7 +12027,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
