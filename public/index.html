@@ -11288,9 +11288,11 @@ function irStore(){
      they were cleared, never sent, and never mentioned again. */
   const att=irtPendingFiles().slice();
   irtPendingClear();
-  obEnqueue({kind:'rec',module:IR_LIB,recId:rec.id,
-             label:rec.fields.no||rec.id,body:JSON.stringify(irLibClean(rec))});
-  att.forEach(f=>irtQueueFile(rec.id,f));
+  /* The photographs come out here and go up as files of their own, once
+     each. Not awaited: the report is already saved on this machine, and
+     irLibPush puts anything still flagged on the queue if this does not
+     finish. */
+  irImgQueue(rec,att);
   // Filed — clear the form down to a blank report of the same type so the next
   // one can be typed straight away. The saved copy lives in the library; open
   // it from Saved Reports to amend it.
@@ -11311,6 +11313,181 @@ function irStore(){
    inspectors need. */
 const IR_LIB='ir_library';
 let IR_LIB_AT=0,IR_LIB_BUSY=null;
+/* ================================================================
+   PHOTOGRAPHS, NAMED BY THEIR OWN CONTENTS
+
+   A report used to carry its photographs inside its own JSON. A big sheet
+   came to about 23.5 MB of base64 against a 25 MB limit, and - the part
+   that actually cost something - every save sent all of them again, so
+   correcting a serial number re-uploaded the lot over a phone signal.
+
+   Each photograph is now sent as a file named img-<sha256>.jpg, once, and
+   the report's JSON keeps `img:<sha256>` in its place. Amending the report
+   sends a few kilobytes.
+
+   The pictures come out at the boundary and go back in at the boundary.
+   Nothing that reads a picture out of a record changed: a record is
+   thinned on its way to the queue, and filled back in on its way to the
+   editor or the printer.
+   ================================================================ */
+const IMG_MARK=/^img:([0-9a-f]{64})$/;
+function irImgKey(h){return 'img_'+h;}
+function irImgName(h){return 'img-'+h+'.jpg';}
+function irImgIsData(v){return typeof v==='string'&&v.indexOf('data:image/')===0;}
+function irImgAble(){return typeof crypto!=='undefined'&&crypto.subtle;}
+async function irImgHash(dataUrl){
+  const buf=await (await fetch(dataUrl)).arrayBuffer();
+  const h=await crypto.subtle.digest('SHA-256',buf);
+  return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+/* Every string in a record, wherever it sits - the photograph grid, an
+   item's picture, a line's pictures. Walked rather than listed from a map
+   of known places, so a sheet that keeps a picture somewhere new is
+   carried without this having to be told about it. Returning a value from
+   fn replaces the string; returning undefined leaves it. */
+function irImgWalk(node,fn){
+  if(!node||typeof node!=='object')return;
+  const keys=Array.isArray(node)?node.map((_,i)=>i):Object.keys(node);
+  for(const k of keys){
+    const v=node[k];
+    if(typeof v==='string'){const r=fn(v);if(r!==undefined)node[k]=r;}
+    else if(v&&typeof v==='object')irImgWalk(v,fn);
+  }
+}
+/* ---- out, on the way to the queue ------------------------------------
+   Returns the record with markers in place of pictures, and the pictures
+   by hash. The bytes are also kept here: the server's thin copy replaces
+   the local one on the next pull, and without this the machine that wrote
+   the report would be the one machine that could not print it. */
+async function irImgThin(rec){
+  if(!irImgAble())return {thin:rec,imgs:{}};
+  const found=[];
+  irImgWalk(rec,v=>{ if(irImgIsData(v))found.push(v); return undefined; });
+  if(!found.length)return {thin:rec,imgs:{}};
+  const byData=new Map();
+  for(const src of found){
+    if(byData.has(src))continue;
+    try{byData.set(src,await irImgHash(src));}catch(e){/* left inline */}
+  }
+  const imgs={};
+  byData.forEach((h,src)=>{
+    imgs[h]=src;
+    if(kvGet(P+irImgKey(h))===null)lsSet(irImgKey(h),src);   // kept here too
+  });
+  const thin=JSON.parse(JSON.stringify(rec));
+  irImgWalk(thin,v=>{
+    if(!irImgIsData(v))return undefined;
+    const h=byData.get(v);
+    return h?'img:'+h:undefined;          // unhashable: left as it was
+  });
+  return {thin,imgs};
+}
+/* ---- back in, on the way to the editor or the printer --------------- */
+function irImgHydrate(rec){
+  const out=JSON.parse(JSON.stringify(rec));
+  const missing=[];
+  irImgWalk(out,v=>{
+    const m=IMG_MARK.exec(v||'');
+    if(!m)return undefined;
+    const src=lsGet(irImgKey(m[1]),null);
+    if(src)return src;
+    missing.push(m[1]);
+    return undefined;                     // left as a marker; nothing drawn
+  });
+  return {rec:out,missing};
+}
+function irImgMissing(rec){
+  const out=[];
+  irImgWalk(JSON.parse(JSON.stringify(rec)),v=>{
+    const m=IMG_MARK.exec(v||'');
+    if(m&&!lsGet(irImgKey(m[1]),null))out.push(m[1]);
+    return undefined;
+  });
+  return [...new Set(out)];
+}
+/* Fetch whatever this machine has not got. One listing of the report's
+   files, then the ones wanted - and they are kept, so this happens once
+   per machine per photograph. */
+async function irImgFetch(rec){
+  const want=irImgMissing(rec);
+  if(!want.length)return {got:0,missing:[]};
+  let files=[];
+  try{files=await api('/api/records/'+IR_LIB+'/'+encodeURIComponent(rec.id)+'/files');}
+  catch(e){return {got:0,missing:want,err:e};}
+  const byName={};(files||[]).forEach(f=>{byName[f.name]=f;});
+  let got=0;const still=[];
+  for(const h of want){
+    const f=byName[irImgName(h)];
+    if(!f){still.push(h);continue;}
+    try{
+      const res=await fetch('/api/records/'+IR_LIB+'/'+encodeURIComponent(rec.id)+
+        '/files/'+f.id+'/download',{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const blob=await res.blob();
+      const src=await new Promise((ok,bad)=>{
+        const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=bad;r.readAsDataURL(blob);
+      });
+      lsSet(irImgKey(h),src);got++;
+    }catch(e){still.push(h);}
+  }
+  return {got,missing:still};
+}
+/* The one call the doors make. Nothing to fetch, or no way to fetch it,
+   and it says so rather than printing empty boxes where photographs
+   should be. */
+async function irImgEnsure(rec){
+  const want=irImgMissing(rec);
+  if(!want.length)return true;
+  if(!navigator.onLine||!localStorage.getItem('erp_jwt')){
+    toast(want.length+' photograph'+(want.length===1?'':'s')+' on this report '+
+      'are not on this machine yet. Connect once and open it again \u2014 the rest of '+
+      'the report is complete.','err');
+    return false;
+  }
+  const r=await irImgFetch(rec);
+  if(r.missing.length){
+    toast(r.missing.length+' photograph'+(r.missing.length===1?'':'s')+' could not be '+
+      'fetched'+(r.err?' \u2014 '+r.err.message:'')+'. The rest of the report is complete.','err');
+    return false;
+  }
+  return true;
+}
+/* ---- what the queue is given ---------------------------------------
+   The record goes up thin; each photograph goes up once, as its own file,
+   and is skipped if this machine has already seen the server take it. */
+function irImgHave(){return lsGet('img_have',{});}
+function irImgHaveAdd(recId,h){
+  const m=irImgHave();
+  const list=m[recId]||[];
+  if(list.indexOf(h)<0){list.push(h);m[recId]=list;lsSet('img_have',m);}
+}
+async function irImgQueue(rec,att){
+  const {thin,imgs}=await irImgThin(rec);
+  obEnqueue({kind:'rec',module:IR_LIB,recId:rec.id,
+             label:(rec.fields&&rec.fields.no)||rec.id,
+             body:JSON.stringify(irLibClean(thin))});
+  const have=irImgHave()[rec.id]||[];
+  Object.keys(imgs).forEach(h=>{
+    if(have.indexOf(h)>=0)return;         // the server has this one already
+    const jobId=uid();
+    lsSet(obFileKey(jobId),{name:irImgName(h),type:'image/jpeg',data:imgs[h]});
+    obEnqueue({id:jobId,kind:'file',module:IR_LIB,recId:rec.id,
+               fileName:irImgName(h),imgHash:h});
+  });
+  (att||[]).forEach(f=>irtQueueFile(rec.id,f));
+}
+/* Pictures this machine is holding that no report refers to any more.
+   Run after a pull, which is when a report can stop referring to one. */
+function irImgPrune(){
+  const used=new Set();
+  irLibLocal().forEach(r=>irImgWalk(JSON.parse(JSON.stringify(r)),v=>{
+    const m=IMG_MARK.exec(v||'');if(m)used.add(m[1]);return undefined;
+  }));
+  allKeys().filter(k=>k.indexOf(P+'img_')===0&&k!==P+'img_have').forEach(k=>{
+    const h=k.slice((P+'img_').length);
+    if(/^[0-9a-f]{64}$/.test(h)&&!used.has(h))kvDel(k);
+  });
+}
 /* ================================================================
    THE OUTBOX
 
@@ -11482,6 +11659,9 @@ async function obDrainOnce(){
 /* The record this job was carrying is now on the server, so the local copy
    stops being marked as waiting. */
 function obSynced(j){
+  /* The server now holds this photograph for this report, so the next save
+     of it sends the JSON alone. */
+  if(j.kind==='file'&&j.imgHash){irImgHaveAdd(j.recId,j.imgHash);return;}
   if(j.kind!=='rec')return;
   if(j.module===IR_LIB){
     const lib=irLibLocal(),r=lib.find(x=>x.id===j.recId);
@@ -11710,7 +11890,11 @@ function obPanelRender(){
 
 function irLibLocal(){return lsGet('ir_library',[]);}
 function irLibSetLocal(v){lsSet('ir_library',v);}
-function irLibClean(r){const c=JSON.parse(JSON.stringify(r));delete c._dirty;return c;}
+/* What belongs to this machine and not to the record: the flag saying it
+   still has to go up, and the word this screen shows for that. Left on,
+   they are stored on the server and come back to every other machine as
+   a state that was never theirs. */
+function irLibClean(r){const c=JSON.parse(JSON.stringify(r));delete c._dirty;delete c._sync;return c;}
 /* One-time rescue: reports that only ever existed in this browser are sent up
    one at a time (a report carries photographs, so a single bulk body would be
    far too large). INSERT IGNORE on the server, so nothing is overwritten. */
@@ -11735,8 +11919,7 @@ async function irLibPush(){
     // the place for them
     if(!r||!r._dirty||r._local)return;
     if(obPendingFor(IR_LIB,r.id))return;
-    obEnqueue({kind:'rec',module:IR_LIB,recId:r.id,
-               label:(r.fields&&r.fields.no)||r.id,body:JSON.stringify(irLibClean(r))});
+    irImgQueue(r,null);                   // thinned, like every other save
   });
   await obDrain();
   return true;
@@ -11756,7 +11939,9 @@ async function irLibPull(force){
                                         &&!server.some(s=>s.id===r.id));
       const merged=server.concat(mine);
       if(JSON.stringify(irLibLocal())===JSON.stringify(merged))return false;
-      irLibSetLocal(merged);return true;
+      irLibSetLocal(merged);
+      irImgPrune();      // a report can stop referring to a picture here
+      return true;
     }catch(e){console.warn('report library pull failed:',e.message);return false;}
     finally{IR_LIB_BUSY=null;}
   })();
@@ -11882,15 +12067,15 @@ function irLibRows(){
    IR_PDF_AFTER is the hook printing already uses to take the finished bytes
    before they reach the browser. */
 function irOneBytes(r){
-  return new Promise((ok,bad)=>{
+  return (async()=>{
     let got=null;
-    irWith(r.id,()=>{
+    await irWith(r.id,()=>{
       IR_PDF_AFTER=b=>{got=b;return true;};
       try{ irPdfBuild(); } finally { IR_PDF_AFTER=null; }
     });
-    if(got)ok(got);
-    else bad(new Error('nothing was printed for '+((r.fields||{}).docId||r.id)));
-  }).then(bytes=>irJoinBytes(bytes,r.id,null).then(j=>j.bytes));
+    if(!got)throw new Error('nothing was printed for '+((r.fields||{}).docId||r.id));
+    return got;
+  })().then(bytes=>irJoinBytes(bytes,r.id,null).then(j=>j.bytes));
 }
 /* Every report the search found, joined into one file in the order the list
    shows them. The same form filled in twice is two sets of pages in that
@@ -12000,19 +12185,24 @@ function renderInspList(){
 /* Build the PDF for a report in the library without disturbing whatever is
    open in the editor — including the ir_current draft, which the tally's
    certificate-number step would otherwise overwrite. */
-function irWith(id,fn){
+async function irWith(id,fn){
   const r=lsGet('ir_library',[]).find(x=>x.id===id);
   if(!r){alert('That report is no longer in the library.');return;}
+  /* A report's photographs are stored beside it, not inside it. They are
+     fetched if this machine has not got them, and put back before anything
+     reads the record - which is why nothing that reads one had to change. */
+  await irImgEnsure(r);
   const keepIR=IR,keepDraft=lsGet('ir_current',null);
-  IR=JSON.parse(JSON.stringify(r));
+  IR=irImgHydrate(r).rec;
   try{fn();}finally{IR=keepIR;if(keepDraft)lsSet('ir_current',keepDraft);}
 }
-function irPdfSaved(id){irWith(id,irPdf);}
-function irPrintSaved(id){irOpen(id);setTimeout(()=>window.print(),500);}
-function irOpen(id){
+function irPdfSaved(id){return irWith(id,irPdf);}
+async function irPrintSaved(id){await irOpen(id);setTimeout(()=>window.print(),500);}
+async function irOpen(id){
   const lib=lsGet('ir_library',[]);
   const r=lib.find(x=>x.id===id);if(!r)return;
-  IR=JSON.parse(JSON.stringify(r));irSave();go('insp_report');
+  await irImgEnsure(r);
+  IR=irImgHydrate(r).rec;irSave();go('insp_report');
 }
 function irDel(id){
   if(!confirm('Delete this saved report?'))return;

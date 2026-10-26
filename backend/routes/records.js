@@ -160,9 +160,20 @@ router.get('/:module/:id/files', async (req, res) => {
 router.post('/:module/:id/files', requireWrite, upload.array('files', 10), handleUploadErrors, async (req, res) => {
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'No file received.' });
-  for (const f of files) {
+for (const f of files) {
     // multer hands the name over as latin1; browsers send UTF-8 — restore it
     const name = Buffer.from(f.originalname, 'latin1').toString('utf8');
+    /* A report photograph is named by the sha256 of its own bytes, so the
+       same name IS the same picture: receiving it again replaces it rather
+       than storing a second copy. Deliberately only these names - two
+       documents a person attached can both be called scan.pdf, and
+       dropping one of those would lose somebody's certificate. */
+    if (/^img-[0-9a-f]{64}\.[a-z0-9]+$/i.test(name)) {
+      await pool.query(
+        'DELETE FROM erp_record_files WHERE module = ? AND record_id = ? AND file_name = ?',
+        [req.params.module, req.params.id, name]
+      );
+    }
     await pool.query(
       'INSERT INTO erp_record_files (module, record_id, file_name, mime_type, file_size, file_data, uploaded_by) VALUES (?,?,?,?,?,?,?)',
       [req.params.module, req.params.id, name.slice(0, 255), f.mimetype, f.size, f.buffer, req.erpUser.employeeId]
