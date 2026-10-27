@@ -12063,7 +12063,12 @@ async function obDrainOnce(){
   if(!navigator.onLine)return 0;
   // an offline session has no server token to send with
   if(!SESSION||SESSION.offline||!localStorage.getItem('erp_jwt')){
-    OB_HALT=SESSION&&SESSION.offline?'auth':'';
+    /* Two ways a signed-in session arrives here with no token to send
+       with: it signed in offline and never had one, or api() struck a 401
+       and dropped the expired one. Both need the same thing from the
+       person, and saying nothing for the second left the queue sitting
+       there with no reason given and Sync now looking broken. */
+    OB_HALT=SESSION?'auth':'';
     return 0;
   }
   let sent=0;
@@ -12822,6 +12827,17 @@ async function syncNow(){
   if(syncBusy)return;syncBusy=true;
   await obDrain();                   // what we owe, before what we are given
   obPanelRender();
+  /* The blob sync below carries its own configured token and can succeed
+     while the outbox - which is what actually holds a filed report - has
+     no sign-in at all. Said plainly here, or pressing this button reports
+     success over work that has not moved. */
+  if(obHalt()==='auth'&&obCount()){
+    const r=obPendingReports();
+    const what=r?r+' report'+(r===1?'':'s'):obCount()+' item'+(obCount()===1?'':'s');
+    toast('This machine has no current sign-in with the server, so '+what+
+      ' cannot be sent yet. Sign out and sign in again with this connection '+
+      '— nothing has been lost.','err');
+  }
   const headers={'Content-Type':'application/json'};
   if(cfg.token)headers['Authorization']='Bearer '+cfg.token;
   try{
