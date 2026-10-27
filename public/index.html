@@ -889,15 +889,15 @@ activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type'
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
-items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool','Equipment']}},{...D('expiry','Expiry Date'),showIf:{field:'cat',values:['Chemical']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
+items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',fields:[D('date','Date'),REF('item','Item','items','name'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),N('qty','Quantity'),T('from','From location'),T('to','To location'),T('ref','Reference (PO/WO)'),T('who','By')],list:['date','item','type','qty','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
-purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
 grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),REF('item','Item (from Item Master)','items','name'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),T('cur','Currency','AED'),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),REF('item','Item (from Item Master)','items','name'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
@@ -6466,7 +6466,7 @@ async function saveRec(){
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
-  if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);}
+  if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     const now=new Date().toISOString();
@@ -6863,46 +6863,75 @@ function wlRefresh(){renderModule._lk=true;const z=document.getElementById('wl-z
 /* ============ purchase order line grid ============================
    Item is picked from Item Master; Category, UOM & Price auto-fill from
    the picked item (Price stays editable — a PO can agree a different
-   rate than the item's standard cost). Tax is computed on the line
-   subtotal (Qty x Price) at the Taxable % entered for that line. */
+   rate than the item's standard cost). Tax is NOT per line — it's one
+   Tax % entered once for the whole PO (the "Tax %" field up in the main
+   form, f-taxpct) and applied to the line-items subtotal, same pattern
+   Quotations' VAT field already uses. Capital Expense is likewise one
+   flag for the whole PO (not per line) — it is driven automatically off
+   PO type (checked only when PO type = "PO_FA"), never set by hand, so
+   the checkbox shown in the totals footer is always disabled. */
 let POL=[{}];
-function poLineTotals(l){
-  const qty=+l.qty||0,price=+l.price||0,pct=+l.taxable||0;
-  const sub=qty*price,tax=sub*pct/100;
-  return {sub,tax,amount:sub+tax};
+function poCapexOn(rec){
+  const el=document.getElementById('f-potype');
+  const val=el?el.value:(rec&&rec.potype)||'';
+  return val==='PO_FA';
 }
-function poTotals(){return {grand:POL.reduce((s,l)=>s+poLineTotals(l).amount,0)};}
+function poSyncCapex(){
+  const cb=document.getElementById('po-capex');
+  if(cb)cb.checked=poCapexOn(null);
+}
+SELX_CB['f-potype']=poSyncCapex;
+function poLineTotals(l){return {amount:(+l.qty||0)*(+l.price||0)};}
+function poTotals(rec){
+  const sub=POL.reduce((s,l)=>s+poLineTotals(l).amount,0);
+  const taxEl=document.getElementById('f-taxpct');
+  const taxpct=+(taxEl?taxEl.value:(rec&&rec.taxpct)||0)||0;
+  const tax=sub*taxpct/100;
+  return {sub,taxpct,tax,grand:sub+tax};
+}
 function poGrid(rec){
   const itemNames=coll('items').map(x=>x.name).filter(Boolean);
+  const t=poTotals(rec);
   return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Line items <button class="btn ghost small" style="margin-left:8px" onclick="POL.push({});poRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick an item from Item Master — Category, UOM &amp; Price auto-fill</span></div>'+
   '<div class="tblwrap po-lines-wrap pogrid"><table><thead><tr>'+
     '<th style="width:26px">#</th><th style="width:220px">Item</th><th style="width:110px">Category</th><th style="width:80px">UOM</th>'+
     '<th style="width:80px">Quantity</th><th style="width:100px">Price</th><th>Note to Vendor</th>'+
-    '<th style="width:95px">Taxable</th><th style="width:100px" class="num">Tax Amount</th><th style="width:70px">Capital<br>Expense</th>'+
     '<th style="width:110px" class="num">Amount</th><th style="width:30px"></th>'+
   '</tr></thead><tbody>'+
-  POL.map((l,i)=>{const lt=poLineTotals(l);return '<tr><td class="num">'+(i+1)+'</td>'+
+  POL.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
    '<td>'+selx('po-item-'+i,l.item||'',itemNames,()=>poPickItem(i),'Select item…')+'</td>'+
    '<td><input value="'+esc(l.cat||'')+'" disabled></td>'+
    '<td><input value="'+esc(l.uom||'')+'" disabled></td>'+
    '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="POL['+i+'].qty=this.value;poRefreshRow('+i+')"></td>'+
    '<td><input type="number" step="0.01" value="'+esc(l.price||'')+'" oninput="POL['+i+'].price=this.value;poRefreshRow('+i+')"></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="POL['+i+'].note=this.value"></td>'+
-   '<td><div style="display:flex;align-items:center;gap:3px"><input type="number" step="0.01" style="width:100%" value="'+esc(l.taxable||'')+'" oninput="POL['+i+'].taxable=this.value;poRefreshRow('+i+')"><span style="color:var(--faint,#98A2B3)">%</span></div></td>'+
-   '<td class="num" id="po-tax-'+i+'">'+fmt(lt.tax)+'</td>'+
-   '<td style="text-align:center"><input type="checkbox" '+(l.capex?'checked':'')+' onchange="POL['+i+'].capex=this.checked"></td>'+
-   '<td class="num" id="po-amt-'+i+'">'+fmt(lt.amount)+'</td>'+
-   '<td><button class="del" onclick="POL.splice('+i+',1);poRefresh()">✕</button></td></tr>';}).join('')+
-  '</tbody><tfoot><tr><td colspan="10" style="text-align:right;font-weight:700">Total Amount</td><td class="num" style="font-weight:700" id="po-grand">'+fmt(poTotals().grand)+'</td><td></td></tr></tfoot></table></div>';
+   '<td class="num" id="po-amt-'+i+'">'+fmt(poLineTotals(l).amount)+'</td>'+
+   '<td><button class="del" onclick="POL.splice('+i+',1);poRefresh()">✕</button></td></tr>').join('')+
+  '</tbody><tfoot>'+
+   '<tr><td colspan="6"></td><td style="text-align:right">Subtotal</td><td class="num" id="po-subtotal">'+fmt(t.sub)+'</td><td></td></tr>'+
+   '<tr><td colspan="6"></td><td style="text-align:right">Tax (<span id="po-taxpct-label">'+t.taxpct+'</span>%)</td><td class="num" id="po-taxamt">'+fmt(t.tax)+'</td><td></td></tr>'+
+   '<tr><td colspan="6"></td><td style="text-align:right;font-weight:700">Grand Total</td><td class="num" style="font-weight:700" id="po-grand">'+fmt(t.grand)+'</td><td></td></tr>'+
+   '<tr><td colspan="6"></td><td style="text-align:right">Capital Expense</td><td style="text-align:center"><input type="checkbox" id="po-capex" disabled '+(poCapexOn(rec)?'checked':'')+'></td><td></td></tr>'+
+  '</tfoot></table></div>';
 }
-function poRefresh(){renderModule._lk=true;const z=document.getElementById('po-zone');if(z)z.innerHTML=poGrid(null);poSyncAmountField();}
+function poRefresh(){renderModule._lk=true;const z=document.getElementById('po-zone');if(z)z.innerHTML=poGrid(null);poSyncAmountField();poSyncCapex();}
 function poRefreshRow(i){
-  const lt=poLineTotals(POL[i]);
-  const te=document.getElementById('po-tax-'+i);if(te)te.textContent=fmt(lt.tax);
-  const ae=document.getElementById('po-amt-'+i);if(ae)ae.textContent=fmt(lt.amount);
-  const ge=document.getElementById('po-grand');if(ge)ge.textContent=fmt(poTotals().grand);
+  const ae=document.getElementById('po-amt-'+i);if(ae)ae.textContent=fmt(poLineTotals(POL[i]).amount);
+  poRefreshTotals();
+}
+// Recomputes the Subtotal/Tax/Grand Total footer without re-rendering the
+// whole grid — called on any line edit AND whenever the "Tax %" field (up
+// in the main form, outside this grid) changes, via the input listener
+// below.
+function poRefreshTotals(){
+  const t=poTotals();
+  const se=document.getElementById('po-subtotal');if(se)se.textContent=fmt(t.sub);
+  const tpl=document.getElementById('po-taxpct-label');if(tpl)tpl.textContent=t.taxpct;
+  const tae=document.getElementById('po-taxamt');if(tae)tae.textContent=fmt(t.tax);
+  const ge=document.getElementById('po-grand');if(ge)ge.textContent=fmt(t.grand);
   poSyncAmountField();
 }
+document.addEventListener('input',e=>{if(e.target&&e.target.id==='f-taxpct')poRefreshTotals();});
 // The top "Amount" field is a read-only computed field — it just mirrors the
 // line-items grand total live, so it always matches what's about to be saved.
 function poSyncAmountField(){
@@ -6916,6 +6945,25 @@ function poPickItem(i){
   if(it){POL[i].cat=it.cat||'';POL[i].uom=it.unit||'';if(!POL[i].price)POL[i].price=it.cost||'';}
   poRefresh();
 }
+/* Asset Register's "Item (from Item Master)" dropdown — the list itself
+   just shows item names, but picking one fills Asset description, Cost,
+   Currency & Location from that Item Master record into their own fields
+   (same auto-fill idea as poPickItem above, just for a whole-record form
+   instead of a line-items grid). Registered globally on the shared
+   SELX_CB map (the generic selx() widget's picked-callback registry) —
+   guarded by modKey() since Stock Transactions also has a field named
+   "item" and shares the same "f-item" element id. */
+function assetPickItem(){
+  if(modKey()!=='assets')return;
+  const el=document.getElementById('f-item');
+  const it=coll('items').find(x=>x.name===(el?el.value:''));
+  if(!it)return;
+  const nameEl=document.getElementById('f-name');if(nameEl)nameEl.value=it.name||'';
+  const costEl=document.getElementById('f-cost');if(costEl)costEl.value=it.cost||'';
+  if(it.curr&&document.getElementById('f-cur'))selxPick('f-cur',it.curr);
+  const locEl=document.getElementById('f-loc');if(locEl)locEl.value=it.loc||'';
+}
+SELX_CB['f-item']=assetPickItem;
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
@@ -7295,9 +7343,9 @@ function poPdf(id,mode){
   t+=ptH+10;
 
   /* ---------- line items ---------- */
-  const cw={sn:22,cat:62,desc:95,uom:38,qty:34,price:55,amt:52,txr:42,txa:55,tot:52};
+  const cw={sn:22,cat:72,desc:120,uom:46,qty:42,price:65,amt:70};
   const cols=[['S.NO',cw.sn],['CATEGORY',cw.cat],['ITEM DESCRIPTION',cw.desc],['UNIT',cw.uom],['QTY',cw.qty],
-    ['UNIT PRICE',cw.price],['AMOUNT',cw.amt],['TAX RATE',cw.txr],['TAX AMOUNT',cw.txa],['TOTAL',cw.tot]];
+    ['UNIT PRICE',cw.price],['AMOUNT',cw.amt]];
   const tblX=c1;
   const colX=[];{let x=tblX;cols.forEach(c=>{colX.push(x);x+=c[1];});}
   const tblW=colX[colX.length-1]+cols[cols.length-1][1]-tblX;
@@ -7308,24 +7356,23 @@ function poPdf(id,mode){
     t+=thH;
   };
   drawHead();
-  let sumSub=0,sumTax=0;
+  let sumSub=0;
   if(!lines.length){
     doc.text(tblX+6,TY(t+12),'No line items entered.',8.5,false,'0.35 0.38 0.45');
     t+=18;
   }
   lines.forEach((l,i)=>{
-    const qty=+l.qty||0,price=+l.price||0,pct=+l.taxable||0;
-    const sub=qty*price,tax=sub*pct/100,tot=sub+tax;
-    sumSub+=sub;sumTax+=tax;
-    const noteBits=[l.note,l.capex?'Capital Expense':''].filter(Boolean).join(' — ');
+    const qty=+l.qty||0,price=+l.price||0;
+    const sub=qty*price;
+    sumSub+=sub;
+    const noteBits=l.note||'';
     const noteLines=noteBits?doc.wrap(noteBits,tblW-10,7,false):[];
     const rowH=15+(noteLines.length?noteLines.length*9+3:0);
     if(t+rowH>doc.h-doc.mB-60){
       doc.rule(tblX,TY(t),tblX+tblW,TY(t),0.9);
       doc.newPage();t=doc.mT;drawWatermark();drawHead();
     }
-    const vals=[String(i+1),l.cat||'',l.item||'',l.uom||'',qty?fmt(qty):'',price?fmt(price):'',sub?fmt(sub):'',
-      pct?pct+'%':'',tax?fmt(tax):'',tot?fmt(tot):''];
+    const vals=[String(i+1),l.cat||'',l.item||'',l.uom||'',qty?fmt(qty):'',price?fmt(price):'',sub?fmt(sub):''];
     cols.forEach((c,ci)=>{
       doc.text(colX[ci]+3,TY(t+11),doc.fit(vals[ci],c[1]-6,7.5),7.5,ci===2);
     });
@@ -7341,15 +7388,18 @@ function poPdf(id,mode){
   t+=14;
 
   /* ---------- totals box (right) + delivery notes (left) ---------- */
+  const taxpct=+r.taxpct||0,sumTax=sumSub*taxpct/100;
   const totW=160,totX=R-totW,totRowH=15,totH=totRowH*3;
   if(t+Math.max(totH,40)>doc.h-doc.mB-130){doc.newPage();t=doc.mT;drawWatermark();}
   doc.text(L,TY(t+11),'Required Delivery:',8,true);
   doc.text(L+90,TY(t+11),woDmy(r.deldate)||'—',8);
+  doc.text(L,TY(t+26),'Capital Expense:',8,true);
+  doc.text(L+90,TY(t+26),r.potype==='PO_FA'?'Yes':'No',8);
   doc.box(totX,rty(t,totH),totW,totH);
   doc.rule(totX,TY(t+totRowH),totX+totW,TY(t+totRowH),0.7);
   doc.rule(totX,TY(t+totRowH*2),totX+totW,TY(t+totRowH*2),0.9);
   doc.text(totX+6,TY(t+11),'Sub Total',8);doc.textR(totX+totW-6,TY(t+11),fmt(sumSub),8.5);
-  doc.text(totX+6,TY(t+totRowH+11),'Total Sales Tax',8);doc.textR(totX+totW-6,TY(t+totRowH+11),fmt(sumTax),8.5);
+  doc.text(totX+6,TY(t+totRowH+11),'Tax ('+taxpct+'%)',8);doc.textR(totX+totW-6,TY(t+totRowH+11),fmt(sumTax),8.5);
   doc.text(totX+6,TY(t+totRowH*2+12),'TOTAL',9.5,true);doc.textR(totX+totW-6,TY(t+totRowH*2+12),(r.cur||'')+' '+fmt(sumSub+sumTax),10,true);
   t+=totH+16;
 
