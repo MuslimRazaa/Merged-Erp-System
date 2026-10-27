@@ -8959,7 +8959,6 @@ const MPI_FIELDS=[
  ['dateOfInsp','Date of inspection',251.8,886.8,9.9,0,'date'],
  ['validity','Validity of inspection',632.6,888.0,9.9,0,'date'],
  ['magUnit','Magnetization unit',262.1,811.0,9.9,0],
- ['magSerial','Magnetization unit serial no.',643.0,812.8,9.0,0],
  ['liftCap','Lifting capacity',339.5,788.4,9.0,0],
 
  ['poleSpacing','Pole spacing',339.1,770.2,9.0,0],
@@ -9011,6 +9010,28 @@ const MPI_ROW_COLS=[
 ];
 const MPI_ROW_KEYS=MPI_ROW_COLS.map(c=>c[0]);
 const MPI_MAX_PHOTOS=8;                      // the sheet's photo grid holds eight
+/* The sheet rules a serial number and three calibration entries against
+   the magnetization unit, and the M&TE used card is where that equipment
+   is already recorded - so it is read from there rather than typed twice.
+   The first row of the card is the unit this report was shot with.
+
+   Reports filed before this kept the serial on the sheet's own card, under
+   magSerial, so that is still read where the M&TE card has nothing to say:
+   removing the field must not blank a certificate already issued. */
+function mpiEq(){
+  const e=(IR.eq||[])[0]||{};
+  const own=mpiF();
+  const pick=(a,b)=>(a!=null&&a!=='')?a:(b!=null&&b!==''?b:'');
+  return {serial:pick(e.sn,own.magSerial),certNo:e.cert||'',
+          calDate:e.cal||'',calDue:e.due||''};
+}
+/* x, y, and whether it is a date: one column, against the four labels. */
+const MPI_CAL_SLOTS=[
+ ['serial',643.0,812.8,0],
+ ['certNo',643.0,791.6,0],
+ ['calDate',643.0,771.1,1],
+ ['calDue',643.0,749.1,1]
+];
 function mpiF(){ if(!IR.mpi)IR.mpi={}; if(!IR.mpi.cons)IR.mpi.cons=[{},{}]; return IR.mpi; }
 function mpiRows(){ if(!IR.items||!IR.items.length)IR.items=[{}]; return IR.items; }
 /* One row is one certificate, so the number is generated the same way the row
@@ -9047,7 +9068,7 @@ function mpiCardHtml(){
   return '<div class="card"><div class="card-h">FM-IR-12 template fields <span class="hint" style="font-weight:400">\u2014 printed exactly onto the certified MPI sheet</span></div><div class="card-b">'+
    sec('Report header',pick(['client','dateOfWork','rigWell','wo','location','standard','dateOfInsp']))+
    sec('Surface preparation','<div style="padding:4px 0">'+group('Surface preparation')+'</div>')+
-   sec('Magnetization',pick(['magUnit','magSerial','liftCap','poleSpacing','method'])+
+   sec('Magnetization',pick(['magUnit','liftCap','poleSpacing','method'])+
        '<div style="padding:4px 0">'+group('Technique')+'</div>')+
    sec('Testing medium','<div style="padding:4px 0">'+group('Testing medium')+'</div>'+
        pick(['particleType','particleColour','application','contrastMedium','contrastColour','dryingTime']))+
@@ -9129,6 +9150,13 @@ function mpiDrawPage(doc,m,row,i){
     if(type==='date')v=woDmy(v);
     cellText(doc,x,y,String(v),sz,
              cellW(x,y,sz,MPI_LINES_V,MPI_STATIC,MPI_PAGE[0]));
+  });
+  const eq=mpiEq();
+  MPI_CAL_SLOTS.forEach(([k,x,y,isDate])=>{
+    const v=eq[k];
+    if(v==null||v==='')return;
+    cellText(doc,x,y,isDate?woDmy(v):String(v),9.0,
+             cellW(x,y,9.0,MPI_LINES_V,MPI_STATIC,MPI_PAGE[0]));
   });
   MPI_CONS_COLS.forEach((c,ci)=>[0,1].forEach(ri=>{
     const v=(m.cons[ri]||{})[c[0]];
