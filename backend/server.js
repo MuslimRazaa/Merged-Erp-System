@@ -45,6 +45,7 @@ const payrollRouter = require('./routes/payroll');
 const crmRouter = require('./routes/crm');
 const recordsRouter = require('./routes/records');
 const employeeFilesRouter = require('./routes/employeeFiles');
+const poApprovalsRouter = require('./routes/poApprovals');
 
 const PORT = +(process.env.PORT || 5050);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -86,6 +87,7 @@ app.use('/api/payroll', payrollRouter);
 app.use('/api/crm', crmRouter);
 app.use('/api/records', recordsRouter);
 app.use('/api/employee-files', employeeFilesRouter);
+app.use('/api/po-approvals', poApprovalsRouter);
 
 // public/index.html, premier-erp.html (2MB+ hand-rolled SPA files, no build
 // step) and public/ir-drawings.js (~4MB) are all large enough that serving

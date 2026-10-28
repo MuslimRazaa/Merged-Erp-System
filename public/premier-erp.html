@@ -860,7 +860,18 @@ function nextAutoCode(mk,field,prefix){
   return prefix+'-'+yy+'/'+String(maxSeq+1).padStart(3,'0');
 }
 const AUTOCODE=(k,l,mk,prefix)=>({k,l,t:'computed',auto:1,fn:r=>r[k]||nextAutoCode(mk,k,prefix)});
-const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
+// Asset Register / GRN's own code format — PREFIX<full year>/<4-digit
+// seq>, e.g. "FA2026/0001" or "GRN2026/0001" — different from AUTOCODE's
+// "PREFIX-YY/NNN" shape (2-digit year, 3-digit seq), and the year rolls
+// over + the sequence resets to 0001 automatically every January, since
+// the regex only counts codes already stamped with the CURRENT year.
+function nextYearCode(mk,field,prefix){
+  const yyyy=new Date().getFullYear();
+  const re=new RegExp('^'+prefix+yyyy+'\\/(\\d+)$');
+  const maxSeq=coll(mk).reduce((mx,r)=>{const mt=re.exec(r[field]||'');return mt?Math.max(mx,+mt[1]):mx;},0);
+  return prefix+yyyy+'/'+String(maxSeq+1).padStart(4,'0');
+}
+const REF=(k,l,coll,dk,filter)=>({k,l,t:'ref',coll,dk,filter});
 // Multi-select version of REF — e.g. NCR/CAPA's Owner, which can name more
 // than one person. Stored as one comma-joined string on the record (same
 // scalar shape every other field uses), so list columns, search and print
@@ -880,6 +891,9 @@ function trainingStatusRank(s){return {Expired:0,Expiring:1,Planned:2,Valid:3}[s
 
 /* ============ generic collection modules ============ */
 /* Each: key, name, group, icon, fields, list (cols in table), badge, kpi */
+// Fixed company location list for Stock Transactions' From/To dropdowns —
+// branch offices + rig/site countries stock actually moves between.
+const STOCK_LOCATIONS=['Karachi','Islamabad','Dubai','Abu Dhabi','Kuwait','Oman'];
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
@@ -890,14 +904,14 @@ invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
 items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
-stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',fields:[D('date','Date'),REF('item','Item','items','name'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),N('qty','Quantity'),T('from','From location'),T('to','To location'),T('ref','Reference (PO/WO)'),T('who','By')],list:['date','item','type','qty','from','to','ref'],badge:r=>r.type},
+stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
-purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),REF('item','Item (from Item Master)','items','name'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
@@ -1269,7 +1283,7 @@ function logout(){
   SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');recClearCache();
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
-  LEAVE_PENDING_COUNT=0;
+  LEAVE_PENDING_COUNT=0;PO_PENDING_COUNT=0;
   document.getElementById('l-user').value='';document.getElementById('l-pass').value='';showLogin();
 }
 /* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
@@ -2576,6 +2590,10 @@ async function prsConfirmDelete(){
    the only guard.
    ================================================================ */
 let LEAVE_PENDING_COUNT=0;
+// Purchase Order approvals share the same topbar bell/panel as Leave
+// Requests (see lvPollPending/lvLoadInboxPanel below) — "Requests", not
+// "Leave Inbox", since it now covers both.
+let PO_PENDING_COUNT=0;
 let LV_MINE=[],LV_QUEUE=[],LV_EDIT=null; // LV_EDIT = the leave row currently loaded in the form, or null = new
 const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Work From Home','Maternity Leave'];
 const LV_REQUEST_TYPES=['Full Day','Half Day'];
@@ -2938,30 +2956,36 @@ async function lvLoadQueue(){
 // offline-first app already uses (no websocket infra here).
 async function lvPollPending(){
   const slot=document.getElementById('lv-inbox-slot');
-  // Visible to Human Resources-access users, AND to a plain employee who is
-  // someone's registered HOD (Employees form, Access tab) — but NOT to
-  // anyone else. isHod comes back from the backend (it actually checks
-  // whether anyone reports to this person); hasHr is known locally.
+  // Visible to Human Resources-access users, to a plain employee who is
+  // someone's registered HOD (Employees form, Access tab), AND to anyone
+  // who is a Purchase Order approver right now (their reports' PO, or one
+  // of the two standing approvers) — but NOT to anyone else. isHod/
+  // isApprover come back from their respective backends; hasHr is known
+  // locally.
   if(!SESSION){if(slot)slot.innerHTML='';return;}
   try{
-    const {count,isHod}=await api('/api/leave/pending-count');
-    if(!canSee('Human Resources')&&!isHod){if(slot)slot.innerHTML='';return;}
+    const [lv,po]=await Promise.all([
+      api('/api/leave/pending-count'),
+      api('/api/po-approvals/pending-count').catch(()=>({count:0,isApprover:false}))
+    ]);
+    if(!canSee('Human Resources')&&!lv.isHod&&!po.isApprover){if(slot)slot.innerHTML='';return;}
     if(slot&&!slot.innerHTML)slot.innerHTML=lvInboxShellHtml();
-    if(count!==LEAVE_PENDING_COUNT){LEAVE_PENDING_COUNT=count;nav();}
+    if(lv.count!==LEAVE_PENDING_COUNT||po.count!==PO_PENDING_COUNT){LEAVE_PENDING_COUNT=lv.count;PO_PENDING_COUNT=po.count;nav();}
     lvUpdateInboxBadge();
   }catch(e){/* silent — just a background badge refresh */}
 }
 setInterval(lvPollPending,60000);
 function lvInboxShellHtml(){
-  return '<button class="btn ghost small" id="lv-inbox-btn" onclick="lvToggleInbox(event)" title="Leave requests awaiting your decision">❏ Leave Inbox<span id="lv-inbox-badge"></span></button>'+
+  return '<button class="btn ghost small" id="lv-inbox-btn" onclick="lvToggleInbox(event)" title="Requests awaiting your decision">❏ Requests<span id="lv-inbox-badge"></span></button>'+
    '<div id="lv-inbox-panel" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);margin-top:6px;width:380px;max-height:440px;overflow:auto;padding:10px" onclick="event.stopPropagation()">'+
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:12.5px">Leave requests awaiting approval</b><button class="btn ghost small" onclick="go(\'leave_requests\')">Open full page</button></div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:12.5px">Requests awaiting your decision</b><button class="btn ghost small" onclick="go(\'leave_requests\')">Open full page</button></div>'+
     '<div id="lv-inbox-list"><div class="empty">Loading…</div></div>'+
    '</div>';
 }
 function lvUpdateInboxBadge(){
   const el=document.getElementById('lv-inbox-badge');if(!el)return;
-  el.innerHTML=LEAVE_PENDING_COUNT>0?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
+  const n=LEAVE_PENDING_COUNT+PO_PENDING_COUNT;
+  el.innerHTML=n>0?' <span class="pill r">'+n+'</span>':'';
 }
 function lvToggleInbox(ev){
   if(ev)ev.stopPropagation();
@@ -2982,10 +3006,22 @@ async function lvLoadInboxPanel(){
     // Both pending stages at once: still-with-the-HOD requests (this
     // viewer's own reports, or theirs to decide directly if no HOD/admin)
     // AND ones already forwarded to HR for the final call.
-    const rows=await api('/api/leave?status=ReleasedForApproval,PendingHRApproval');
-    LEAVE_PENDING_COUNT=rows.length;nav();lvUpdateInboxBadge();
-    body.innerHTML=rows.length
-     ?rows.map(r=>{
+    const [rows,poRows]=await Promise.all([
+      api('/api/leave?status=ReleasedForApproval,PendingHRApproval'),
+      api('/api/po-approvals/pending').catch(()=>[])
+    ]);
+    LEAVE_PENDING_COUNT=rows.length;PO_PENDING_COUNT=poRows.length;nav();lvUpdateInboxBadge();
+    const poHtml=poRows.map(r=>
+       '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:12.5px">'+esc(r.no||'')+'</b><span class="pill b">Draft</span></div>'+
+        '<div style="font-size:12.5px;margin:4px 0">Vendor: '+esc(r.vendor||'—')+(r.amount?' · '+esc(r.cur||'')+' '+fmt(+r.amount):'')+'</div>'+
+        '<div class="hint">'+esc(r.potype||'')+(r.date?' · '+String(r.date).slice(0,10):'')+'</div>'+
+        '<div style="margin-top:6px;display:flex;gap:6px;align-items:center">'+
+         '<button class="btn small" style="flex:1" onclick="poDecide(\''+r.id+'\',\'Issued\')">Approve</button>'+
+         '<button class="btn ghost small" style="flex:1" onclick="poDecide(\''+r.id+'\',\'Rejected\')">Reject</button>'+
+         '<button class="btn ghost small" onclick="go(\'purchaseorders\');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
+        '</div></div>').join('');
+    const lvHtml=rows.map(r=>{
         const canDecide=lvCanDecide(r,hasHr);
         return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
          '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:12.5px">'+esc(r.docNo)+'</b>'+lvStatusPill(r.status,r)+'</div>'+
@@ -3000,9 +3036,23 @@ async function lvLoadInboxPanel(){
            :lvDecideHint(r,hasHr))+
           '<button class="btn ghost small" onclick="lvRecordsOpenFor(\''+esc(r.employeeCode)+'\');go(\'hr_leave_records\');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
          '</div></div>';
-      }).join('')
+      }).join('');
+    body.innerHTML=(poHtml||lvHtml)
+     ?((poHtml?'<div class="hint" style="margin-bottom:4px">Purchase order approvals</div>'+poHtml:'')+(lvHtml?'<div class="hint" style="margin:8px 0 4px">Leave requests</div>'+lvHtml:''))
      :'<div class="empty">Nothing waiting on you right now.</div>';
   }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+// Approve/Reject a PO straight from the Requests dropdown — see
+// backend/routes/poApprovals.js for who's actually allowed to decide it
+// (the server re-checks this; the button just offers the action).
+async function poDecide(id,decision){
+  try{
+    const saved=await api('/api/po-approvals/'+encodeURIComponent(id)+'/decide',{method:'PUT',body:JSON.stringify({decision})});
+    recUpsertLocal('purchaseorders',saved);
+    if(modKey()==='purchaseorders')render();
+    toast('PO '+(decision==='Issued'?'approved':'rejected')+'.','ok');
+    lvLoadInboxPanel();
+  }catch(e){toast(e.message,'err');}
 }
 // One shared "Decide" modal for both the topbar Leave Inbox dropdown and the
 // full Leave Requests queue table — a single Decision + Remarks step instead
@@ -5905,6 +5955,18 @@ function recUpsertLocal(k,saved){
 function recRemoveLocal(k,id){
   collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;
 }
+// A GRN raised against a PO is the signal that the PO has actually gone
+// out to the vendor — so saving a GRN flips its referenced PO's status to
+// "Issued" automatically (best-effort: if this PUT fails the GRN itself
+// has already saved, so it's not worth blocking or alarming the user over).
+async function grnMarkPoIssued(poNo){
+  const po=coll('purchaseorders').find(r=>r.no===poNo);
+  if(!po||po.status==='Issued')return;
+  try{
+    const saved=await api('/api/records/purchaseorders/'+encodeURIComponent(po.id),{method:'PUT',body:JSON.stringify({...po,status:'Issued'})});
+    recUpsertLocal('purchaseorders',saved);
+  }catch(e){}
+}
 /* ============ server-backed registers ============
    Modules listed in SERVER_MODS keep their records in MySQL (erp_records /
    erp_record_files, routes/records.js) instead of only in this browser, so
@@ -6254,7 +6316,7 @@ function fieldInput(f,v,idPrefix,onSelectChange){
   idPrefix=idPrefix||'f-';
   v=v==null?'':v;
   if(f.t==='select')return selx(idPrefix+f.k,v,f.o.filter(o=>o!==''),onSelectChange||null,'\u2014 choose \u2014');
-  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
+  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).filter(r=>!f.filter||f.filter(r)).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='refm')return selxMulti(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
@@ -6317,6 +6379,7 @@ function renderModule(){
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
+  if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
   renderModule._lk=false;
   // Any field some OTHER field's showIf watches needs to re-run
   // applyConditionalFields the moment it's picked, not just on next render.
@@ -6330,6 +6393,7 @@ function renderModule(){
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
     (m.polines?'<div id="po-zone">'+poGrid(rec)+'</div>':'')+
+    (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
@@ -6467,6 +6531,7 @@ async function saveRec(){
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
+  if(m.smlines){rec.smlines=SML.filter(l=>l.item||l.qty);rec.itemsSummary=rec.smlines.map(l=>(l.item||'')+(l.qty?' x'+l.qty:'')).filter(Boolean).join(', ');}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     const now=new Date().toISOString();
@@ -6478,6 +6543,7 @@ async function saveRec(){
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
       collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
+      if(k==='grns'&&saved.po)await grnMarkPoIssued(saved.po);
     }catch(e){
       /* The server refused it - a Viewer account, a validation fault - and
          that is worth stopping for, with the form still open and nothing
@@ -6962,8 +7028,31 @@ function assetPickItem(){
   const costEl=document.getElementById('f-cost');if(costEl)costEl.value=it.cost||'';
   if(it.curr&&document.getElementById('f-cur'))selxPick('f-cur',it.curr);
   const locEl=document.getElementById('f-loc');if(locEl)locEl.value=it.loc||'';
+  const tagEl=document.getElementById('f-assettag');if(tagEl)tagEl.value=it.assettag||'';
 }
 SELX_CB['f-item']=assetPickItem;
+/* ============ stock transaction line grid ============================
+   One Stock Transaction (a branch -> branch, or branch -> rig, move) can
+   carry several items at once — each its own item pick + quantity, same
+   grid idea as the Purchase Order / Quotation line items above, just
+   without price/tax since this is an internal stock move, not a sale or
+   purchase. */
+let SML=[{}];
+function smGrid(rec){
+  const itemNames=coll('items').map(x=>x.name).filter(Boolean);
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick items from Item Master, one line per item</span></div>'+
+  '<div class="tblwrap sm-lines-wrap"><table><thead><tr>'+
+    '<th style="width:26px">#</th><th style="width:260px">Item</th><th style="width:100px">Quantity</th><th>Note</th><th style="width:30px"></th>'+
+  '</tr></thead><tbody>'+
+  SML.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
+   '<td>'+selx('sm-item-'+i,l.item||'',itemNames,v=>{SML[i].item=v;},'Select item…')+'</td>'+
+   '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
+   '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
+   '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>').join('')+
+  '</tbody></table></div>'+
+  '<button class="btn ghost small" style="margin-top:6px" onclick="SML.push({});smRefresh()">+ Add item</button>';
+}
+function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-zone');if(z)z.innerHTML=smGrid(null);}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
