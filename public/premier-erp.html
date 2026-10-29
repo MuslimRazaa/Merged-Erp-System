@@ -975,6 +975,9 @@ function apprFromLabel(v){
   const k=APPROVALS.find(x=>APPR_LABEL[x]===v);
   return k||APPR_INPROC;
 }
+// Fixed company location list for Stock Transactions' From/To dropdowns —
+// branch offices + rig/site countries stock actually moves between.
+const STOCK_LOCATIONS=['Karachi','Islamabad','Dubai','Abu Dhabi','Kuwait','Oman'];
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
@@ -1364,7 +1367,7 @@ function logout(){
   SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');recClearCache();
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
-  LEAVE_PENDING_COUNT=0;
+  LEAVE_PENDING_COUNT=0;PO_PENDING_COUNT=0;
   const nslot=document.getElementById('nt-slot');if(nslot)nslot.innerHTML='';
   /* Whether this person may approve went with their session. */
   NT_COUNT=0;NT_ROWS=[];APPR_IS_HOD=false;
@@ -6443,7 +6446,7 @@ function fieldInput(f,v,idPrefix,onSelectChange){
     return selx(idPrefix+f.k,v,opts,onSelectChange||null,'\u2014 choose \u2014',
                 f.k==='approval');
   }
-  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
+  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).filter(r=>!f.filter||f.filter(r)).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='refm')return selxMulti(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
