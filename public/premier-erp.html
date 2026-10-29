@@ -94,6 +94,21 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
    certificate off a rig sheet, so they get full-strength ink, not the faint
    grey used for incidental forms. */
 .irform .field label{color:var(--ink);font-size:10.5px}
+/* Released, and so not open to editing. Everything in the form stops
+   taking input; the approval picker itself does not, because setting it
+   back to In Process is how an inspector unlocks it to make a correction.
+   Buttons that only read the record - PDF, print, cancel - are left alone,
+   and the save paths refuse in code as well, so this is not the only
+   thing standing between a locked record and a change. */
+.appr-locked input,.appr-locked textarea,.appr-locked select,
+.appr-locked .selx,.appr-locked .del,.appr-locked .drop{
+  pointer-events:none;opacity:.55}
+.appr-locked #fw-f-approval,.appr-locked #fw-f-approval *,
+.appr-locked #fw-mf-approval,.appr-locked #fw-mf-approval *,
+.appr-locked .appr-free,.appr-locked .appr-free *{
+  pointer-events:auto;opacity:1}
+.appr-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:10px;
+  border:1px solid var(--line);border-radius:8px;background:#FFF8E6;font-size:12.5px}
 .irform .hint{color:var(--soft)}
 .field input,.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .field textarea{resize:vertical}
@@ -293,6 +308,7 @@ body.locked #app{display:none}
     <div><div class="crumb" id="crumb">HOME</div><h1 id="title">Dashboard</h1></div>
     <div class="top-actions">
       <span id="lv-inbox-slot" style="position:relative"></span>
+      <span id="nt-slot" style="position:relative"></span>
       <span id="userchip"></span>
       <div class="chip-sync offline" id="syncchip"><div class="dot"></div><span id="synctext">Local only</span></div>
       <button class="btn ghost small" onclick="syncNow()">Sync now</button>
@@ -860,18 +876,7 @@ function nextAutoCode(mk,field,prefix){
   return prefix+'-'+yy+'/'+String(maxSeq+1).padStart(3,'0');
 }
 const AUTOCODE=(k,l,mk,prefix)=>({k,l,t:'computed',auto:1,fn:r=>r[k]||nextAutoCode(mk,k,prefix)});
-// Asset Register / GRN's own code format — PREFIX<full year>/<4-digit
-// seq>, e.g. "FA2026/0001" or "GRN2026/0001" — different from AUTOCODE's
-// "PREFIX-YY/NNN" shape (2-digit year, 3-digit seq), and the year rolls
-// over + the sequence resets to 0001 automatically every January, since
-// the regex only counts codes already stamped with the CURRENT year.
-function nextYearCode(mk,field,prefix){
-  const yyyy=new Date().getFullYear();
-  const re=new RegExp('^'+prefix+yyyy+'\\/(\\d+)$');
-  const maxSeq=coll(mk).reduce((mx,r)=>{const mt=re.exec(r[field]||'');return mt?Math.max(mx,+mt[1]):mx;},0);
-  return prefix+yyyy+'/'+String(maxSeq+1).padStart(4,'0');
-}
-const REF=(k,l,coll,dk,filter)=>({k,l,t:'ref',coll,dk,filter});
+const REF=(k,l,coll,dk)=>({k,l,t:'ref',coll,dk});
 // Multi-select version of REF — e.g. NCR/CAPA's Owner, which can name more
 // than one person. Stored as one comma-joined string on the record (same
 // scalar shape every other field uses), so list columns, search and print
@@ -891,6 +896,85 @@ function trainingStatusRank(s){return {Expired:0,Expiring:1,Planned:2,Valid:3}[s
 
 /* ============ generic collection modules ============ */
 /* Each: key, name, group, icon, fields, list (cols in table), badge, kpi */
+/* ================================================================
+   APPROVAL: what is allowed to leave this machine
+
+   A report written on a rig is not finished when it is saved. It is
+   finished when the inspector says it is. Until then it stays here: the
+   queue holds it, a returning connection does not send it, and the live
+   system never sees a half-written certificate.
+
+   Three states. They are the words the leave module already uses for the
+   same idea, so this system has one vocabulary for approval and not two:
+
+     InProcess            still being written. Never leaves this machine.
+     ReleasedForApproval  the inspector is done with it. Goes up when
+                          Sync now is pressed - not before, and not by
+                          itself when the signal comes back.
+     Approved             the HOD has accepted it. Set on the live system
+                          only: somebody who can approve their own work
+                          is not being approved by anyone.
+   ================================================================ */
+const APPR_INPROC='InProcess',APPR_RELEASED='ReleasedForApproval',
+      APPR_APPROVED='Approved';
+const APPROVALS=[APPR_INPROC,APPR_RELEASED,APPR_APPROVED];
+const APPR_LABEL={InProcess:'In Process',ReleasedForApproval:'Released for Approval',
+                  Approved:'Approved'};
+/* Which modules this holds back. A contract or an M&TE entry is not
+   somebody's certificate, and holding those would only break screens that
+   work. */
+const APPR_MODS=new Set(['ir_library','workorders']);
+/* Anything written before this existed, or with a value nobody recognises,
+   is treated as still being written - the safe direction, since the cost
+   of being wrong is an unfinished report on the live system. */
+function apprOf(rec){
+  const v=rec&&rec.approval;
+  return APPROVALS.indexOf(v)>=0?v:APPR_INPROC;
+}
+function apprLabel(s){return APPR_LABEL[s]||s;}
+function apprPill(s){
+  const cls=s===APPR_APPROVED?'g':s===APPR_RELEASED?'a':'b';
+  return '<span class="pill '+cls+'">'+esc(apprLabel(s))+'</span>';
+}
+/* Set by the notification poll, which asks the server whether anyone
+   reports to this person. Offline there is nobody to ask and nothing to
+   check an answer against, so it stays false and Approved is not offered. */
+let APPR_IS_HOD=false;
+function apprCanApprove(){
+  if(!SESSION||SESSION.offline)return false;
+  return isAdmin()||SESSION.role==='Sub Admin'||APPR_IS_HOD;
+}
+function apprOptions(){
+  return apprCanApprove()?APPROVALS:[APPR_INPROC,APPR_RELEASED];
+}
+/* The one control, used by the report form and the work order form.
+   It is the same picker every other field on these forms uses, so it
+   looks like one of them and not like something bolted on. */
+function apprSelectHtml(cur,onpick,id){
+  const v=apprOf({approval:cur});
+  /* An approval already granted is not the inspector's to take back. They
+     see what it is; changing it is the approver's business. */
+  if(v===APPR_APPROVED&&!apprCanApprove())
+    return apprPill(v)+'<div class="hint" style="margin-top:4px">Approved on the '+
+      'live system. Only your HOD can change this.</div>';
+  const opts=apprOptions().slice();
+  if(opts.indexOf(v)<0)opts.push(v);
+  /* The picker shows and returns the words. Handing it the key while
+     its options were the words made it keep the key as a choice of
+     its own, and In Process came up twice. */
+  return selx(id||'appr-pick',apprLabel(v),opts.map(apprLabel),
+    lbl=>{const k=APPROVALS.find(x=>apprLabel(x)===lbl);if(k)onpick(k);},'',true);
+}
+/* A record that has been released is not edited by accident. One rule for
+   a report and for a work order, because an inspector should not have to
+   remember two. */
+function apprLocked(rec){return apprOf(rec)!==APPR_INPROC;}
+/* Forms show the words; records keep the key. This takes either. */
+function apprFromLabel(v){
+  if(APPROVALS.indexOf(v)>=0)return v;
+  const k=APPROVALS.find(x=>APPR_LABEL[x]===v);
+  return k||APPR_INPROC;
+}
 // Fixed company location list for Stock Transactions' From/To dropdowns —
 // branch offices + rig/site countries stock actually moves between.
 const STOCK_LOCATIONS=['Karachi','Islamabad','Dubai','Abu Dhabi','Kuwait','Oman'];
@@ -904,14 +988,14 @@ invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
 items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
-stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
+stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',fields:[D('date','Date'),REF('item','Item','items','name'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),N('qty','Quantity'),T('from','From location'),T('to','To location'),T('ref','Reference (PO/WO)'),T('who','By')],list:['date','item','type','qty','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
-purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),S('status','Status',['Draft','Issued','Acknowledged','Partially received','Received','Closed','Cancelled']),D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[T('no','GRN no.','GRN-001'),D('date','Date'),REF('po','PO ref','purchaseorders','no'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[T('code','Asset code','FA-001'),REF('item','Item (from Item Master)','items','name'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
@@ -920,7 +1004,7 @@ contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fiel
    they drive the contract map + KPIs and stay off the printed sheet. */
 /* nolist: the saved-records table lives on its own screen (View Work
    Orders — renderWoView), so this one only shows the entry form. */
-workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),REF('loc','Location','shared_locations','name'),REF('client','Bill To Customer','customers','name'),REF('subloc','Sub Location','shared_locations','name'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
+workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),REF('loc','Location','shared_locations','name'),REF('client','Bill To Customer','customers','name'),REF('subloc','Sub Location','shared_locations','name'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),S('approval','Approval',APPROVALS),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status','approval'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
 trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',cols:2,att:1,list_presorted:true,
   fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Date completed'),D('expiry','Expiry date (leave blank if it never expires)'),T('certno','Certificate no.'),
     C('status','Status',trainingStatus)],
@@ -1268,7 +1352,7 @@ function applySession(r){
   nav();render();
   pullSharedMaster();recBootstrap();
   updateSyncBar();scheduleAutoSync();
-  lvPollPending();
+  lvPollPending();ntPoll();
   /* There is a fresh token now. Anything the queue was holding because the
      last one had expired goes straight away, rather than waiting for a
      timer or for somebody to find the button. */
@@ -1284,6 +1368,9 @@ function logout(){
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
   LEAVE_PENDING_COUNT=0;PO_PENDING_COUNT=0;
+  const nslot=document.getElementById('nt-slot');if(nslot)nslot.innerHTML='';
+  /* Whether this person may approve went with their session. */
+  NT_COUNT=0;NT_ROWS=[];APPR_IS_HOD=false;
   document.getElementById('l-user').value='';document.getElementById('l-pass').value='';showLogin();
 }
 /* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
@@ -2590,10 +2677,6 @@ async function prsConfirmDelete(){
    the only guard.
    ================================================================ */
 let LEAVE_PENDING_COUNT=0;
-// Purchase Order approvals share the same topbar bell/panel as Leave
-// Requests (see lvPollPending/lvLoadInboxPanel below) — "Requests", not
-// "Leave Inbox", since it now covers both.
-let PO_PENDING_COUNT=0;
 let LV_MINE=[],LV_QUEUE=[],LV_EDIT=null; // LV_EDIT = the leave row currently loaded in the form, or null = new
 const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Work From Home','Maternity Leave'];
 const LV_REQUEST_TYPES=['Full Day','Half Day'];
@@ -2954,38 +3037,107 @@ async function lvLoadQueue(){
 // on EVERY screen, not just the Leave Requests page) stay current even while
 // parked elsewhere — same interval-poll approach the rest of this
 // offline-first app already uses (no websocket infra here).
+/* ================================================================
+   THE BELL
+
+   A report released on a rig is only released as far as the rig until
+   somebody is told. When the push lands, the server addresses a row to
+   the HOD the inspector reports to; this is the part of that which the
+   HOD actually sees.
+
+   Built the same way as the Leave Inbox beside it - a polled count, a
+   badge, a panel - rather than a second mechanism doing the same job.
+   Polling, not pushing: there is no socket in this system, and a count
+   every minute is what the leave inbox has been doing all along.
+   ================================================================ */
+let NT_COUNT=0,NT_ROWS=[];
+async function ntPoll(){
+  const slot=document.getElementById('nt-slot');
+  /* Offline there is nobody to ask, and an offline session has no token;
+     asking would only produce a halt the person cannot act on. */
+  if(!SESSION||SESSION.offline||!navigator.onLine){if(slot)slot.innerHTML='';return;}
+  try{
+    const {count,isHod}=await api('/api/notifications/count');
+    APPR_IS_HOD=!!isHod;                 // who may be offered "Approved"
+    if(!count&&!isHod){if(slot)slot.innerHTML='';return;}
+    if(slot&&!slot.innerHTML)slot.innerHTML=ntShellHtml();
+    NT_COUNT=count;ntBadge();
+  }catch(e){/* silent: a badge is not worth an error on screen */}
+}
+setInterval(ntPoll,60000);
+function ntShellHtml(){
+  return '<button class="btn ghost small" id="nt-btn" onclick="ntToggle(event)" '+
+     'title="Reports and work orders awaiting your approval">☑ Approvals<span id="nt-badge"></span></button>'+
+   '<div id="nt-panel" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:#fff;'+
+     'border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);'+
+     'margin-top:6px;width:380px;max-height:440px;overflow:auto;padding:10px" onclick="event.stopPropagation()">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+      '<b style="font-size:12.5px">Awaiting your approval</b>'+
+      '<button class="btn ghost small" onclick="ntReadAll()">Mark all read</button></div>'+
+    '<div id="nt-list"><div class="empty">Loading…</div></div>'+
+   '</div>';
+}
+function ntBadge(){
+  const el=document.getElementById('nt-badge');if(!el)return;
+  el.innerHTML=NT_COUNT>0?' <span class="pill r">'+NT_COUNT+'</span>':'';
+}
+function ntToggle(ev){
+  if(ev)ev.stopPropagation();
+  const panel=document.getElementById('nt-panel');if(!panel)return;
+  const opening=panel.style.display==='none';
+  panel.style.display=opening?'block':'none';
+  if(opening)ntLoad();
+  if(!window.__ntOutsideListener){
+    window.__ntOutsideListener=true;
+    document.addEventListener('click',()=>{const p=document.getElementById('nt-panel');if(p)p.style.display='none';});
+  }
+}
+async function ntLoad(){
+  const body=document.getElementById('nt-list');if(!body)return;
+  try{
+    NT_ROWS=await api('/api/notifications');
+    body.innerHTML=NT_ROWS.length?NT_ROWS.map(ntRowHtml).join('')
+      :'<div class="empty">Nothing is waiting for you.</div>';
+  }catch(e){body.innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>';}
+}
+function ntRowHtml(n){
+  return '<div style="padding:7px 0;border-top:1px solid var(--line);font-size:12.5px">'+
+    (n.read?'':'<span class="pill r" style="margin-right:6px">New</span>')+
+    '<b>'+esc(n.title)+'</b>'+
+    (n.body?'<div class="hint" style="margin-top:2px">'+esc(n.body)+'</div>':'')+
+    '<div class="hint" style="margin-top:2px">'+esc(String(n.at||'').slice(0,16).replace('T',' '))+'</div>'+
+   '</div>';
+}
+async function ntReadAll(){
+  try{await api('/api/notifications/read',{method:'POST',body:JSON.stringify({})});
+    NT_COUNT=0;ntBadge();ntLoad();}catch(e){toast('Could not mark read: '+e.message,'err');}
+}
 async function lvPollPending(){
   const slot=document.getElementById('lv-inbox-slot');
-  // Visible to Human Resources-access users, to a plain employee who is
-  // someone's registered HOD (Employees form, Access tab), AND to anyone
-  // who is a Purchase Order approver right now (their reports' PO, or one
-  // of the two standing approvers) — but NOT to anyone else. isHod/
-  // isApprover come back from their respective backends; hasHr is known
-  // locally.
+  // Visible to Human Resources-access users, AND to a plain employee who is
+  // someone's registered HOD (Employees form, Access tab) — but NOT to
+  // anyone else. isHod comes back from the backend (it actually checks
+  // whether anyone reports to this person); hasHr is known locally.
   if(!SESSION){if(slot)slot.innerHTML='';return;}
   try{
-    const [lv,po]=await Promise.all([
-      api('/api/leave/pending-count'),
-      api('/api/po-approvals/pending-count').catch(()=>({count:0,isApprover:false}))
-    ]);
-    if(!canSee('Human Resources')&&!lv.isHod&&!po.isApprover){if(slot)slot.innerHTML='';return;}
+    const {count,isHod}=await api('/api/leave/pending-count');
+    if(!canSee('Human Resources')&&!isHod){if(slot)slot.innerHTML='';return;}
     if(slot&&!slot.innerHTML)slot.innerHTML=lvInboxShellHtml();
-    if(lv.count!==LEAVE_PENDING_COUNT||po.count!==PO_PENDING_COUNT){LEAVE_PENDING_COUNT=lv.count;PO_PENDING_COUNT=po.count;nav();}
+    if(count!==LEAVE_PENDING_COUNT){LEAVE_PENDING_COUNT=count;nav();}
     lvUpdateInboxBadge();
   }catch(e){/* silent — just a background badge refresh */}
 }
 setInterval(lvPollPending,60000);
 function lvInboxShellHtml(){
-  return '<button class="btn ghost small" id="lv-inbox-btn" onclick="lvToggleInbox(event)" title="Requests awaiting your decision">❏ Requests<span id="lv-inbox-badge"></span></button>'+
+  return '<button class="btn ghost small" id="lv-inbox-btn" onclick="lvToggleInbox(event)" title="Leave requests awaiting your decision">❏ Leave Inbox<span id="lv-inbox-badge"></span></button>'+
    '<div id="lv-inbox-panel" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);margin-top:6px;width:380px;max-height:440px;overflow:auto;padding:10px" onclick="event.stopPropagation()">'+
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:12.5px">Requests awaiting your decision</b><button class="btn ghost small" onclick="go(\'leave_requests\')">Open full page</button></div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:12.5px">Leave requests awaiting approval</b><button class="btn ghost small" onclick="go(\'leave_requests\')">Open full page</button></div>'+
     '<div id="lv-inbox-list"><div class="empty">Loading…</div></div>'+
    '</div>';
 }
 function lvUpdateInboxBadge(){
   const el=document.getElementById('lv-inbox-badge');if(!el)return;
-  const n=LEAVE_PENDING_COUNT+PO_PENDING_COUNT;
-  el.innerHTML=n>0?' <span class="pill r">'+n+'</span>':'';
+  el.innerHTML=LEAVE_PENDING_COUNT>0?' <span class="pill r">'+LEAVE_PENDING_COUNT+'</span>':'';
 }
 function lvToggleInbox(ev){
   if(ev)ev.stopPropagation();
@@ -3006,22 +3158,10 @@ async function lvLoadInboxPanel(){
     // Both pending stages at once: still-with-the-HOD requests (this
     // viewer's own reports, or theirs to decide directly if no HOD/admin)
     // AND ones already forwarded to HR for the final call.
-    const [rows,poRows]=await Promise.all([
-      api('/api/leave?status=ReleasedForApproval,PendingHRApproval'),
-      api('/api/po-approvals/pending').catch(()=>[])
-    ]);
-    LEAVE_PENDING_COUNT=rows.length;PO_PENDING_COUNT=poRows.length;nav();lvUpdateInboxBadge();
-    const poHtml=poRows.map(r=>
-       '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:12.5px">'+esc(r.no||'')+'</b><span class="pill b">Draft</span></div>'+
-        '<div style="font-size:12.5px;margin:4px 0">Vendor: '+esc(r.vendor||'—')+(r.amount?' · '+esc(r.cur||'')+' '+fmt(+r.amount):'')+'</div>'+
-        '<div class="hint">'+esc(r.potype||'')+(r.date?' · '+String(r.date).slice(0,10):'')+'</div>'+
-        '<div style="margin-top:6px;display:flex;gap:6px;align-items:center">'+
-         '<button class="btn small" style="flex:1" onclick="poDecide(\''+r.id+'\',\'Issued\')">Approve</button>'+
-         '<button class="btn ghost small" style="flex:1" onclick="poDecide(\''+r.id+'\',\'Rejected\')">Reject</button>'+
-         '<button class="btn ghost small" onclick="go(\'purchaseorders\');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
-        '</div></div>').join('');
-    const lvHtml=rows.map(r=>{
+    const rows=await api('/api/leave?status=ReleasedForApproval,PendingHRApproval');
+    LEAVE_PENDING_COUNT=rows.length;nav();lvUpdateInboxBadge();
+    body.innerHTML=rows.length
+     ?rows.map(r=>{
         const canDecide=lvCanDecide(r,hasHr);
         return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
          '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:12.5px">'+esc(r.docNo)+'</b>'+lvStatusPill(r.status,r)+'</div>'+
@@ -3036,23 +3176,9 @@ async function lvLoadInboxPanel(){
            :lvDecideHint(r,hasHr))+
           '<button class="btn ghost small" onclick="lvRecordsOpenFor(\''+esc(r.employeeCode)+'\');go(\'hr_leave_records\');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
          '</div></div>';
-      }).join('');
-    body.innerHTML=(poHtml||lvHtml)
-     ?((poHtml?'<div class="hint" style="margin-bottom:4px">Purchase order approvals</div>'+poHtml:'')+(lvHtml?'<div class="hint" style="margin:8px 0 4px">Leave requests</div>'+lvHtml:''))
+      }).join('')
      :'<div class="empty">Nothing waiting on you right now.</div>';
   }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
-}
-// Approve/Reject a PO straight from the Requests dropdown — see
-// backend/routes/poApprovals.js for who's actually allowed to decide it
-// (the server re-checks this; the button just offers the action).
-async function poDecide(id,decision){
-  try{
-    const saved=await api('/api/po-approvals/'+encodeURIComponent(id)+'/decide',{method:'PUT',body:JSON.stringify({decision})});
-    recUpsertLocal('purchaseorders',saved);
-    if(modKey()==='purchaseorders')render();
-    toast('PO '+(decision==='Issued'?'approved':'rejected')+'.','ok');
-    lvLoadInboxPanel();
-  }catch(e){toast(e.message,'err');}
 }
 // One shared "Decide" modal for both the topbar Leave Inbox dropdown and the
 // full Leave Requests queue table — a single Decision + Remarks step instead
@@ -5955,18 +6081,6 @@ function recUpsertLocal(k,saved){
 function recRemoveLocal(k,id){
   collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;
 }
-// A GRN raised against a PO is the signal that the PO has actually gone
-// out to the vendor — so saving a GRN flips its referenced PO's status to
-// "Issued" automatically (best-effort: if this PUT fails the GRN itself
-// has already saved, so it's not worth blocking or alarming the user over).
-async function grnMarkPoIssued(poNo){
-  const po=coll('purchaseorders').find(r=>r.no===poNo);
-  if(!po||po.status==='Issued')return;
-  try{
-    const saved=await api('/api/records/purchaseorders/'+encodeURIComponent(po.id),{method:'PUT',body:JSON.stringify({...po,status:'Issued'})});
-    recUpsertLocal('purchaseorders',saved);
-  }catch(e){}
-}
 /* ============ server-backed registers ============
    Modules listed in SERVER_MODS keep their records in MySQL (erp_records /
    erp_record_files, routes/records.js) instead of only in this browser, so
@@ -6083,7 +6197,7 @@ function refOptions(collName,dk,sel){
    old <select> had, so code that reads the field by id (saveRec, for one)
    needs no change at all. */
 const SELX_CB={};
-function selx(id,value,options,onpick,placeholder){
+function selx(id,value,options,onpick,placeholder,noClear){
   if(onpick)SELX_CB[id]=onpick;
   const cur=value==null?'':String(value);
   const opts=(options||[]).map(o=>String(o==null?'':o));
@@ -6094,7 +6208,7 @@ function selx(id,value,options,onpick,placeholder){
       (cur?esc(cur):'<span style="opacity:.45">'+esc(placeholder||'')+'</span>')+'</span><span class="cv">\u25be</span></div>'+
     '<div class="selx-pan">'+
       '<input class="selx-q" placeholder="Search\u2026" oninput="selxFilter(\''+id+'\')" onkeydown="selxKey(\''+id+'\',event)">'+
-      '<div class="selx-list">'+selxOptsHtml(id,opts,cur)+'</div>'+
+      '<div class="selx-list">'+selxOptsHtml(id,opts,cur,noClear)+'</div>'+
     '</div></div>';
 }
 /* Same control, but the options arrive as [heading, [options]] pairs â€” used
@@ -6123,8 +6237,10 @@ function selxGroups(id,value,groups,onpick,placeholder,noClear){
       '<div class="selx-list">'+body+'</div>'+
     '</div></div>';
 }
-function selxOptsHtml(id,opts,cur){
-  return '<div class="selx-opt'+(cur===''?' on':'')+'" data-v="" onclick="selxPick(\''+id+'\',\'\')"><span style="opacity:.5">\u2014 none \u2014</span></div>'+
+/* Some fields have no empty state worth offering: an approval is one
+   of three things, and "none" is not one of them. */
+function selxOptsHtml(id,opts,cur,noClear){
+  return (noClear?'':'<div class="selx-opt'+(cur===''?' on':'')+'" data-v="" onclick="selxPick(\''+id+'\',\'\')"><span style="opacity:.5">\u2014 none \u2014</span></div>')+
     opts.map(o=>'<div class="selx-opt'+(o===cur?' on':'')+'" data-v="'+esc(o)+'" onclick="selxPick(\''+id+'\',this.dataset.v)">'+esc(o)+'</div>').join('');
 }
 /* Multi-select variant of selx() \u2014 e.g. NCR/CAPA's Owner, which can name
@@ -6315,7 +6431,21 @@ document.addEventListener('click',()=>document.querySelectorAll('.selx.open').fo
 function fieldInput(f,v,idPrefix,onSelectChange){
   idPrefix=idPrefix||'f-';
   v=v==null?'':v;
-  if(f.t==='select')return selx(idPrefix+f.k,v,f.o.filter(o=>o!==''),onSelectChange||null,'\u2014 choose \u2014');
+  /* Approving is the HOD's act on the live system, so the option is not
+     put in front of somebody who may not take it - though a record that
+     is already Approved still shows it. */
+  if(f.t==='select'){
+    let opts=f.o.filter(o=>o!=='');
+    if(f.k==='approval'){
+      const cur=apprOf({approval:apprFromLabel(v)});
+      const keys=apprOptions().slice();
+      if(keys.indexOf(cur)<0)keys.push(cur);
+      opts=keys.map(apprLabel);
+      v=apprLabel(cur);                // unset reads as still being written
+    }
+    return selx(idPrefix+f.k,v,opts,onSelectChange||null,'\u2014 choose \u2014',
+                f.k==='approval');
+  }
   if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).filter(r=>!f.filter||f.filter(r)).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='refm')return selxMulti(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
@@ -6379,12 +6509,14 @@ function renderModule(){
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
-  if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
   renderModule._lk=false;
   // Any field some OTHER field's showIf watches needs to re-run
   // applyConditionalFields the moment it's picked, not just on next render.
   const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
-  const form='<div class="card"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
+  /* A released work order is read, not retyped. */
+  const lk=APPR_MODS.has(k)&&editId&&apprLocked(rec);
+  const form='<div class="card'+(lk?' appr-locked':'')+'"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
+    (lk?apprBarHtml(rec):'')+
     '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-f-'+f.k+'"><label>'+f.l+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+
       // auto-numbered fields preview the number this record will get; a
       // file field gets the record's id instead of a value (see fieldInput)
@@ -6393,7 +6525,6 @@ function renderModule(){
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
     (m.polines?'<div id="po-zone">'+poGrid(rec)+'</div>':'')+
-    (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
@@ -6465,7 +6596,9 @@ function editRecModal(id){
   m.fields.filter(f=>f.t==='file').forEach(f=>delete FILE_STAGE['mf-'+f.k]);
   document.getElementById('recedit-title').textContent='Edit — '+esc(m.name);
   const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
-  document.getElementById('recedit-body').innerHTML='<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null)+'</div>').join('')+'</div>'+
+  const mlk=APPR_MODS.has(k)&&apprLocked(r);
+  document.getElementById('recedit-body').className=mlk?'appr-locked':'';
+  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null)+'</div>').join('')+'</div>'+
     filePreviewHtml(id,m);
   document.getElementById('recedit-err').style.display='none';
   if(watchedFields.size)applyConditionalFields(m,'mf-');
@@ -6480,8 +6613,26 @@ async function recEditSave(){
   const missingReq=reqFieldMissingLabel(m,'mf-');
   if(missingReq){err.textContent=missingReq+' is required.';err.style.display='block';return;}
   err.style.display='none';
+  /* This edits the cached record in place, so what it was has to be
+     kept before the form is read over it. */
+  const before=JSON.parse(JSON.stringify(rec));
   m.fields.forEach(f=>{if(f.t==='computed'||f.t==='file')return;const el=document.getElementById('mf-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
+  if(APPR_MODS.has(k)){
+    rec.approval=apprFromLabel(rec.approval);
+    if(apprLocked(before)){
+      const want=rec.approval;
+      if(want===apprOf(before)){
+        /* Put back what the form overwrote before refusing, or a
+           refused edit would still be sitting in the cache. */
+        m.fields.forEach(f=>{rec[f.k]=before[f.k];});
+        showErrEl(err,apprLabel(want)+' \u2014 this record is closed to editing. '+
+          'Set Approval back to In Process to correct it.');return;
+      }
+      m.fields.forEach(f=>{if(f.k!=='approval')rec[f.k]=before[f.k];});
+      rec.approval=want;
+    }
+  }
   // File fields live in erp_record_files, applied below AFTER the record
   // itself is confirmed saved — see fileFieldApplyStaged.
   if(isSrv(k)){
@@ -6524,6 +6675,24 @@ async function saveRec(){
   const prevErpRole=rec.erprole,prevShiftStart=rec.shiftstart; // snapshot BEFORE the form overwrites — only push what actually changed
   m.fields.forEach(f=>{if(f.t==='computed'||f.t==='file')return;const el=document.getElementById('f-'+f.k);if(el)rec[f.k]=el.value;});
   m.fields.filter(f=>f.t==='computed').forEach(f=>rec[f.k]=f.fn(rec));
+  if(APPR_MODS.has(k)){
+    /* The picker shows the words a person reads; what is stored, and
+       what the queue gates on, is the key behind them. */
+    rec.approval=apprFromLabel(rec.approval);
+    /* Styling keeps the fields from taking input. This is what actually
+       stops a change: everything but the approval is put back as it
+       stands, so the one thing a locked record allows is being
+       unlocked. Nothing else differs, so the save below - online,
+       offline, queued - is the path every other record takes. */
+    if(existing&&apprLocked(existing)){
+      const want=rec.approval;
+      if(want===apprOf(existing))
+        return toast(apprLabel(want)+' \u2014 this record is closed to editing. '+
+          'Set Approval back to In Process to correct it.','err');
+      m.fields.forEach(f=>{if(f.k!=='approval')rec[f.k]=existing[f.k];});
+      rec.approval=want;
+    }
+  }
   // File fields live in erp_record_files, applied below AFTER the record
   // itself is confirmed saved (so its id is definitely known) — see
   // fileFieldApplyStaged. Nothing to assign to rec[f.k] here.
@@ -6531,7 +6700,6 @@ async function saveRec(){
   if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
-  if(m.smlines){rec.smlines=SML.filter(l=>l.item||l.qty);rec.itemsSummary=rec.smlines.map(l=>(l.item||'')+(l.qty?' x'+l.qty:'')).filter(Boolean).join(', ');}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     const now=new Date().toISOString();
@@ -6543,7 +6711,6 @@ async function saveRec(){
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
       collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
-      if(k==='grns'&&saved.po)await grnMarkPoIssued(saved.po);
     }catch(e){
       /* The server refused it - a Viewer account, a validation fault - and
          that is worth stopping for, with the form still open and nothing
@@ -7028,31 +7195,8 @@ function assetPickItem(){
   const costEl=document.getElementById('f-cost');if(costEl)costEl.value=it.cost||'';
   if(it.curr&&document.getElementById('f-cur'))selxPick('f-cur',it.curr);
   const locEl=document.getElementById('f-loc');if(locEl)locEl.value=it.loc||'';
-  const tagEl=document.getElementById('f-assettag');if(tagEl)tagEl.value=it.assettag||'';
 }
 SELX_CB['f-item']=assetPickItem;
-/* ============ stock transaction line grid ============================
-   One Stock Transaction (a branch -> branch, or branch -> rig, move) can
-   carry several items at once — each its own item pick + quantity, same
-   grid idea as the Purchase Order / Quotation line items above, just
-   without price/tax since this is an internal stock move, not a sale or
-   purchase. */
-let SML=[{}];
-function smGrid(rec){
-  const itemNames=coll('items').map(x=>x.name).filter(Boolean);
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick items from Item Master, one line per item</span></div>'+
-  '<div class="tblwrap sm-lines-wrap"><table><thead><tr>'+
-    '<th style="width:26px">#</th><th style="width:260px">Item</th><th style="width:100px">Quantity</th><th>Note</th><th style="width:30px"></th>'+
-  '</tr></thead><tbody>'+
-  SML.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
-   '<td>'+selx('sm-item-'+i,l.item||'',itemNames,v=>{SML[i].item=v;},'Select item…')+'</td>'+
-   '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
-   '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
-   '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>').join('')+
-  '</tbody></table></div>'+
-  '<button class="btn ghost small" style="margin-top:6px" onclick="SML.push({});smRefresh()">+ Add item</button>';
-}
-function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-zone');if(z)z.innerHTML=smGrid(null);}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
@@ -8762,7 +8906,9 @@ function dpCardHtml(){
 function renderInspReport(){
   const sc=irSchema();
   const custOpts=coll('customers').map(c=>'<option value="'+esc(c.name)+'">').join('');
-  document.getElementById('content').innerHTML='<div class="irform">'+
+  document.getElementById('content').innerHTML=
+  '<div class="irform'+(apprLocked(IR)?' appr-locked':'')+'">'+
+  apprBarHtml(IR)+
   irDraftOffer()+
   '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
   '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label>'+
@@ -8777,6 +8923,12 @@ function renderInspReport(){
         '<div class="field"><label>Report ID (auto)</label><input value="'+esc(IR.fields.docId||irDocId())+'" disabled title="Work order — form — report no. — employee code"></div>'
       : (f[0]==='insp'||f[0]==='rev_by') ? irStaffField(f)
       : '<div class="field"><label>'+f[1]+'</label><input id="ir-'+f[0]+'" value="'+esc(IR.fields[f[0]]!=null?IR.fields[f[0]]:f[2])+'"'+(f[0]==='client'?' list="dl-cust"':f[0]==='wo'?' list="dl-wo"':f[0]==='po'?' list="dl-ctr"':'')+' oninput="IR.fields.'+f[0]+'=this.value;irSave()"></div>').join('')+
+  /* Last on the header, after Reviewed by: the report is written
+     first and released once it is done. */
+  '<div class="field appr-free"><label>Approval</label>'+
+    apprSelectHtml(IR.approval,irSetApproval,'ir-approval')+
+    (apprHint(apprOf(IR))?'<div class="hint" style="margin-top:4px">'+
+      apprHint(apprOf(IR))+'</div>':'')+'</div>'+
   '</div><datalist id="dl-cust">'+custOpts+'</datalist>'+'<datalist id="dl-wo">'+coll('workorders').map(w=>'<option value="'+esc(w.no||'')+'">').join('')+'</datalist>'+'<datalist id="dl-ctr">'+coll('contracts').map(c=>'<option value="'+esc(c.no||'')+'">').join('')+'</datalist></div></div>'+
   dpCardHtml()+
   mpiCardHtml()+
@@ -11862,7 +12014,52 @@ function irPhotos(files){
     img.src=URL.createObjectURL(f);
   });
 }
+/* Changing it on the open report. A report already in the library is
+   updated and re-queued there and then, so releasing one does not mean
+   filing it a second time. */
+function irSetApproval(v){
+  IR.approval=apprOf({approval:v});
+  irSave();
+  const lib=lsGet('ir_library',[]),i=lib.findIndex(r=>r.id===IR.id);
+  if(i>=0){
+    lib[i].approval=IR.approval;
+    lib[i]._dirty=true;lib[i]._sync='pending';
+    lsSet('ir_library',lib);
+    irImgQueue(lib[i],null);            // the queue gets it as it now stands
+    toast(IR.approval===APPR_RELEASED
+      ?'Released for approval \u2014 press Sync now to send it.'
+      :'Saved. This report will not leave this machine while it is in process.','ok');
+  }
+  render();
+}
+/* Said once, at the top, in the words an inspector would use. */
+function apprBarHtml(rec){
+  const a=apprOf(rec);
+  if(a===APPR_INPROC)return '';
+  return '<div class="appr-bar">'+apprPill(a)+'<span>'+
+    (a===APPR_APPROVED
+      ?'Approved on the live system. This report is closed to editing.'
+      :'Released for approval, so it is closed to editing. To correct it, '+
+       'set Approval back to In Process.')+'</span></div>';
+}
+/* A report still being written needs no explaining; the other two
+   states already say what they mean in the bar at the top. */
+function apprHint(s){
+  return s===APPR_RELEASED
+    ?'Goes to the live system the next time Sync now is pressed.'
+    :s===APPR_APPROVED
+    ?'Accepted by the HOD on the live system.'
+    :'';
+}
 function irStore(){
+  /* A released report is not re-filed over. Correcting one means setting
+     its approval back to In Process first, which is a deliberate act and
+     a visible one. */
+  if(apprLocked(IR)){
+    toast(apprLabel(apprOf(IR))+' — this report is closed to editing. '+
+      'Set Approval back to In Process to correct it.','err');
+    return;
+  }
   if(!IR.fields.no)IR.fields.no=irNextReportNo();   // stamped once, on the first filing
   // lift the customer, location, work order and date off whichever card this
   // form keeps them on, so the record the server gets carries them as well
@@ -11880,6 +12077,7 @@ function irStore(){
      report amended three weeks later is still the report of that day's
      inspection, and the library sorts by the one and the queue reasons
      about the other. */
+  rec.approval=apprOf(rec);              // new reports are still being written
   if(!rec.createdAt)rec.createdAt=now;
   rec.updatedAt=now;
   rec.savedAt=now;                       // what the library has always read
@@ -12113,6 +12311,19 @@ function irImgPrune(){
    ================================================================ */
 const OB_KEY='outbox',OB_GIVEUP=5;    // attempts before a refusal is set aside
 function obAll(){return lsGet(OB_KEY,[]);}
+/* What the queue is holding back, counted in reports rather than requests:
+   the inspector thinks in reports, and "3 items" means nothing to them. */
+function apprHeld(){
+  return obAll().filter(j=>j.kind==='rec'&&APPR_MODS.has(j.module)
+                        &&obJobApproval(j)===APPR_INPROC);
+}
+/* What the job would actually put on the server, which is the only thing
+   worth gating on: if the body says InProcess then sending it would put
+   InProcess on the live system, whatever the local copy has since become. */
+function obJobApproval(j){
+  if(!j||j.kind!=='rec')return APPR_RELEASED;      // files follow their record
+  try{return apprOf(JSON.parse(j.body||'{}'));}catch(e){return APPR_INPROC;}
+}
 function obSet(q){lsSet(OB_KEY,q);}
 function obLive(){return obAll().filter(j=>!j.blocked);}
 function obCount(){return obLive().length;}
@@ -12173,7 +12384,9 @@ function obRetryAll(){
   q.forEach(j=>{delete j.blocked;j.tries=0;j.lastErr='';});
   obSet(q);
   toast('Queued again \u2014 '+q.length+' item(s).','ok');
-  obDrain().then(()=>{obPanelRender();updateSyncBar();});
+  /* Somebody pressed a button, so this counts as a press: a released
+     report that was set aside has to be able to go again. */
+  obDrain(true).then(()=>{obPanelRender();updateSyncBar();});
 }
 function obDiscard(id){
   const j=obAll().find(x=>x.id===id);
@@ -12221,12 +12434,16 @@ let OB_BUSY=null;
    own `finally` and cleared the guard BEFORE the assignment put a resolved
    promise there. Every later pass then saw a truthy guard, returned that
    stale promise, and sent nothing for the rest of the session. */
-function obDrain(){
+/* `manual` is true only when a person pressed Sync now. A report and a
+   work order go up on that press and on nothing else - not when the
+   signal comes back, not on the timer, not at boot. Everything else in
+   the queue still goes whenever it can. */
+function obDrain(manual){
   if(OB_BUSY)return OB_BUSY;
-  OB_BUSY=obDrainOnce().finally(()=>{OB_BUSY=null;});
+  OB_BUSY=obDrainOnce(!!manual).finally(()=>{OB_BUSY=null;});
   return OB_BUSY;
 }
-async function obDrainOnce(){
+async function obDrainOnce(manual){
   if(!navigator.onLine)return 0;
   // an offline session has no server token to send with
   if(!SESSION||SESSION.offline||!localStorage.getItem('erp_jwt')){
@@ -12245,6 +12462,13 @@ async function obDrainOnce(){
     /* A document can only be attached to a record the server has, so a
        file waits while the record it belongs to is still queued. */
     if(j.kind==='file'&&obAll().some(x=>x.kind==='rec'&&x.recId===j.recId&&!x.blocked))continue;
+    /* The two gates on a report or a work order. A photograph is held by
+       the rule above for as long as its record is still queued, so it
+       needs no gate of its own. */
+    if(APPR_MODS.has(j.module)){
+      if(obJobApproval(j)===APPR_INPROC)continue;   // still being written
+      if(!manual)continue;                          // waits for Sync now
+    }
     try{
       await obRun(j);
       obDrop(j.id);
@@ -12504,6 +12728,9 @@ function irLibSetLocal(v){lsSet('ir_library',v);}
    still has to go up, and the word this screen shows for that. Left on,
    they are stored on the server and come back to every other machine as
    a state that was never theirs. */
+/* _dirty and _sync are this machine's bookkeeping and are not the
+   server's business. approval is: it is what the live system shows, and
+   what the queue gated on, so it goes up with the record. */
 function irLibClean(r){const c=JSON.parse(JSON.stringify(r));delete c._dirty;delete c._sync;return c;}
 /* One-time rescue: reports that only ever existed in this browser are sent up
    one at a time (a report carries photographs, so a single bulk body would be
@@ -12744,13 +12971,16 @@ function irLibTable(){
     'Show all '+lib.length+'</button></div></div>';
   const rows=irLibRows();
   if(!rows.length)return '<div class="empty">No saved report matches this search.</div>';
-  return '<table><thead><tr><th>Report ID</th><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th>Server</th><th class="no-print"></th></tr></thead><tbody>'+
+  return '<table><thead><tr><th>Report ID</th><th>Report no.</th><th>Type</th><th>Customer</th><th>Location</th><th>Work order</th><th>Date</th><th class="num">Items</th><th class="num">Images</th><th>Saved</th><th>Approval</th><th>Server</th><th class="no-print"></th></tr></thead><tbody>'+
   rows.map(r=>{
     const f=r.fields||{},h=irRecHeader(r),imgs=(r.items||[]).filter(x=>x.img).length;
     return '<tr><td><b>'+esc(f.docId||'—')+'</b></td><td>'+esc(f.no||'—')+'</td><td>'+esc(r.type)+'</td><td>'+esc(h.client)+'</td>'+
      '<td>'+esc(h.loc)+'</td><td>'+esc(h.wo)+'</td><td>'+esc(h.date)+'</td>'+
      '<td class="num">'+(r.items||[]).length+'</td><td class="num">'+(imgs||'')+'</td>'+
      '<td>'+String(r.savedAt||'').slice(0,10)+'</td>'+
+     '<td>'+apprPill(apprOf(r))+(apprOf(r)===APPR_INPROC&&!r._local
+       ?' <button class="btn ghost small" onclick="irRelease(\''+r.id+'\')" '+
+        'title="Mark it finished so the next Sync now sends it">Release</button>':'')+'</td>'+
      '<td>'+irSyncPill(r)+'</td>'+
      '<td class="no-print" style="white-space:nowrap">'+
       '<button class="btn ghost small" onclick="irOpen(\''+r.id+'\')">Open</button> '+
@@ -12758,6 +12988,23 @@ function irLibTable(){
       '<button class="btn ghost small" onclick="irPrintSaved(\''+r.id+'\')">Print</button> '+
       '<button class="del" onclick="irDel(\''+r.id+'\')">✕</button></td></tr>';
   }).join('')+'</tbody></table>';
+}
+/* Releasing from Saved Reports, without opening the report. Same act as
+   the dropdown on the form, and the same consequence: the queue is given
+   the record as it now stands, and the next Sync now sends it. */
+function irRelease(id){
+  const lib=lsGet('ir_library',[]),i=lib.findIndex(r=>r.id===id);
+  if(i<0)return;
+  if(!confirm('Release report '+((lib[i].fields||{}).no||id)+' for approval?\n\n'+
+    'It goes to the live system the next time Sync now is pressed, and your '+
+    'HOD is told it is waiting.'))return;
+  lib[i].approval=APPR_RELEASED;
+  lib[i]._dirty=true;lib[i]._sync='pending';
+  lsSet('ir_library',lib);
+  irImgQueue(lib[i],null);
+  if(IR&&IR.id===id){IR.approval=APPR_RELEASED;irSave();}
+  toast('Released for approval \u2014 press Sync now to send it.','ok');
+  render();
 }
 function irqSet(k,v){
   IRQ[k]=v;
@@ -12976,15 +13223,21 @@ function updateSyncBar(){
   const owed=reports?reports+' report'+(reports===1?'':'s')+' pending sync'
             :jobs?jobs+' item'+(jobs===1?'':'s')+' pending sync':'';
   const warn=stuck?' \u00b7 '+stuck+' needs attention':'';
+  /* Reports and work orders still being written are not owed to anybody.
+     They are said separately, and never as a problem: the inspector chose
+     this, and a count that mixed them in would read as work going
+     missing. */
+  const held=apprHeld().length;
+  const inproc=held?' \u00b7 '+held+' in process':'';
   /* A dead token is the one state where what is owed is not going
      anywhere until the person does something, so it is said first. */
   if(OB_HALT==='auth'&&(reports||jobs)){
     setSyncStatus('err',(owed||'Queue')+' \u00b7 sign in to send');return;
   }
   if(stuck){setSyncStatus('err',(owed||'Queue')+warn);return;}
-  if(!cfg.url){setSyncStatus('offline',owed||'Local only');return;}
-  if(!navigator.onLine){setSyncStatus('offline',owed||(d?d+' queued':'Offline \u2014 saved locally'));return;}
-  setSyncStatus('online',owed||(d?d+' pending':'Synced'));
+  if(!cfg.url){setSyncStatus('offline',(owed||'Local only')+inproc);return;}
+  if(!navigator.onLine){setSyncStatus('offline',(owed||(d?d+' queued':'Offline \u2014 saved locally'))+inproc);return;}
+  setSyncStatus('online',(owed||(d?d+' pending':'Synced'))+inproc);
 }
 let syncBusy=false;
 async function syncNow(){
@@ -12992,7 +13245,8 @@ async function syncNow(){
   if(!cfg.url){offlineWhoRender();openModal('syncmodal');return;}
   if(!navigator.onLine){syncLog('Offline — queued until connection returns.');updateSyncBar();return;}
   if(syncBusy)return;syncBusy=true;
-  await obDrain();                   // what we owe, before what we are given
+  /* The one press that sends a released report or work order. */
+  await obDrain(true);               // what we owe, before what we are given
   obPanelRender();
   /* The blob sync below carries its own configured token and can succeed
      while the outbox - which is what actually holds a filed report - has
@@ -13240,7 +13494,7 @@ irMigrateReportNos();
       bootGoTake();
       nav();render();restored=true;
       pullSharedMaster();recBootstrap();
-      lvPollPending();
+      lvPollPending();ntPoll();
     }catch(e){
       /* Only an actual rejection signs anybody out. Being unable to reach
          the server is the normal state on a remote site, and the session

@@ -44,6 +44,7 @@ const loansRouter = require('./routes/loans');
 const payrollRouter = require('./routes/payroll');
 const crmRouter = require('./routes/crm');
 const recordsRouter = require('./routes/records');
+const notificationsRouter = require('./routes/notifications');
 const employeeFilesRouter = require('./routes/employeeFiles');
 const poApprovalsRouter = require('./routes/poApprovals');
 
@@ -86,6 +87,7 @@ app.use('/api/loans', loansRouter);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/crm', crmRouter);
 app.use('/api/records', recordsRouter);
+app.use('/api/notifications', notificationsRouter);
 app.use('/api/employee-files', employeeFilesRouter);
 app.use('/api/po-approvals', poApprovalsRouter);
 
