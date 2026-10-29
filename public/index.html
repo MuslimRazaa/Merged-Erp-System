@@ -907,8 +907,8 @@ items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
-vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
+vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
@@ -5955,15 +5955,28 @@ function recUpsertLocal(k,saved){
 function recRemoveLocal(k,id){
   collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;
 }
-// A GRN raised against a PO is the signal that the PO has actually gone
-// out to the vendor — so saving a GRN flips its referenced PO's status to
-// "Issued" automatically (best-effort: if this PUT fails the GRN itself
-// has already saved, so it's not worth blocking or alarming the user over).
-async function grnMarkPoIssued(poNo){
+// Saving a GRN re-totals, per PO line, everything received so far across
+// EVERY GRN raised against that PO (this one included — it's already in
+// the local cache by the time this runs), and sets the PO's status from
+// that: 'Received' once every line's cumulative (receive − rejected) has
+// reached its PO qty, 'Partially received' while any line has progress
+// but isn't there yet, otherwise left alone. Best-effort: if this PUT
+// fails the GRN itself has already saved, so it's not worth blocking or
+// alarming the user over.
+async function grnSyncPoStatus(poNo){
   const po=coll('purchaseorders').find(r=>r.no===poNo);
-  if(!po||po.status==='Issued')return;
+  if(!po||!po.polines||!po.polines.length)return;
+  const grnsForPo=coll('grns').filter(g=>g.po===poNo);
+  const received=po.polines.map((l,i)=>grnsForPo.reduce((s,g)=>{
+    const gl=g.grnlines&&g.grnlines[i];
+    return s+(gl?(+gl.recvQty||0)-(+gl.rejQty||0):0);
+  },0));
+  const allDone=po.polines.every((l,i)=>received[i]>=(+l.qty||0));
+  const anyProgress=received.some(n=>n>0);
+  const newStatus=allDone?'Received':(anyProgress?'Partially received':po.status);
+  if(newStatus===po.status)return;
   try{
-    const saved=await api('/api/records/purchaseorders/'+encodeURIComponent(po.id),{method:'PUT',body:JSON.stringify({...po,status:'Issued'})});
+    const saved=await api('/api/records/purchaseorders/'+encodeURIComponent(po.id),{method:'PUT',body:JSON.stringify({...po,status:newStatus})});
     recUpsertLocal('purchaseorders',saved);
   }catch(e){}
 }
@@ -6380,6 +6393,7 @@ function renderModule(){
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
   if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
+  if(m.grnlines&&!renderModule._lk){GRL=(rec.grnlines&&rec.grnlines.length)?JSON.parse(JSON.stringify(rec.grnlines)):[];}
   renderModule._lk=false;
   // Any field some OTHER field's showIf watches needs to re-run
   // applyConditionalFields the moment it's picked, not just on next render.
@@ -6394,6 +6408,7 @@ function renderModule(){
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
     (m.polines?'<div id="po-zone">'+poGrid(rec)+'</div>':'')+
     (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
+    (m.grnlines?'<div id="grn-zone">'+grnGrid(rec)+'</div>':'')+
     '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
@@ -6532,6 +6547,7 @@ async function saveRec(){
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
   if(m.smlines){rec.smlines=SML.filter(l=>l.item||l.qty);rec.itemsSummary=rec.smlines.map(l=>(l.item||'')+(l.qty?' x'+l.qty:'')).filter(Boolean).join(', ');}
+  if(m.grnlines){rec.grnlines=GRL.map(l=>({item:l.item,poQty:l.poQty,recvQty:+l.recvQty||0,rejQty:+l.rejQty||0}));}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     const now=new Date().toISOString();
@@ -6543,7 +6559,7 @@ async function saveRec(){
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
       collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
-      if(k==='grns'&&saved.po)await grnMarkPoIssued(saved.po);
+      if(k==='grns'&&saved.po)await grnSyncPoStatus(saved.po);
     }catch(e){
       /* The server refused it - a Viewer account, a validation fault - and
          that is worth stopping for, with the form still open and nothing
@@ -7053,6 +7069,45 @@ function smGrid(rec){
   '<button class="btn ghost small" style="margin-top:6px" onclick="SML.push({});smRefresh()">+ Add item</button>';
 }
 function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-zone');if(z)z.innerHTML=smGrid(null);}
+/* ============ GRN (Goods Receipt) line grid ============================
+   Picking a PO (above, in the main form) pulls its line items straight
+   in here — same item list the PO itself has, read-only Item + PO Qty,
+   plus Receive Qty / Rejected Qty for what's actually happening at THIS
+   receipt (a PO can be received over several GRNs, so these two are per-
+   GRN amounts, not running totals). Total Received = Receive − Rejected.
+   Vendor is auto-filled from the PO too — see grnPickPo(). Cumulative
+   totals across every GRN against the PO, and the PO's own status
+   (Partially received / Received), are worked out at save time — see
+   grnSyncPoStatus(). */
+let GRL=[];
+function grnLineTotal(l){return (+l.recvQty||0)-(+l.rejQty||0);}
+function grnPickPo(){
+  if(modKey()!=='grns')return; // Vendor Bills also has a field named "po", same "f-po" id
+  const el=document.getElementById('f-po');
+  const po=coll('purchaseorders').find(p=>p.no===(el?el.value:''));
+  if(!po)return;
+  if(po.vendor&&document.getElementById('f-vendor'))selxPick('f-vendor',po.vendor);
+  GRL=(po.polines||[]).map(l=>({item:l.item,poQty:+l.qty||0,recvQty:'',rejQty:''}));
+  grnRefresh();
+}
+SELX_CB['f-po']=grnPickPo;
+function grnGrid(rec){
+  if(!GRL.length)return '<div class="hint" style="margin:10px 0 4px">Select a PO above to load its items.</div>';
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items received</div>'+
+   '<div class="tblwrap"><table><thead><tr>'+
+     '<th>Item</th><th style="width:90px" class="num">PO Qty</th><th style="width:110px" class="num">Receive Qty</th><th style="width:110px" class="num">Rejected Qty</th><th style="width:120px" class="num">Total Received</th>'+
+   '</tr></thead><tbody>'+
+   GRL.map((l,i)=>'<tr><td>'+esc(l.item||'')+'</td>'+
+     '<td class="num">'+fmt(l.poQty||0)+'</td>'+
+     '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.recvQty||'')+'" oninput="GRL['+i+'].recvQty=this.value;grnRefreshRow('+i+')"></td>'+
+     '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.rejQty||'')+'" oninput="GRL['+i+'].rejQty=this.value;grnRefreshRow('+i+')"></td>'+
+     '<td class="num" id="grn-tot-'+i+'">'+fmt(grnLineTotal(l))+'</td></tr>').join('')+
+   '</tbody></table></div>';
+}
+function grnRefresh(){renderModule._lk=true;const z=document.getElementById('grn-zone');if(z)z.innerHTML=grnGrid(null);}
+function grnRefreshRow(i){
+  const el=document.getElementById('grn-tot-'+i);if(el)el.textContent=fmt(grnLineTotal(GRL[i]));
+}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
