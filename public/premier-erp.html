@@ -1002,7 +1002,7 @@ items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),S('qc','QC status',['Accepted','Quarantine','Rejected']),T('who','Received by')],list:['no','date','po','vendor','qc','who'],badge:r=>r.qc},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},T('who','Received by')],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
@@ -7311,7 +7311,6 @@ function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-z
 let GRL=[];
 function grnLineTotal(l){return (+l.recvQty||0)-(+l.rejQty||0);}
 function grnPickPo(){
-  if(modKey()!=='grns')return; // Vendor Bills also has a field named "po", same "f-po" id
   const el=document.getElementById('f-po');
   const po=coll('purchaseorders').find(p=>p.no===(el?el.value:''));
   if(!po)return;
@@ -7319,7 +7318,29 @@ function grnPickPo(){
   GRL=(po.polines||[]).map(l=>({item:l.item,poQty:+l.qty||0,recvQty:'',rejQty:''}));
   grnRefresh();
 }
-SELX_CB['f-po']=grnPickPo;
+/* Vendor Bills' "PO ref" picks from the same list of Received POs — selecting
+   one pulls in its Vendor, plus its Amount/Tax split back out of the PO's
+   tax-inclusive grand total (POs only ever store that grand total + the tax
+   %, see poGrid's saveRec hook) so the bill opens pre-filled instead of
+   asking the user to retype numbers the PO already has. */
+function vbPickPo(){
+  const el=document.getElementById('f-po');
+  const po=coll('purchaseorders').find(p=>p.no===(el?el.value:''));
+  if(!po)return;
+  if(po.vendor&&document.getElementById('f-vendor'))selxPick('f-vendor',po.vendor);
+  const taxpct=+po.taxpct||0,grand=+po.amount||0;
+  const sub=grand/(1+taxpct/100);
+  const amtEl=document.getElementById('f-amount');if(amtEl)amtEl.value=sub.toFixed(2);
+  const taxEl=document.getElementById('f-tax');if(taxEl)taxEl.value=(grand-sub).toFixed(2);
+  const curEl=document.getElementById('f-cur');if(curEl)curEl.value=po.cur||'';
+}
+// Goods Receipts and Vendor Bills both have a field named "po", so they share
+// the DOM id "f-po" — one dispatcher routes the pick to whichever module is
+// actually open instead of the two modules fighting over SELX_CB['f-po'].
+SELX_CB['f-po']=function(){
+  if(modKey()==='grns')grnPickPo();
+  else if(modKey()==='vendorbills')vbPickPo();
+};
 function grnGrid(rec){
   if(!GRL.length)return '<div class="hint" style="margin:10px 0 4px">Select a PO above to load its items.</div>';
   return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items received</div>'+
@@ -7364,7 +7385,7 @@ const DOCPDF={
  receipts:{title:'RECEIPT VOUCHER',party:['customer','Received from'],amount:r=>(+r.amount||0),sig:['Received by','Approved by']},
  payments:{title:'PAYMENT VOUCHER',party:['vendor','Paid to'],amount:r=>(+r.amount||0),sig:['Prepared by','Approved by']},
  vendorbills:{title:'VENDOR BILL',party:['vendor','Vendor'],amount:r=>(+r.amount||0)+(+r.tax||0),extra:r=>[['Amount (excl. tax)',fmt(+r.amount||0)],['Tax',fmt(+r.tax||0)]],sig:['Checked by','Approved by']},
- grns:{title:'GOODS RECEIPT NOTE',party:['vendor','Vendor'],amount:null,sig:['Received by','QC / inspected by']},
+ grns:{title:'GOODS RECEIPT NOTE',party:['vendor','Vendor'],amount:null,sig:['Received by','Inspected by']},
  workorders:{title:'WORK ORDER',custom:'woPdf'},
  contracts:{title:'CONTRACT RATE SHEET',party:['client','Client'],amount:null,sig:['For Premier Tubular Services','For the Client'],table:r=>(r.pricelist&&r.pricelist.length)?{head:['#','Code','Description','Unit','Rate '+(r.cur||''),'Discount / terms'],rows:r.pricelist.map((l,i)=>[String(i+1),l.code||'',l.desc||'',l.unit||'',l.rate?fmt(+l.rate):'',l.disc||''])}:null}
 };
