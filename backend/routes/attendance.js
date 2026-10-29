@@ -314,7 +314,12 @@ async function computeAttendanceRows(from, to, filter = {}) {
         const hasKnownStatus = punches.some((p) => p.mode !== null && p.mode !== undefined);
         if (hasKnownStatus) {
           const ins = punches.filter((p) => p.mode === 0);
-          const outs = punches.filter((p) => p.mode === 1);
+          // Check-out (1) and OT-out (5) are the same event as far as the
+          // day's recorded "out" time is concerned — whichever one the K70
+          // reports, and whichever of them is latest, is THE check-out time
+          // used everywhere (Employees, Live Attendance, Attendance Report,
+          // Payroll all read it off this one field).
+          const outs = punches.filter((p) => p.mode === 1 || p.mode === 5);
           checkIn = ins.length ? ins[0].time : null;
           checkOut = outs.length ? outs[outs.length - 1].time : null;
         } else {
@@ -431,7 +436,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
     const hasKnownStatus = punches.some((p) => p.mode !== null && p.mode !== undefined);
     let checkIn, checkOut;
     if (hasKnownStatus) {
-      const ins = punches.filter((p) => p.mode === 0), outs = punches.filter((p) => p.mode === 1);
+      const ins = punches.filter((p) => p.mode === 0), outs = punches.filter((p) => p.mode === 1 || p.mode === 5);
       checkIn = ins.length ? ins[0].time : null; checkOut = outs.length ? outs[outs.length - 1].time : null;
     } else {
       checkIn = punches[0].time; checkOut = punches.length > 1 ? punches[punches.length - 1].time : null;
