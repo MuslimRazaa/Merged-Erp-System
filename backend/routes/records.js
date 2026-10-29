@@ -70,6 +70,56 @@ function parseRow(r) {
   try { return { ...JSON.parse(r.data), id: r.id }; } catch (e) { return { id: r.id }; }
 }
 function validId(id) { return typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id); }
+
+/* ---------------- approval, and who may grant it ----------------
+   A report or a work order carries an approval state. The browser holds
+   anything still InProcess on the machine that wrote it; this is the
+   other half of that rule, enforced where it cannot be edited:
+
+     - Approved is the HOD's word. Whoever pushes a record may not hand
+       it to themselves, so a push may not raise a record to Approved
+       unless the pusher is that record's approver (an admin, or the HOD
+       the record's author reports to).
+     - An approval a push does not mention is not changed. An offline app
+       that has never heard of approval cannot clear one by saving.
+*/
+const APPR_MODS = new Set(['ir_library', 'workorders']);
+const APPROVALS = ['InProcess', 'ReleasedForApproval', 'Approved'];
+function isAdminTier(role) { return role === 'Administrator' || role === 'Sub Admin'; }
+function apprOf(rec) {
+  const v = rec && rec.approval;
+  return APPROVALS.indexOf(v) >= 0 ? v : 'InProcess';
+}
+/* Everyone who reports to this person, as employees.id values. Used both
+   to decide whether they may approve and to address a notification. */
+async function hodOf(employeeRowId) {
+  const [rows] = await pool.query(
+    'SELECT reports_to FROM erp_employee_profile WHERE employee_id = ? LIMIT 1',
+    [employeeRowId]
+  );
+  return (rows[0] && rows[0].reports_to) || null;
+}
+async function currentApproval(module, id) {
+  const [rows] = await pool.query(
+    'SELECT data FROM erp_records WHERE module = ? AND id = ? LIMIT 1', [module, id]
+  );
+  if (!rows[0]) return null;
+  try { return apprOf(JSON.parse(rows[0].data)); } catch (e) { return null; }
+}
+/* One notice per record per recipient, refreshed rather than repeated. */
+async function notify(recipientId, actorId, kind, module, recordId, title, body) {
+  if (!recipientId) return false;
+  if (recipientId === actorId) return false;      // nobody is told about themselves
+  await pool.query(
+    `INSERT INTO erp_notifications (recipient_id, actor_id, kind, module, record_id, title, body)
+     VALUES (?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE actor_id = VALUES(actor_id), title = VALUES(title),
+       body = VALUES(body), created_at = NOW(), read_at = NULL`,
+    [recipientId, actorId || null, kind, module || null, recordId || null, title, body || null]
+  );
+  return true;
+}
+
 function cleanRecord(body, id) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const rec = { ...body, id };
@@ -110,12 +160,58 @@ async function upsert(req, res, id) {
   if (!validId(id)) return res.status(400).json({ error: 'Invalid record id.' });
   const rec = cleanRecord(req.body, id);
   if (!rec) return res.status(400).json({ error: 'Record body must be a JSON object.' });
+
+  const module = req.params.module;
+  let released = false;
+  if (APPR_MODS.has(module)) {
+    const was = await currentApproval(module, id);
+    /* A body that says nothing about approval leaves it as it was. */
+    const want = Object.prototype.hasOwnProperty.call(req.body, 'approval')
+      ? apprOf(req.body) : (was || 'InProcess');
+    if (want === 'Approved' && was !== 'Approved') {
+      /* Only the person this work answers to may accept it. The author is
+         whoever first created the row; on a first push that is the pusher
+         themselves, which is exactly the case this refuses. */
+      const [owner] = await pool.query(
+        'SELECT created_by FROM erp_records WHERE module = ? AND id = ? LIMIT 1', [module, id]
+      );
+      const authorCode = owner[0] && owner[0].created_by;
+      let mayApprove = isAdminTier(req.erpUser.role);
+      if (!mayApprove && authorCode) {
+        const [authorRow] = await pool.query(
+          'SELECT id FROM employees WHERE employee_id = ? LIMIT 1', [authorCode]
+        );
+        const authorId = authorRow[0] && authorRow[0].id;
+        if (authorId) mayApprove = (await hodOf(authorId)) === req.erpUser.id;
+      }
+      if (!mayApprove) {
+        return res.status(403).json({
+          error: 'Only the HOD this report answers to can approve it.' });
+      }
+    }
+    rec.approval = want;
+    released = want === 'ReleasedForApproval' && was !== 'ReleasedForApproval';
+  }
+
   await pool.query(
     `INSERT INTO erp_records (module, id, data, created_by, updated_by) VALUES (?,?,?,?,?)
      ON DUPLICATE KEY UPDATE data = VALUES(data), updated_by = VALUES(updated_by), deleted_at = NULL`,
     [req.params.module, id, JSON.stringify(rec), req.erpUser.employeeId, req.erpUser.employeeId]
   );
   await audit(req.erpUser.employeeId, 'record-save', `${req.params.module}/${id}`);
+  /* Pushed and released: the person this inspector reports to is told,
+     here, where we know it actually reached the server. A failure to
+     notify must not lose the record that was just saved. */
+  if (released) {
+    try {
+      const hod = await hodOf(req.erpUser.id);
+      const what = module === 'workorders' ? 'Work order' : 'Report';
+      const label = (rec.fields && (rec.fields.docId || rec.fields.no)) || rec.no || id;
+      await notify(hod, req.erpUser.id, 'approval', module, id,
+        what + ' ' + label + ' is released for approval',
+        (req.erpUser.name || req.erpUser.employeeId) + ' released it for your approval.');
+    } catch (e) { console.warn('[records] notify failed:', e.message); }
+  }
   res.json(rec);
 }
 

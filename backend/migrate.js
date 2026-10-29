@@ -698,7 +698,38 @@ async function migrate() {
     )
   `);
 
-  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs ready (no ISO tables were altered).');
+  /* Told-you-so rows for the bell in the top bar.
+     An inspector releases a report on a rig and presses Sync now; the HOD
+     they report to has to find out, and "it is somewhere in the register"
+     is not finding out. One row per thing that wants somebody's attention,
+     addressed to a person, marked read when they have seen it.
+
+     recipient_id is an employees.id, the same thing erp_employee_profile
+     .reports_to points at, so the HOD is resolved by that one join and
+     this table does not keep its own idea of who reports to whom. */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_notifications (
+      id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+      recipient_id  INT NOT NULL,
+      actor_id      INT NULL,
+      kind          VARCHAR(40) NOT NULL,
+      module        VARCHAR(40) NULL,
+      record_id     VARCHAR(64) NULL,
+      title         VARCHAR(255) NOT NULL,
+      body          TEXT NULL,
+      read_at       TIMESTAMP NULL,
+      created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_erp_notif_to (recipient_id, read_at),
+      /* One live notice per record per recipient: releasing a report,
+         correcting it and releasing it again is one thing waiting, not
+         three. The route relies on this to upsert rather than pile up. */
+      UNIQUE KEY uq_erp_notif_rec (recipient_id, kind, module, record_id),
+      CONSTRAINT fk_erp_notif_to FOREIGN KEY (recipient_id) REFERENCES employees(id)
+        ON DELETE CASCADE
+    )
+  `);
+
+  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;
