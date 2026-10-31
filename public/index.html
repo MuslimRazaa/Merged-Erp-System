@@ -2321,7 +2321,7 @@ function prBuildRowsTableHtml(rows,runId){
   return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Days in Calendar Month</th><th class="num">Salary Divisor (Selected Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
-     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
+     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Manual Deductions</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Other Allowances</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
     rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags&&r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
      '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':fmt(r.grossSalary))+'</td>'+
@@ -2335,8 +2335,10 @@ function prBuildRowsTableHtml(rows,runId){
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.incomeTax!=null?fmt(r.incomeTax):'—')+'</td>'+
      '<td class="num">'+(r.loanDeduction?fmt(r.loanDeduction):'—')+'</td>'+
+     '<td class="num">'+(r.manualDeductionTotal?fmt(r.manualDeductionTotal):'—')+'</td>'+
      '<td class="num">'+(r.netSalary!=null?fmt(r.netSalary):'—')+'</td>'+
      '<td class="num">'+fmt(r.fieldAllowanceTotal)+'</td>'+
+     '<td class="num">'+(r.manualAllowanceTotal?fmt(r.manualAllowanceTotal):'—')+'</td>'+
      '<td class="num"><b>'+(r.grossPayable!=null?fmt(r.grossPayable):'—')+'</b></td>'+
      (runId?'<td class="no-print"><button class="btn ghost small" title="Download this employee\'s payslip" onclick="prsDownloadPayslip('+runId+','+r.employeeId+',\''+esc(r.employeeName).replace(/'/g,"\\'")+'\')">📄</button></td>':'')+
      '</tr>').join('')+
@@ -2381,8 +2383,8 @@ function pinTableHead(el){
 // locked in, not a live re-generation.
 function prReportGrid(rep){
   rep=rep||PR_REPORT;
-  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Net Salary','Field Allowance','Gross Payable'];
-  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.netSalary,r.fieldAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
+  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
@@ -3310,6 +3312,11 @@ let EMP_LIST=[],EMP_EDIT=null,EMP_TAB='basic';
 // the plain Employees list (the "page/personal details disappear on their
 // own" bug) since route stays 'hr_employees' the whole time the form is up.
 let FORM_GUARD=false;
+// Other Allowances / Other Deductions (Compensation tab) — line-item lists,
+// same pattern as PO/GRN's grids (POL/GRL): a plain global array the grid
+// renders off and edits in place, loaded from the record right before the
+// form's HTML is built, saved back into it at Save time.
+let EMP_ALLOW=[],EMP_DEDUCT=[];
 // HR types in one Gross Salary figure; Basic/HRA/Utility are derived from it
 // using this standard split (must sum to 1). Field Allowance is intentionally
 // NOT part of this — it's a separate per-day rate (see the 'comp' tab).
@@ -3496,7 +3503,7 @@ function empSectionHtml(k){
    return '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-bottom:16px">'+
     '<div class="fgrid">'+
      efField('ef-gross','Gross Salary','number',{step:'0.01',req:1})+
-     efField('ef-currency','Currency','select',{options:['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']})+
+     efField('ef-currency','Currency','select',{options:['PKR','AED','USD','SAR','GBP','EUR','QAR','OMR']})+
     '</div>'+
     '<div class="hint" style="margin-top:4px">Enter only the total Gross Salary — Basic, House Rent and Utility Allowance below are worked out automatically using the standard split ('+Math.round(EMP_SALARY_SPLIT.basic*100)+'% / '+Math.round(EMP_SALARY_SPLIT.hra*100)+'% / '+Math.round(EMP_SALARY_SPLIT.utility*100)+'%).</div>'+
     '<div class="kpis" style="margin-top:12px">'+
@@ -3517,6 +3524,8 @@ function empSectionHtml(k){
      '<div class="kpi"><span>Total Field Allowance</span><b id="ef-fieldallow-total">0.00</b></div>'+
     '</div>'+
    '</div>'+
+   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px" id="emp-allow-zone">'+empAllowGrid()+'</div>'+
+   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px" id="emp-deduct-zone">'+empDeductGrid()+'</div>'+
    '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px">'+
     '<b style="font-size:12.5px">Loan</b>'+
     '<div class="hint" style="margin:4px 0 10px">A loan HR has given this employee, with a fixed monthly deduction — kept separate from salary. Record a payment each time the monthly amount is deducted (or a one-off extra payment / waiver), and the remaining balance updates automatically.</div>'+
@@ -3697,6 +3706,38 @@ function empRecalcGross(){
   if(outEl('ef-fieldallow-total'))outEl('ef-fieldallow-total').textContent=total.toFixed(2);
   if(outEl('ef-fieldallow-days'))outEl('ef-fieldallow-days').textContent=EMP_FIELD_SHIFT_DAYS;
 }
+const EMP_COMP_CURRENCIES=['PKR','AED','USD','SAR','GBP','EUR','QAR','OMR'];
+/* ---- Other Allowances (Compensation tab) ----
+   Each row: {title, amount, cur, validTill}. Added on top of Net Salary at
+   payroll time, AFTER tax/deductions are worked out — never taxed, kept
+   separate from Gross Salary (see routes/payroll.js's sumActiveCompItems). */
+function empAllowGrid(){
+  return '<b style="font-size:12.5px">Other Allowances</b> <button class="btn ghost small" style="margin-left:8px" onclick="EMP_ALLOW.push({cur:\'PKR\'});empAllowRefresh()">+ Add allowance</button>'+
+   '<div class="hint" style="margin:4px 0 10px">Paid on top of Net Salary each payroll run, while still within its Valid Till — never taxed, separate from Gross Salary.</div>'+
+   (EMP_ALLOW.length?'<div class="tblwrap"><table><thead><tr><th>Title</th><th style="width:130px">Amount</th><th style="width:100px">Currency</th><th style="width:150px">Valid Till</th><th style="width:30px"></th></tr></thead><tbody>'+
+    EMP_ALLOW.map((a,i)=>'<tr><td><input value="'+esc(a.title||'')+'" oninput="EMP_ALLOW['+i+'].title=this.value" placeholder="e.g. Transport"></td>'+
+     '<td><input type="number" step="0.01" value="'+esc(a.amount||'')+'" oninput="EMP_ALLOW['+i+'].amount=this.value"></td>'+
+     '<td><select onchange="EMP_ALLOW['+i+'].cur=this.value">'+EMP_COMP_CURRENCIES.map(c=>'<option'+(c===(a.cur||'PKR')?' selected':'')+'>'+c+'</option>').join('')+'</select></td>'+
+     '<td><input type="date" value="'+esc((a.validTill||'').slice(0,10))+'" onchange="EMP_ALLOW['+i+'].validTill=this.value"></td>'+
+     '<td><button class="del" onclick="EMP_ALLOW.splice('+i+',1);empAllowRefresh()">✕</button></td></tr>').join('')+
+    '</tbody></table></div>':'<div class="hint">No other allowances on file.</div>');
+}
+function empAllowRefresh(){const z=document.getElementById('emp-allow-zone');if(z)z.innerHTML=empAllowGrid();}
+/* ---- Other Deductions (Compensation tab) ----
+   Each row: {title, amount, validTill}. Subtracted from Net Salary each
+   payroll run while still within its Valid Till — same currency as the
+   employee's own salary, no separate currency field needed. */
+function empDeductGrid(){
+  return '<b style="font-size:12.5px">Other Deductions</b> <button class="btn ghost small" style="margin-left:8px" onclick="EMP_DEDUCT.push({});empDeductRefresh()">+ Add deduction</button>'+
+   '<div class="hint" style="margin:4px 0 10px">Deducted from Net Salary each payroll run while still within its Valid Till.</div>'+
+   (EMP_DEDUCT.length?'<div class="tblwrap"><table><thead><tr><th>Title</th><th style="width:130px">Amount</th><th style="width:150px">Valid Till</th><th style="width:30px"></th></tr></thead><tbody>'+
+    EMP_DEDUCT.map((d,i)=>'<tr><td><input value="'+esc(d.title||'')+'" oninput="EMP_DEDUCT['+i+'].title=this.value" placeholder="e.g. Advance recovery"></td>'+
+     '<td><input type="number" step="0.01" value="'+esc(d.amount||'')+'" oninput="EMP_DEDUCT['+i+'].amount=this.value"></td>'+
+     '<td><input type="date" value="'+esc((d.validTill||'').slice(0,10))+'" onchange="EMP_DEDUCT['+i+'].validTill=this.value"></td>'+
+     '<td><button class="del" onclick="EMP_DEDUCT.splice('+i+',1);empDeductRefresh()">✕</button></td></tr>').join('')+
+    '</tbody></table></div>':'<div class="hint">No other deductions on file.</div>');
+}
+function empDeductRefresh(){const z=document.getElementById('emp-deduct-zone');if(z)z.innerHTML=empDeductGrid();}
 // Loads this employee's JLR field-day count for the current calendar month
 // (the same count Payroll multiplies the Field Allowance rate by, just for
 // whatever date range that payroll run covers) so the running total shown
@@ -3802,6 +3843,9 @@ function empRecalcAge(){
   ageEl.textContent=(age>=0&&age<130)?age+' yrs':'—';
 }
 function renderEmpFormPage(){
+  const p=(EMP_EDIT&&EMP_EDIT.profile)||{};
+  EMP_ALLOW=Array.isArray(p.otherAllowances)?JSON.parse(JSON.stringify(p.otherAllowances)):[];
+  EMP_DEDUCT=Array.isArray(p.otherDeductions)?JSON.parse(JSON.stringify(p.otherDeductions)):[];
   const c=document.getElementById('content');
   c.innerHTML='<div class="card" id="emp-form-page"><div class="card-h">'+
    '<span id="empmodal-title">Employee</span><span class="sp"></span>'+
@@ -3844,7 +3888,7 @@ function empFillFormInner(){
   if(!e){
     document.getElementById('empmodal-title').textContent='Add Employee';
     document.getElementById('empmodal-del').style.display='none';
-    set('ef-status','Active');set('ef-currency','AED');
+    set('ef-status','Active');set('ef-currency','PKR');
     set('ef-phonecountry','PK');set('ef-emergencycountry','PK');
     empSyncPhoneCode('phone');empSyncPhoneCode('emergency');
     document.getElementById('ef-spousena').checked=false;document.getElementById('ef-motherna').checked=false;
@@ -3890,7 +3934,7 @@ function empFillFormInner(){
   // nothing silently regresses to zero.
   const legacyGross=(+p.salary||0)+(+p.hra||0)+(+p.utilityAllowance||0);
   set('ef-gross',p.grossSalary!=null?p.grossSalary:(legacyGross||''));
-  set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'AED');
+  set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'PKR');
   set('ef-homeaddr',p.homeAddress);set('ef-mailaddr',p.mailingAddress);
   set('ef-bankname',p.bankName);set('ef-iban',p.iban);set('ef-accno',p.accountNo);
   set('ef-accounttitle',p.accountTitle);set('ef-bloodgroup',p.bloodGroup);
@@ -3961,7 +4005,9 @@ async function empSave(){
       refName:v('ef-refname'),refContact:v('ef-refcontact'),refEmail:v('ef-refemail'),refOffice:v('ef-refoffice'),
       kinName:v('ef-kinname'),kinRelation:v('ef-kinrelation'),kinContact:v('ef-kincontact'),kinNic:v('ef-kinnic'),kinEmail:v('ef-kinemail'),
       grossSalary:v('ef-gross')||null,
-      salary:v('ef-salary')||null,utilityAllowance:v('ef-utility')||null,hra:v('ef-hra')||null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'AED'
+      salary:v('ef-salary')||null,utilityAllowance:v('ef-utility')||null,hra:v('ef-hra')||null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'PKR',
+      otherAllowances:EMP_ALLOW.filter(a=>a.title||a.amount).map(a=>({title:a.title||'',amount:+a.amount||0,cur:a.cur||'PKR',validTill:a.validTill||null})),
+      otherDeductions:EMP_DEDUCT.filter(d=>d.title||d.amount).map(d=>({title:d.title||'',amount:+d.amount||0,validTill:d.validTill||null}))
     })});
 
     if(v('ef-shiftstart')){

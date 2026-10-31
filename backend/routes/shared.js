@@ -49,7 +49,13 @@ const PROFILE_COLUMNS = [
   'ref_name', 'ref_contact', 'ref_email', 'ref_office',
   'kin_name', 'kin_relation', 'kin_contact', 'kin_nic', 'kin_email',
   'salary', 'gross_salary', 'utility_allowance', 'hra', 'field_allowance', 'currency',
+  'other_allowances', 'other_deductions',
 ];
+// These two PROFILE_COLUMNS hold a JSON array, not a plain scalar — written
+// as a JSON string (mysql2 would otherwise mis-serialize a JS array/object
+// passed straight as a `?` placeholder) and read back already parsed by
+// mysql2's own JSON-column handling.
+const PROFILE_JSON_COLUMNS = new Set(['other_allowances', 'other_deductions']);
 // request-body camelCase -> DB snake_case, for the profile columns above.
 const PROFILE_FIELD_MAP = Object.fromEntries(PROFILE_COLUMNS.map((c) => [c.replace(/_([a-z])/g, (m, l) => l.toUpperCase()), c]));
 
@@ -87,7 +93,7 @@ router.get('/employees', requireGroup('Human Resources'), async (req, res) => {
     const profile = {};
     for (const col of PROFILE_COLUMNS) {
       const key = col.replace(/_([a-z])/g, (m, l) => l.toUpperCase());
-      profile[key] = r[col] ?? null;
+      profile[key] = PROFILE_JSON_COLUMNS.has(col) ? (r[col] || []) : (r[col] ?? null);
     }
     profile.spouseNa = r.spouse_na === 1;
     profile.motherNa = r.mother_na === 1;
@@ -114,7 +120,12 @@ router.put('/employees/:id/profile', requireGroup('Human Resources'), async (req
   for (const [bodyKey, col] of Object.entries(PROFILE_FIELD_MAP)) {
     if (req.body[bodyKey] === undefined) continue;
     cols.push(col); placeholders.push('?');
-    values.push(req.body[bodyKey] === '' ? null : req.body[bodyKey]);
+    if (PROFILE_JSON_COLUMNS.has(col)) {
+      const arr = Array.isArray(req.body[bodyKey]) ? req.body[bodyKey] : [];
+      values.push(arr.length ? JSON.stringify(arr) : null);
+    } else {
+      values.push(req.body[bodyKey] === '' ? null : req.body[bodyKey]);
+    }
   }
   if (!cols.length) return res.status(400).json({ error: 'Nothing to update.' });
   const updateClause = cols.map((c) => `${c} = VALUES(${c})`).join(', ');

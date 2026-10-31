@@ -729,6 +729,20 @@ async function migrate() {
     )
   `);
 
+  // Other Allowances / Other Deductions — each a JSON array of
+  // {title, amount, currency, validTill} rows (Deductions omit currency,
+  // always read against the employee's own salary currency), entered on the
+  // Compensation tab. Kept separate from Gross Salary on purpose: Payroll
+  // adds Other Allowances AFTER tax/deductions are worked out off Gross
+  // Salary alone (an allowance is never taxed), and applies Other
+  // Deductions as a straight subtraction — see routes/payroll.js. A row past
+  // its Valid Till date is simply skipped at payroll time, not deleted, so
+  // the history of what an employee used to get stays on their profile.
+  try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_allowances JSON NULL AFTER field_allowance'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_deductions JSON NULL AFTER other_allowances'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+
   console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 

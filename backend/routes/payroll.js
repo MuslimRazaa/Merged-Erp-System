@@ -152,6 +152,23 @@ function taxBreakdown(annual, slabs) {
   return { annualTax: Math.max(0, tax), slabs: lines };
 }
 
+// Sums the Other Allowances / Other Deductions rows on an employee's profile
+// (Compensation tab) that are still in force for this payroll run — a row
+// with no Valid Till never expires; one with a Valid Till before the run's
+// own "From" date is treated as expired and skipped (not deleted — it stays
+// on the profile for history, it just stops counting). No proration for a
+// Valid Till that falls mid-run: it either counts in full or not at all.
+function sumActiveCompItems(items, periodFrom) {
+  if (!Array.isArray(items) || !items.length) return 0;
+  const from = new Date(periodFrom + 'T00:00:00');
+  return items.reduce((sum, it) => {
+    const amount = Number(it && it.amount) || 0;
+    if (amount <= 0) return sum;
+    if (it.validTill && new Date(it.validTill + 'T23:59:59') < from) return sum;
+    return sum + amount;
+  }, 0);
+}
+
 // GET /api/payroll/tax-calc?salary=200000&period=monthly|annual&taxYear=2027
 // Open to any signed-in user whose role can see HR or Accounting.
 router.get('/tax-calc', (req, res) => {
@@ -224,7 +241,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
   const profileById = new Map();
   if (empIds.length) {
     const [profiles] = await pool.query(
-      `SELECT employee_id, gross_salary, field_allowance, currency FROM erp_employee_profile WHERE employee_id IN (${empIds.map(() => '?').join(',')})`,
+      `SELECT employee_id, gross_salary, field_allowance, currency, other_allowances, other_deductions FROM erp_employee_profile WHERE employee_id IN (${empIds.map(() => '?').join(',')})`,
       empIds
     );
     for (const p of profiles) profileById.set(p.employee_id, p);
@@ -340,13 +357,22 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
     const otherDeductionAmount = perDayRate != null ? perDayRate * (absentDays + unpaidLeaveDays) : null;
     const lateDeductionAmount = perDayRate != null ? perDayRate * latePenaltyDays : null;
     const incomeTax = grossSalary != null ? computeMonthlyIncomeTax(grossSalary, tax.table.slabs) : null;
+    // Other Allowances/Deductions entered on the Compensation tab — kept
+    // OUT of the tax calculation entirely (incomeTax above is worked out
+    // from grossSalary alone) and out of netSalary's own tax-affected base:
+    // a deduction reduces netSalary directly, same as an absence or a late
+    // penalty would; an allowance is added only once in grossPayable below,
+    // after netSalary (and its tax) is already settled — see sumActiveCompItems.
+    const manualAllowanceTotal = profile ? sumActiveCompItems(profile.other_allowances, from) : 0;
+    const manualDeductionTotal = profile ? sumActiveCompItems(profile.other_deductions, from) : 0;
     // perDayRate*netPaidDays already excludes absent/unpaid days (paidDays
     // never counted them) and the late penalty (netPaidDays already
     // subtracts latePenaltyDays) — otherDeductionAmount/lateDeductionAmount
     // above are the same amounts shown as their own columns for a payslip
-    // breakdown, not a second subtraction on top of this. loanDeduction IS
-    // a real subtraction on top (an active loan's monthly instalment).
-    const netSalary = perDayRate != null ? perDayRate * netPaidDays - (incomeTax || 0) - loanDeduction : null;
+    // breakdown, not a second subtraction on top of this. loanDeduction and
+    // manualDeductionTotal ARE real subtractions on top (an active loan's
+    // monthly instalment, and any Other Deductions on file).
+    const netSalary = perDayRate != null ? perDayRate * netPaidDays - (incomeTax || 0) - loanDeduction - manualDeductionTotal : null;
 
     // Field Allowance = this employee's per-day rate × however many days in
     // THIS payroll range JLR actually had them out on a field job
@@ -366,9 +392,9 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
       presentDays, fieldDays, officeDays: presentDays - fieldDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
       lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal,
       paidDays, netPaidDays, baseDays,
-      otherDeductionAmount, lateDeductionAmount, incomeTax, loanId, loanDeduction, netSalary,
-      fieldAllowancePerDay, fieldAllowanceTotal,
-      grossPayable: netSalary != null ? netSalary + fieldAllowanceTotal : null,
+      otherDeductionAmount, lateDeductionAmount, incomeTax, loanId, loanDeduction, manualDeductionTotal, netSalary,
+      fieldAllowancePerDay, fieldAllowanceTotal, manualAllowanceTotal,
+      grossPayable: netSalary != null ? netSalary + fieldAllowanceTotal + manualAllowanceTotal : null,
       reviewFlags,
     });
   }
@@ -626,9 +652,14 @@ async function buildPayslipData(row, monthLabel, fromDate, toDate) {
   }
 
   // Net Payable mirrors buildPayrollReport()'s own netSalary math exactly
-  // (gross minus tax minus late deduction minus this month's loan instalment).
-  const totalDeductions = (+row.incomeTax || 0) + (+row.lateDeductionAmount || 0) + loanDeductionAmount;
-  const netPayable = grossPayable - totalDeductions;
+  // (gross minus tax minus late deduction minus this month's loan instalment
+  // minus any Other Deductions on file) — Other Allowances are added back
+  // AFTER, same as buildPayrollReport's grossPayable, since they're never
+  // part of the taxed/deducted base.
+  const manualDeductionTotal = +row.manualDeductionTotal || 0;
+  const manualAllowanceTotal = +row.manualAllowanceTotal || 0;
+  const totalDeductions = (+row.incomeTax || 0) + (+row.lateDeductionAmount || 0) + loanDeductionAmount + manualDeductionTotal;
+  const netPayable = grossPayable - totalDeductions + manualAllowanceTotal;
 
   return {
     employeeCode: row.employeeCode,
@@ -644,11 +675,13 @@ async function buildPayslipData(row, monthLabel, fromDate, toDate) {
       { label: 'Basic Salary', standard: basic, payable: payableBasic },
       { label: 'House Rent', standard: hra, payable: payableHra },
       { label: 'Utility Allowance', standard: utility, payable: payableUtility },
+      ...(manualAllowanceTotal ? [{ label: 'Other Allowances', standard: manualAllowanceTotal, payable: manualAllowanceTotal }] : []),
     ].filter((a) => a.standard || a.payable),
     deductions: [
       ...(row.incomeTax ? [{ label: 'Income Tax', amount: row.incomeTax }] : []),
       ...(row.lateDeductionAmount ? [{ label: 'Late Deduction', amount: row.lateDeductionAmount }] : []),
       ...(loanDeductionAmount ? [{ label: 'Loan Installment', amount: loanDeductionAmount }] : []),
+      ...(manualDeductionTotal ? [{ label: 'Other Deductions', amount: manualDeductionTotal }] : []),
     ],
     grossStandard: standardTotal, grossPayable, totalDeductions, loan, netPayable,
   };

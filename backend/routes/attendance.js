@@ -236,6 +236,16 @@ async function computeAttendanceRows(from, to, filter = {}) {
   if (filter.employeeIds && filter.employeeIds.length) {
     empSql += ` AND e.id IN (${filter.employeeIds.map(() => '?').join(',')})`;
     empParams.push(...filter.employeeIds);
+  } else {
+    // "every employee" (the whole-roster case — Live Attendance's Daily
+    // Summary, the full Attendance Report, Payroll's department-wise run)
+    // means every ACTIVE employee; someone marked Inactive shouldn't keep
+    // showing up here forever. An explicit employeeIds pick above (Payroll's
+    // employee-wise mode, an employee's own Attendance tab) is a deliberate
+    // choice of exactly who to look at, so it's left alone regardless of
+    // status — HR can still pull history for someone who went inactive
+    // mid-period.
+    empSql += " AND e.status = 'Active'";
   }
   const [employees] = await pool.query(empSql, empParams);
 
