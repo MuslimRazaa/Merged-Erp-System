@@ -4023,13 +4023,27 @@ async function renderHrEmployees(){
    '<button class="btn ghost" onclick="empOpenImport()">⇪ Import Employees</button>'+
    '<button class="btn" onclick="empOpenForm(null)">+ Add Employee</button></span></div>'+
    '<div class="card-b">'+
-   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+
+   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'+
+    '<select id="emp-status-filter" onchange="empFilterList()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+     '<option value="">All statuses</option><option value="Active">Active</option><option value="Inactive">Inactive</option>'+
+    '</select>'+
+    '<select id="emp-sort" onchange="empFilterList()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+     '<option value="newest">Newest to oldest</option><option value="oldest">Oldest to newest</option>'+
+     '<option value="name_asc">Name A → Z</option><option value="name_desc">Name Z → A</option>'+
+     '<option value="code_asc">Emp Code ascending</option><option value="code_desc">Emp Code descending</option>'+
+    '</select>'+
+    '<span style="flex:1"></span>'+
     '<button class="btn ghost small" id="emp-delsel-btn" disabled onclick="empDeleteSelected()">🗑 Delete Selected (0)</button>'+
     '<button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="empDeleteAll()">🗑 Delete All Employees</button>'+
    '</div>'+
    '<div id="emp-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   await empRefresh();
 }
+// Natural sort for Employee ID / Code — most are plain numbers (with or
+// without leading zeros); {numeric:true} compares those by value instead of
+// as text ("9" before "10"), while still sorting a non-numeric legacy code
+// sensibly instead of throwing off the whole list.
+function empCodeCompare(a,b){return String(a||'').localeCompare(String(b||''),undefined,{numeric:true,sensitivity:'base'});}
 async function empRefresh(){
   try{
     EMP_LIST=await api('/api/shared/employees');
@@ -4038,9 +4052,27 @@ async function empRefresh(){
     const el=document.getElementById('emp-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';
   }
 }
-function empFilterList(){
+// Search + Status filter + sort, applied together — shared by the list
+// render and "select all visible" so both always agree on which rows are
+// actually showing.
+function empVisibleRows(){
   const qEl=document.getElementById('emp-search');const q=qEl?qEl.value.trim().toLowerCase():'';
-  const rows=EMP_LIST.filter(e=>!q||e.employeeId.toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
+  const statusEl=document.getElementById('emp-status-filter');const status=statusEl?statusEl.value:'';
+  const sortEl=document.getElementById('emp-sort');const sort=sortEl?sortEl.value:'newest';
+  const rows=EMP_LIST.filter(e=>(!q||e.employeeId.toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q))&&(!status||e.status===status));
+  const byCreated=(e)=>e.createdAt?new Date(e.createdAt).getTime():0;
+  const cmps={
+    newest:(a,b)=>byCreated(b)-byCreated(a)||b.id-a.id,
+    oldest:(a,b)=>byCreated(a)-byCreated(b)||a.id-b.id,
+    name_asc:(a,b)=>String(a.name||'').localeCompare(String(b.name||'')),
+    name_desc:(a,b)=>String(b.name||'').localeCompare(String(a.name||'')),
+    code_asc:(a,b)=>empCodeCompare(a.employeeId,b.employeeId),
+    code_desc:(a,b)=>empCodeCompare(b.employeeId,a.employeeId),
+  };
+  return rows.slice().sort(cmps[sort]||cmps.newest);
+}
+function empFilterList(){
+  const rows=empVisibleRows();
   const allChecked=rows.length>0&&rows.every(e=>EMP_SELECTED.has(e.id));
   const body='<table><thead><tr><th style="width:28px"><input type="checkbox" '+(allChecked?'checked':'')+' onclick="empToggleSelectAllVisible(this.checked)"></th><th>ID</th><th>Name</th><th>Department</th><th>Location</th><th>Status</th><th>ERP Access</th><th class="no-print"></th></tr></thead><tbody>'+
    rows.map(e=>'<tr style="cursor:pointer" onclick="empOpenForm(\''+e.id+'\')"><td onclick="event.stopPropagation()"><input type="checkbox" '+(EMP_SELECTED.has(e.id)?'checked':'')+' onchange="empToggleSelect('+e.id+',this.checked)"></td><td><b>'+esc(e.employeeId)+'</b></td><td>'+esc(e.name)+'</td><td>'+esc(e.department||'')+'</td><td>'+esc(e.location||'')+'</td>'+
@@ -4056,8 +4088,7 @@ function empToggleSelect(id,checked){
   empUpdateSelBar();
 }
 function empToggleSelectAllVisible(checked){
-  const qEl=document.getElementById('emp-search');const q=qEl?qEl.value.trim().toLowerCase():'';
-  const rows=EMP_LIST.filter(e=>!q||e.employeeId.toLowerCase().includes(q)||(e.name||'').toLowerCase().includes(q));
+  const rows=empVisibleRows();
   rows.forEach(e=>{if(checked)EMP_SELECTED.add(e.id);else EMP_SELECTED.delete(e.id);});
   empFilterList();
 }
