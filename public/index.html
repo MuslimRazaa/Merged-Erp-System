@@ -2383,8 +2383,8 @@ function pinTableHead(el){
 // locked in, not a live re-generation.
 function prReportGrid(rep){
   rep=rep||PR_REPORT;
-  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
-  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Original Lates','Late Sittings (cancelled)','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
+  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateArrivals,r.lateForgivenByLateSitting,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page, landscape, every employee's full payroll row — same
@@ -3757,10 +3757,43 @@ async function empLoadLoan(){
   if(!wrap||!EMP_EDIT)return;
   wrap.innerHTML='<div class="empty">Loading…</div>';
   try{
-    const loans=await api('/api/loans/'+EMP_EDIT.id);
+    const loans=await api('/api/loans/'+EMP_EDIT.id); // every loan ever added for this employee, Active + Closed
     const active=loans.find(l=>l.status==='Active');
-    wrap.innerHTML=active?empLoanActiveHtml(active):empLoanAddFormHtml();
+    wrap.innerHTML=(active?empLoanActiveHtml(active):empLoanAddFormHtml())+empLoanHistoryHtml(loans);
   }catch(e){wrap.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+// Every loan this employee has ever had on file, Active or Closed — the
+// Active one already gets its own payment form/ledger above; this is so a
+// PAST loan (paid off, waived, or one that was simply never shown again
+// once it stopped being Active) is still visible, with a Delete for one
+// entered by mistake — the backend (DELETE /api/loans/:id) only allows
+// deleting a loan that has zero payments recorded against it; one with
+// payments already against it has to be paid off/waived instead, never
+// deleted, so its ledger stays intact.
+function empLoanHistoryHtml(loans){
+  if(!loans.length)return '';
+  return '<div style="margin-top:16px"><b style="font-size:12.5px">Loan History</b>'+
+   '<div class="hint" style="margin:4px 0 6px">Every loan on file for this employee. One with no payments recorded yet can be deleted — e.g. added by mistake. Once a payment is logged against it, it can only be paid off or waived, never deleted.</div>'+
+   '<div class="tblwrap"><table><thead><tr><th>Added</th><th class="num">Principal</th><th class="num">Monthly Deduction</th><th>Status</th><th class="num">Remaining</th><th>Notes</th><th class="no-print"></th></tr></thead><tbody>'+
+   loans.map(l=>'<tr><td>'+esc(String(l.createdAt||'').slice(0,10))+'</td>'+
+    '<td class="num">'+l.principalAmount.toFixed(2)+' '+esc(l.currency)+'</td>'+
+    '<td class="num">'+l.monthlyDeduction.toFixed(2)+'</td>'+
+    '<td><span class="pill '+(l.status==='Active'?'g':'b')+'">'+esc(l.status)+'</span></td>'+
+    '<td class="num">'+l.remaining.toFixed(2)+'</td>'+
+    '<td>'+esc(l.notes||'')+'</td>'+
+    '<td class="no-print">'+(l.payments.length
+      ?'<span class="hint" title="Has payments recorded — pay off or waive it instead of deleting">—</span>'
+      :'<button class="btn ghost small" onclick="empLoanDelete('+l.id+')">🗑 Delete</button>')+
+    '</td></tr>').join('')+
+   '</tbody></table></div></div>';
+}
+async function empLoanDelete(loanId){
+  if(!confirm('Delete this loan entry? This cannot be undone.'))return;
+  try{
+    await api('/api/loans/'+loanId,{method:'DELETE'});
+    toast('Loan deleted.','ok');
+    empLoadLoan();
+  }catch(e){toast(e.message,'err');}
 }
 function empLoanAddFormHtml(){
   return '<div class="fgrid">'+
@@ -3800,7 +3833,7 @@ async function empLoanCreate(){
   try{
     await api('/api/loans',{method:'POST',body:JSON.stringify({
       employeeId:EMP_EDIT.id,principalAmount,monthlyDeduction,
-      currency:document.getElementById('ef-currency')?document.getElementById('ef-currency').value:'AED',
+      currency:document.getElementById('ef-currency')?document.getElementById('ef-currency').value:'PKR',
       notes:v('loan-notes')||null
     })});
     toast('Loan added.','ok');
