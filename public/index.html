@@ -1532,6 +1532,7 @@ async function renderLiveAttendance(){
    '<div class="field" style="flex:1;min-width:180px"><label>Search employee (ID or name)</label><input id="att-q" value="'+esc(q)+'" placeholder="e.g. 1878 or Ahmed" onkeydown="if(event.key===\'Enter\')attApply()"></div>'+
    '<div class="field" style="align-self:end"><button class="btn" onclick="attApply()">⌕ Search</button></div>'+
    '<div class="field" style="align-self:end"><button class="btn ghost" onclick="attExportCsv()">⬇ Export to Excel</button></div>'+
+   '<div class="field" style="align-self:end"><button class="btn ghost" onclick="attRelink()" title="A new employee\'s old machine punches, made before their ERP record existed, sit unmapped forever unless re-checked. Run this after adding someone whose thumb was already enrolled on the machine.">⟳ Re-match unmapped punches</button></div>'+
    '</div>'+
    '<div class="att-tabs">'+
    '<button class="att-tab'+(view==='raw'?' on':'')+'" onclick="attSetView(\'raw\')">Latest punches</button>'+
@@ -1622,6 +1623,19 @@ async function renderLiveAttendance(){
   }
 }
 function attSetView(v){window.__attView=v;renderLiveAttendance();}
+// Re-checks every unmapped punch already sitting in the log against the
+// current employee roster — covers a new employee whose thumb was already
+// enrolled on the machine, so their old punches (back to whenever the
+// machine first saw them) were ingested as "unmapped" before their ERP
+// record existed. Safe to click any time; only ever touches rows still
+// unmapped.
+async function attRelink(){
+  try{
+    const r=await api('/api/attendance/relink',{method:'POST'});
+    toast(r.relinked?('Matched '+r.relinked+' old punch(es) to employees — refreshing…'):'Nothing to match — every punch is already linked to an employee.','ok');
+    if(r.relinked)renderLiveAttendance();
+  }catch(e){toast(e.message,'err');}
+}
 /* Daily Summary row click -> every punch that employee made that one day, each in its own row. */
 function attToggleDay(date){
   window.__attOpenDates=window.__attOpenDates||{};

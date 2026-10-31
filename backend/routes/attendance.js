@@ -161,6 +161,31 @@ router.get('/locations', requireHr, async (req, res) => {
   res.json(rows.map((r) => r.device_location));
 });
 
+// POST /api/attendance/relink — re-match punches already sitting in
+// erp_attendance_logs with employee_id IS NULL (the device punched someone
+// whose employee record didn't exist in the ERP yet) against the CURRENT
+// employee roster, using the exact same tolerant-of-leading-zeros rule
+// POST /ingest uses. Needed because a new employee added today doesn't
+// retroactively claim the punches their thumb already made on the machine
+// months ago — those rows were written as "unmapped" at ingest time and stay
+// that way forever unless something goes back and re-checks them, which is
+// what this does. Safe to run any time, for any number of employees, as
+// often as needed — it only ever touches rows that are still unmapped, so
+// a punch already linked to someone is never re-assigned to someone else.
+router.post('/relink', requireHr, async (req, res) => {
+  const [result] = await pool.query(
+    `UPDATE erp_attendance_logs l
+     JOIN employees e
+       ON e.employee_id = l.device_user_id
+       OR (e.employee_id REGEXP '^[0-9]+$' AND l.device_user_id REGEXP '^[0-9]+$'
+           AND CAST(e.employee_id AS UNSIGNED) = CAST(l.device_user_id AS UNSIGNED))
+     SET l.employee_id = e.id
+     WHERE l.employee_id IS NULL`
+  );
+  await audit(req.erpUser.employeeId, 'attendance-relink', `${result.affectedRows} punch(es) matched to an employee.`);
+  res.json({ ok: true, relinked: result.affectedRows });
+});
+
 // The actual computation behind GET /summary below — pulled out so
 // routes/payroll.js can reuse the exact same day-by-day classification
 // (Sunday/Saturday-quota/Holiday/Leave/Present/Absent, late-vs-shift) for
