@@ -89,15 +89,29 @@ router.get('/', requireHr, async (req, res) => {
 // POST /api/late-sittings  multipart/form-data: workDate ('YYYY-MM-DD'),
 // outTime ('YYYY-MM-DDTHH:MM:SS', the employee's own device clock at submit
 // time), file (optional, the proof screenshot).
+// "Yesterday" only makes sense for a late sitting that ran PAST MIDNIGHT —
+// the live clock at submit time is then still correct (e.g. 1:15 AM), it
+// just belongs to the PREVIOUS calendar day's shift. Outside this early
+// window the live clock can only ever describe TODAY, so "Yesterday" isn't
+// offered at all — there's no honest way to read "yesterday's" time off a
+// clock that only ever shows now. Mirrors the frontend's otDateOptions().
+const YESTERDAY_CUTOFF_HOUR = 6;
+
 router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => {
   const workDate = String(req.body.workDate || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return res.status(400).json({ error: 'workDate must be YYYY-MM-DD.' });
 
   const now = new Date();
   const today = ymdLocal(now);
+  const pastMidnight = now.getHours() < YESTERDAY_CUTOFF_HOUR;
   const yesterday = ymdLocal(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
-  if (workDate !== today && workDate !== yesterday) {
-    return res.status(400).json({ error: 'A late sitting can only be logged for today or yesterday.' });
+  const allowed = pastMidnight ? [today, yesterday] : [today];
+  if (!allowed.includes(workDate)) {
+    return res.status(400).json({
+      error: pastMidnight
+        ? 'A late sitting can only be logged for today or yesterday.'
+        : 'A late sitting can only be logged for today — yesterday is only available in the first few hours after midnight.',
+    });
   }
 
   const outTime = new Date(String(req.body.outTime || ''));
@@ -105,7 +119,11 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
   if (outTime.getTime() - now.getTime() > 10 * 60 * 1000) {
     return res.status(400).json({ error: 'That time is in the future — check your device clock and try again.' });
   }
-  if (ymdLocal(outTime) !== workDate) {
+  // The clock's own calendar date must match workDate UNLESS this is
+  // exactly the past-midnight "logging yesterday's shift" case — there the
+  // clock legitimately reads today's early hours while workDate is
+  // yesterday on purpose.
+  if (ymdLocal(outTime) !== workDate && !(pastMidnight && workDate === yesterday && ymdLocal(outTime) === today)) {
     return res.status(400).json({ error: 'The time shown does not fall on the selected date — reopen this page and try again.' });
   }
 

@@ -2787,11 +2787,24 @@ function otLocalIso(d){
   const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
 }
+// "Yesterday" only makes sense for a late sitting that ran past midnight —
+// the live clock at that point (e.g. 1:15 AM) is still honest, it just
+// belongs to the PREVIOUS day's shift. Outside this early window the clock
+// can only ever read today, so "Yesterday" isn't offered at all — there's
+// no honest way to show "yesterday's" time off a clock that only shows now.
+// Mirrors routes/lateSitting.js's own YESTERDAY_CUTOFF_HOUR, which enforces
+// this again server-side.
+const OT_YESTERDAY_CUTOFF_HOUR=6;
 function otDateOptions(){
   const now=new Date();
   const yest=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
   const fmt=d=>d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
-  return [{v:today(now),label:'Today',sub:fmt(now)},{v:today(yest),label:'Yesterday',sub:fmt(yest)}];
+  const todayOpt={v:today(now),label:'Today',sub:fmt(now)};
+  if(now.getHours()>=OT_YESTERDAY_CUTOFF_HOUR)return [todayOpt];
+  // Past midnight: Yesterday is listed FIRST (and so selected by default) —
+  // someone logging a late sitting at 1am almost certainly means last
+  // night's shift, not the few minutes-old "today".
+  return [{v:today(yest),label:'Yesterday',sub:fmt(yest)},todayOpt];
 }
 function otPickDate(btn){
   btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
