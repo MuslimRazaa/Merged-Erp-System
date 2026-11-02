@@ -729,6 +729,33 @@ async function migrate() {
     )
   `);
 
+  // Manual Late Sitting — an employee's self-logged "I worked late today/
+  // yesterday" entry (Home -> Overtime), with the OUT TIME read from their
+  // own device clock at the moment they submit it, and an optional
+  // screenshot as proof. Deliberately its own small table, separate from
+  // erp_attendance_logs, so this feature keeps its own history/audit trail
+  // (who logged what, when, with what proof) even though — see
+  // routes/lateSitting.js's POST / — every submission ALSO writes a real row
+  // straight into erp_attendance_logs (in_out_mode=5, OT-out, source=
+  // 'late-sitting'), which is what actually makes it count in Attendance
+  // Report/Payroll exactly like a device OT-out punch would.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_late_sittings (
+      id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+      employee_id       INT NOT NULL,
+      work_date         DATE NOT NULL,
+      out_time          DATETIME NOT NULL,
+      attendance_log_id BIGINT NULL,
+      attachment_name   VARCHAR(255) NULL,
+      attachment_mime   VARCHAR(150) NULL,
+      attachment_data   LONGBLOB NULL,
+      created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_erp_late_sittings_emp (employee_id, work_date),
+      CONSTRAINT fk_erp_late_sittings_emp FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+      CONSTRAINT fk_erp_late_sittings_log FOREIGN KEY (attendance_log_id) REFERENCES erp_attendance_logs(id) ON DELETE SET NULL
+    )
+  `);
+
   // Other Allowances / Other Deductions — each a JSON array of
   // {title, amount, currency, validTill} rows (Deductions omit currency,
   // always read against the employee's own salary currency), entered on the
@@ -743,7 +770,7 @@ async function migrate() {
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_deductions JSON NULL AFTER other_allowances'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
-  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
+  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

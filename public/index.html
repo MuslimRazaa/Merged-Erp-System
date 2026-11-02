@@ -1056,7 +1056,7 @@ function calibMigrate(){
 /* ============ navigation / routing ============ */
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
-  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'}],
+  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Overtime'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
@@ -2750,6 +2750,130 @@ async function renderLeaveRequests(){
    '</div></div>';
   lvFillForm(null);
   await lvPollPending(); // not HR-gated any more — a non-HR HOD needs this too
+}
+/* ================================================================
+   OVERTIME — Home -> Overtime. An employee logs their own late-sitting
+   time, self-service, no approval step: the time shown and submitted is
+   read straight off THIS device's clock (never typed in), and the date is
+   restricted to today or yesterday only — both enforced again server-side
+   (routes/lateSitting.js), which is also what actually makes the submitted
+   time count: it writes a real OT-out row into erp_attendance_logs, so
+   Attendance Report / Payroll pick it up exactly like a normal machine
+   check-out, no separate wiring needed on that side.
+   ================================================================ */
+let OT_MINE=[],OT_ALL=[];
+function otTickClock(){
+  const now=new Date();
+  const dEl=document.getElementById('ot-now-date'),tEl=document.getElementById('ot-now-time');
+  if(dEl)dEl.textContent=now.toLocaleDateString([],{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  if(tEl)tEl.textContent=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(otTickClock,1000); // harmless no-op while the Overtime page isn't open — both elements are then just absent
+function otLocalIso(d){
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+function otDateOptions(){
+  const now=new Date();
+  const yest=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
+  const fmt=d=>d.toLocaleDateString([],{weekday:'short',year:'numeric',month:'short',day:'numeric'});
+  return [{v:today(now),label:'Today — '+fmt(now)},{v:today(yest),label:'Yesterday — '+fmt(yest)}];
+}
+async function renderOvertime(){
+  const hasHr=canSee('Human Resources');
+  const c=document.getElementById('content');
+  const opts=otDateOptions();
+  c.innerHTML=
+   '<div class="card"><div class="card-h">Log a Late Sitting</div><div class="card-b">'+
+    '<div class="hint" style="margin-bottom:12px">Only you can log your own late sitting. The time below is read straight off this device\'s clock and counts exactly like a normal machine check-out — submit it from here while you\'re actually working late, or right after.</div>'+
+    '<div class="fgrid">'+
+     '<div class="field"><label>Date</label><select id="ot-date">'+opts.map(o=>'<option value="'+esc(o.v)+'">'+esc(o.label)+'</option>').join('')+'</select></div>'+
+     '<div class="field"><label>Current Time (this device)</label><div style="padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--soft)"><b id="ot-now-time">—</b><div class="hint" id="ot-now-date" style="margin-top:2px">—</div></div></div>'+
+     '<div class="field full"><label>Attachment (optional)</label><input type="file" id="ot-file" accept="image/*,.pdf"><div class="hint" style="margin-top:4px">A screenshot of the email/message that shows you were working late — optional, but helps if this is ever questioned.</div></div>'+
+    '</div>'+
+    '<div class="lerr" id="ot-err" style="display:none"></div>'+
+    '<div class="actions" style="margin-top:10px"><button class="btn" id="ot-submit-btn" onclick="otSubmit()">Log Late Sitting</button></div>'+
+   '</div></div>'+
+   '<div class="card"><div class="card-h">My Late Sittings</div><div class="card-b tblwrap" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
+   (hasHr?'<div class="card"><div class="card-h">All Employees — Late Sitting Log<span class="hint" style="font-weight:400"> — every manually logged late sitting, newest first</span></div><div class="card-b">'+
+     '<div class="kpis" id="ot-all-kpis" style="margin-bottom:12px"></div>'+
+     '<div class="tblwrap" id="ot-all-body"><div class="empty">Loading…</div></div>'+
+    '</div></div>':'');
+  otTickClock();
+  await otLoadMine();
+  if(hasHr)await otLoadAll();
+}
+async function otLoadMine(){
+  const el=document.getElementById('ot-mine-body');if(!el)return;
+  try{
+    OT_MINE=await api('/api/late-sittings/mine');
+    el.innerHTML=OT_MINE.length
+     ?'<table><thead><tr><th>Date</th><th>Time Logged</th><th>Submitted</th><th>Attachment</th></tr></thead><tbody>'+
+       OT_MINE.map(r=>'<tr><td>'+rptFmtDate(r.workDate)+'</td><td>'+new Date(r.outTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</td>'+
+        '<td>'+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</td>'+
+        '<td>'+(r.hasAttachment?'<a href="#" onclick="otViewAttachment('+r.id+');return false">View</a>':'<span class="hint">—</span>')+'</td></tr>').join('')+
+      '</tbody></table>'
+     :'<div class="empty">No late sittings logged yet.</div>';
+  }catch(e){el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+async function otLoadAll(){
+  const kEl=document.getElementById('ot-all-kpis'),bEl=document.getElementById('ot-all-body');
+  if(!bEl)return;
+  try{
+    OT_ALL=await api('/api/late-sittings');
+    const byEmp={};
+    OT_ALL.forEach(r=>{(byEmp[r.employeeCode]=byEmp[r.employeeCode]||{name:r.employeeName,days:new Set()}).days.add(r.workDate);});
+    if(kEl)kEl.innerHTML='<div class="kpi"><span>Total entries</span><b>'+OT_ALL.length+'</b></div>'+
+     '<div class="kpi"><span>Employees with manual lates</span><b>'+Object.keys(byEmp).length+'</b></div>';
+    const summaryRows=Object.entries(byEmp).sort((a,b)=>b[1].days.size-a[1].days.size)
+     .map(([code,v])=>'<tr><td>'+esc(code)+'</td><td>'+esc(v.name)+'</td><td class="num">'+v.days.size+'</td></tr>').join('');
+    bEl.innerHTML=
+     (OT_ALL.length?'<div style="font-weight:700;margin:4px 0 8px">By Employee</div>'+
+      '<table style="margin-bottom:18px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Late Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
+     '<div style="font-weight:700;margin:4px 0 8px">Every Entry</div>'+
+     (OT_ALL.length?'<table><thead><tr><th>Date</th><th>Employee</th><th>Department</th><th>Time Logged</th><th>Submitted</th><th>Attachment</th></tr></thead><tbody>'+
+       OT_ALL.map(r=>'<tr><td>'+rptFmtDate(r.workDate)+'</td><td>'+esc(r.employeeName)+' ('+esc(r.employeeCode)+')</td><td>'+esc(r.department||'')+'</td>'+
+        '<td>'+new Date(r.outTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</td>'+
+        '<td>'+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</td>'+
+        '<td>'+(r.hasAttachment?'<a href="#" onclick="otViewAttachment('+r.id+');return false">View</a>':'<span class="hint">—</span>')+'</td></tr>').join('')+
+      '</tbody></table>'
+     :'<div class="empty">No late sittings logged by anyone yet.</div>');
+  }catch(e){bEl.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+async function otViewAttachment(id){
+  try{
+    const res=await fetch('/api/late-sittings/'+id+'/attachment',{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+    if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    window.open(url,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(e){toast('Could not open attachment — '+e.message,'err');}
+}
+async function otSubmit(){
+  const err=document.getElementById('ot-err');err.style.display='none';
+  const dateEl=document.getElementById('ot-date');
+  const workDate=dateEl?dateEl.value:'';
+  const fileEl=document.getElementById('ot-file');
+  const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
+  const btn=document.getElementById('ot-submit-btn');
+  const now=new Date();
+  const fd=new FormData();
+  fd.append('workDate',workDate);
+  fd.append('outTime',otLocalIso(now));
+  if(file)fd.append('file',file,file.name);
+  btn.disabled=true;btn.textContent='Logging…';
+  try{
+    await api('/api/late-sittings',{method:'POST',body:fd});
+    toast('Late sitting logged — '+now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
+    if(fileEl)fileEl.value='';
+    await otLoadMine();
+    if(canSee('Human Resources'))await otLoadAll();
+  }catch(e){
+    err.textContent=e.message;err.style.display='block';toast(e.message,'err');
+  }finally{
+    btn.disabled=false;btn.textContent='Log Late Sitting';
+  }
 }
 function lvTogglePrevious(){
   const card=document.getElementById('lv-mine-card');if(!card)return;
@@ -13851,7 +13975,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -13865,7 +13989,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
