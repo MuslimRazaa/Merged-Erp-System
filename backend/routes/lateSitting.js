@@ -161,4 +161,19 @@ router.get('/:id/attachment', async (req, res) => {
   res.send(row.attachment_data);
 });
 
+// DELETE /api/late-sittings/:id — HR/Admin only. Removes this entry AND the
+// erp_attendance_logs row it wrote (if any), so a mistaken/test entry's
+// effect on Attendance Report/Payroll is fully undone too, not just hidden
+// from this feature's own list.
+router.delete('/:id', requireHr, async (req, res) => {
+  const [rows] = await pool.query('SELECT attendance_log_id FROM erp_late_sittings WHERE id = ?', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Entry not found.' });
+  if (rows[0].attendance_log_id) {
+    await pool.query("DELETE FROM erp_attendance_logs WHERE id = ? AND source = 'late-sitting'", [rows[0].attendance_log_id]);
+  }
+  await pool.query('DELETE FROM erp_late_sittings WHERE id = ?', [req.params.id]);
+  await audit(req.erpUser.employeeId, 'late-sitting-deleted', String(req.params.id));
+  res.json({ ok: true });
+});
+
 module.exports = router;

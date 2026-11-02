@@ -367,6 +367,20 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end"><button class="btn" onclick="closeModal('bdaymodal')">Close</button></div>
 </div></div>
 
+<div class="modal" id="otconfirmmodal"><div class="box" style="max-width:440px">
+  <h3>Confirm Late Sitting</h3>
+  <div id="otconfirm-body"></div>
+  <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:12.5px;cursor:pointer;line-height:1.5">
+    <input type="checkbox" id="otconfirm-check" style="margin-top:3px">
+    <span>I confirm this is accurate — this is really the time I was working late, read from my own device's clock.</span>
+  </label>
+  <div class="lerr" id="otconfirm-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('otconfirmmodal')">Cancel</button>
+    <button class="btn" id="otconfirm-submit-btn" onclick="otConfirmSubmit()">Confirm &amp; Log</button>
+  </div>
+</div></div>
+
 <div class="modal" id="lvdecidemodal"><div class="box" style="max-width:480px">
   <h3>Decide Leave Request</h3>
   <div id="lvdecide-summary" style="font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px"></div>
@@ -2761,7 +2775,7 @@ async function renderLeaveRequests(){
    Attendance Report / Payroll pick it up exactly like a normal machine
    check-out, no separate wiring needed on that side.
    ================================================================ */
-let OT_MINE=[],OT_ALL=[];
+let OT_MINE=[],OT_ALL=[],OT_PENDING=null;
 function otTickClock(){
   const now=new Date();
   const dEl=document.getElementById('ot-now-date'),tEl=document.getElementById('ot-now-time');
@@ -2776,44 +2790,69 @@ function otLocalIso(d){
 function otDateOptions(){
   const now=new Date();
   const yest=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
-  const fmt=d=>d.toLocaleDateString([],{weekday:'short',year:'numeric',month:'short',day:'numeric'});
-  return [{v:today(now),label:'Today — '+fmt(now)},{v:today(yest),label:'Yesterday — '+fmt(yest)}];
+  const fmt=d=>d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
+  return [{v:today(now),label:'Today',sub:fmt(now)},{v:today(yest),label:'Yesterday',sub:fmt(yest)}];
+}
+function otPickDate(btn){
+  btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const el=document.getElementById('ot-date');if(el)el.value=btn.dataset.v;
 }
 async function renderOvertime(){
   const hasHr=canSee('Human Resources');
   const c=document.getElementById('content');
   const opts=otDateOptions();
   c.innerHTML=
-   '<div class="card"><div class="card-h">Log a Late Sitting</div><div class="card-b">'+
-    '<div class="hint" style="margin-bottom:12px">Only you can log your own late sitting. The time below is read straight off this device\'s clock and counts exactly like a normal machine check-out — submit it from here while you\'re actually working late, or right after.</div>'+
-    '<div class="fgrid">'+
-     '<div class="field"><label>Date</label><select id="ot-date">'+opts.map(o=>'<option value="'+esc(o.v)+'">'+esc(o.label)+'</option>').join('')+'</select></div>'+
-     '<div class="field"><label>Current Time (this device)</label><div style="padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--soft)"><b id="ot-now-time">—</b><div class="hint" id="ot-now-date" style="margin-top:2px">—</div></div></div>'+
-     '<div class="field full"><label>Attachment (optional)</label><input type="file" id="ot-file" accept="image/*,.pdf"><div class="hint" style="margin-top:4px">A screenshot of the email/message that shows you were working late — optional, but helps if this is ever questioned.</div></div>'+
+   '<div class="card"><div class="card-h">⏱ Log a Late Sitting</div><div class="card-b">'+
+    '<div class="hint" style="margin-bottom:16px">Only you can log your own late sitting. The time below is read straight off this device\'s clock and counts exactly like a normal machine check-out — log it from here while you\'re actually working late, or right after.</div>'+
+    '<div style="background:linear-gradient(135deg,var(--brand),#0b4fa8);border-radius:14px;padding:22px 26px;color:#fff;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
+     '<div>'+
+      '<div style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;opacity:.8;margin-bottom:6px">This device’s current time</div>'+
+      '<div style="font-size:36px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums" id="ot-now-time">—</div>'+
+      '<div style="font-size:13px;opacity:.9;margin-top:8px" id="ot-now-date">—</div>'+
+     '</div>'+
+     '<div style="font-size:46px;opacity:.3">⏱</div>'+
+    '</div>'+
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:8px">Which day are you logging?</div>'+
+    '<div class="att-tabs" id="ot-date-tabs">'+
+     opts.map((o,i)=>'<button type="button" class="att-tab'+(i===0?' on':'')+'" data-v="'+esc(o.v)+'" onclick="otPickDate(this)">'+o.label+' <span style="opacity:.6;font-weight:400">· '+o.sub+'</span></button>').join('')+
+    '</div>'+
+    '<input type="hidden" id="ot-date" value="'+esc(opts[0].v)+'">'+
+    '<div class="field full" style="margin:18px 0 0;max-width:460px">'+
+     '<label>Attachment (optional)</label><input type="file" id="ot-file" accept="image/*,.pdf">'+
+     '<div class="hint" style="margin-top:4px">A screenshot of the email/message that shows you were working late — optional, but helps if this is ever questioned.</div>'+
     '</div>'+
     '<div class="lerr" id="ot-err" style="display:none"></div>'+
-    '<div class="actions" style="margin-top:10px"><button class="btn" id="ot-submit-btn" onclick="otSubmit()">Log Late Sitting</button></div>'+
+    '<div class="actions" style="margin-top:18px"><button class="btn" id="ot-submit-btn" onclick="otOpenConfirm()">Log Late Sitting</button></div>'+
    '</div></div>'+
-   '<div class="card"><div class="card-h">My Late Sittings</div><div class="card-b tblwrap" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
+   '<div class="card"><div class="card-h">My Late Sittings</div><div class="card-b" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
    (hasHr?'<div class="card"><div class="card-h">All Employees — Late Sitting Log<span class="hint" style="font-weight:400"> — every manually logged late sitting, newest first</span></div><div class="card-b">'+
-     '<div class="kpis" id="ot-all-kpis" style="margin-bottom:12px"></div>'+
+     '<div class="kpis" id="ot-all-kpis" style="margin-bottom:16px"></div>'+
      '<div class="tblwrap" id="ot-all-body"><div class="empty">Loading…</div></div>'+
     '</div></div>':'');
   otTickClock();
   await otLoadMine();
   if(hasHr)await otLoadAll();
 }
+// A quiet activity feed (same look Live Attendance's "Latest punches" uses)
+// instead of a plain table — this is a personal log, not a data-dense report.
+function otFeedRow(r,withEmployee){
+  const d=new Date(r.outTime);
+  return '<div class="att-row">'+
+   '<span style="font-size:17px;flex:0 0 auto">🕗</span>'+
+   '<div style="flex:1;min-width:0">'+
+    '<b>'+rptFmtDate(r.workDate)+'</b>'+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
+    '<div class="hint" style="margin-top:2px">Logged at '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · submitted '+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'+
+   '</div>'+
+   (r.hasAttachment?'<button class="btn ghost small" onclick="otViewAttachment('+r.id+')">📎 View</button>':'<span class="hint" style="white-space:nowrap">No attachment</span>')+
+   (withEmployee?' <button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="otDelete('+r.id+')">🗑</button>':'')+
+   '</div>';
+}
 async function otLoadMine(){
   const el=document.getElementById('ot-mine-body');if(!el)return;
   try{
     OT_MINE=await api('/api/late-sittings/mine');
-    el.innerHTML=OT_MINE.length
-     ?'<table><thead><tr><th>Date</th><th>Time Logged</th><th>Submitted</th><th>Attachment</th></tr></thead><tbody>'+
-       OT_MINE.map(r=>'<tr><td>'+rptFmtDate(r.workDate)+'</td><td>'+new Date(r.outTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</td>'+
-        '<td>'+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</td>'+
-        '<td>'+(r.hasAttachment?'<a href="#" onclick="otViewAttachment('+r.id+');return false">View</a>':'<span class="hint">—</span>')+'</td></tr>').join('')+
-      '</tbody></table>'
-     :'<div class="empty">No late sittings logged yet.</div>';
+    el.innerHTML=OT_MINE.length?'<div class="att-feed">'+OT_MINE.map(r=>otFeedRow(r,false)).join('')+'</div>':'<div class="empty">No late sittings logged yet.</div>';
   }catch(e){el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 async function otLoadAll(){
@@ -2828,16 +2867,11 @@ async function otLoadAll(){
     const summaryRows=Object.entries(byEmp).sort((a,b)=>b[1].days.size-a[1].days.size)
      .map(([code,v])=>'<tr><td>'+esc(code)+'</td><td>'+esc(v.name)+'</td><td class="num">'+v.days.size+'</td></tr>').join('');
     bEl.innerHTML=
-     (OT_ALL.length?'<div style="font-weight:700;margin:4px 0 8px">By Employee</div>'+
-      '<table style="margin-bottom:18px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Late Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
-     '<div style="font-weight:700;margin:4px 0 8px">Every Entry</div>'+
-     (OT_ALL.length?'<table><thead><tr><th>Date</th><th>Employee</th><th>Department</th><th>Time Logged</th><th>Submitted</th><th>Attachment</th></tr></thead><tbody>'+
-       OT_ALL.map(r=>'<tr><td>'+rptFmtDate(r.workDate)+'</td><td>'+esc(r.employeeName)+' ('+esc(r.employeeCode)+')</td><td>'+esc(r.department||'')+'</td>'+
-        '<td>'+new Date(r.outTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</td>'+
-        '<td>'+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</td>'+
-        '<td>'+(r.hasAttachment?'<a href="#" onclick="otViewAttachment('+r.id+');return false">View</a>':'<span class="hint">—</span>')+'</td></tr>').join('')+
-      '</tbody></table>'
-     :'<div class="empty">No late sittings logged by anyone yet.</div>');
+     (OT_ALL.length?'<div style="font-weight:700;margin-bottom:8px">By Employee</div>'+
+      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Late Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
+     '<div style="font-weight:700;margin-bottom:8px">Every Entry</div>'+
+     (OT_ALL.length?'<div class="att-feed">'+OT_ALL.map(r=>otFeedRow(r,true)).join('')+'</div>'
+      :'<div class="empty">No late sittings logged by anyone yet.</div>');
   }catch(e){bEl.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 async function otViewAttachment(id){
@@ -2850,29 +2884,66 @@ async function otViewAttachment(id){
     setTimeout(()=>URL.revokeObjectURL(url),60000);
   }catch(e){toast('Could not open attachment — '+e.message,'err');}
 }
-async function otSubmit(){
+async function otDelete(id){
+  if(!confirm('Delete this late-sitting entry? This also removes the matching time from Attendance Report/Payroll. This cannot be undone.'))return;
+  try{
+    await api('/api/late-sittings/'+id,{method:'DELETE'});
+    toast('Entry deleted.','ok');
+    await otLoadAll();
+    await otLoadMine();
+  }catch(e){toast(e.message,'err');}
+}
+// Clicking "Log Late Sitting" never saves straight away — it freezes the
+// exact time right then (shown in the confirm dialog) and opens it for the
+// employee to actively confirm first. Whatever time is shown there is
+// exactly what gets submitted on Confirm, however long the dialog stays open.
+function otOpenConfirm(){
   const err=document.getElementById('ot-err');err.style.display='none';
   const dateEl=document.getElementById('ot-date');
   const workDate=dateEl?dateEl.value:'';
+  if(!workDate){err.textContent='Pick a date.';err.style.display='block';return;}
+  const activeTab=document.querySelector('#ot-date-tabs .att-tab.on');
+  const dateLabel=activeTab?activeTab.textContent.replace(/\s*·\s*/,' — '):workDate;
   const fileEl=document.getElementById('ot-file');
   const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
-  const btn=document.getElementById('ot-submit-btn');
-  const now=new Date();
+  OT_PENDING={workDate,outTime:new Date()};
+  document.getElementById('otconfirm-body').innerHTML=
+   '<div class="hint" style="margin-bottom:10px">You’re about to log this late sitting:</div>'+
+   '<div style="background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:10px">'+
+    '<div><span class="hint">Day</span><br><b>'+esc(dateLabel)+'</b></div>'+
+    '<div><span class="hint">Time (this device, right now)</span><br><b style="font-size:19px">'+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</b></div>'+
+    '<div><span class="hint">Attachment</span><br><b>'+(file?esc(file.name):'None')+'</b></div>'+
+   '</div>';
+  document.getElementById('otconfirm-check').checked=false;
+  document.getElementById('otconfirm-err').style.display='none';
+  openModal('otconfirmmodal');
+}
+async function otConfirmSubmit(){
+  const err=document.getElementById('otconfirm-err');err.style.display='none';
+  if(!document.getElementById('otconfirm-check').checked){
+    err.textContent='Please tick the box to confirm this attendance is accurate.';err.style.display='block';return;
+  }
+  if(!OT_PENDING)return;
+  const fileEl=document.getElementById('ot-file');
+  const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
   const fd=new FormData();
-  fd.append('workDate',workDate);
-  fd.append('outTime',otLocalIso(now));
+  fd.append('workDate',OT_PENDING.workDate);
+  fd.append('outTime',otLocalIso(OT_PENDING.outTime));
   if(file)fd.append('file',file,file.name);
+  const btn=document.getElementById('otconfirm-submit-btn');
   btn.disabled=true;btn.textContent='Logging…';
   try{
     await api('/api/late-sittings',{method:'POST',body:fd});
-    toast('Late sitting logged — '+now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
+    closeModal('otconfirmmodal');
+    toast('Late sitting logged — '+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
     if(fileEl)fileEl.value='';
+    OT_PENDING=null;
     await otLoadMine();
     if(canSee('Human Resources'))await otLoadAll();
   }catch(e){
-    err.textContent=e.message;err.style.display='block';toast(e.message,'err');
+    err.textContent=e.message;err.style.display='block';
   }finally{
-    btn.disabled=false;btn.textContent='Log Late Sitting';
+    btn.disabled=false;btn.textContent='Confirm & Log';
   }
 }
 function lvTogglePrevious(){
