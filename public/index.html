@@ -9219,7 +9219,8 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   DP_STATIC_TEXT.forEach(([x,y,s,sz])=>doc.text(x,y,s,sz,true));
   doc.imageAt(DP_LOGO_IMG,1079.5,772,126.1,74.0);   // sits clear of the full-width rule at 762.5
   doc.imageAt(DP_PIPE_IMG,143,478.75,756.95,27.25);
-  doc.imageAt(DP_BADGES_IMG,262,8,700,70.0);        // widened a little, still centred on the page
+  irtFitImage(doc,DP_BADGES_IMG,footBox(doc,DP_BADGES_IMG,[1224,864],
+    [262,8,700,70.0],DP_LINES_H,DP_LINES_V.concat(DP_LINES_V_FIX),DP_STATIC_TEXT,null));
   // TC(cx, w, ty, s) = draw s centered on cx within a cell of width w, auto-shrinking
   // to fit — every dynamic value on this template goes through this so nothing ever
   // spills into a neighbouring box, and everything sits centered in its own cell.
@@ -9592,7 +9593,8 @@ function mpiDrawPage(doc,m,row,i){
   MPI_LINES_V.forEach(([x,y1,y2])=>doc.rule(x,y1,x,y2,0.9,'0 0 0'));
   MPI_STATIC.forEach(([x,y,s,sz,b])=>doc.text(x,y,s,sz,!!b));
   doc.imageAt(DP_LOGO_IMG,607,1115.2,162.2,59.8);
-  doc.imageAt(DP_BADGES_IMG,61.5,15.8,656.8,61.8);
+  irtFitImage(doc,DP_BADGES_IMG,footBox(doc,DP_BADGES_IMG,MPI_PAGE,
+    [61.5,15.8,656.8,61.8],MPI_LINES_H,MPI_LINES_V,MPI_STATIC,null));
   const cert=mpiCertNo(i);
   doc.text(123.8,1089,cert,8.9,true);
   doc.text(652,983.5,cert,9.9,true);
@@ -9908,7 +9910,8 @@ function utDrawPage(doc,u,row,i){
   UT_LINES_V.forEach(([x,y1,y2])=>doc.rule(x,y1,x,y2,0.9,'0 0 0'));
   UT_STATIC.forEach(([x,y,s,sz,b])=>doc.text(x,y,s,sz,!!b));
   doc.imageAt(DP_LOGO_IMG,607,1151,162.2,59.8);
-  doc.imageAt(DP_BADGES_IMG,61.5,20,656.8,61.8);
+  irtFitImage(doc,DP_BADGES_IMG,footBox(doc,DP_BADGES_IMG,UT_PAGE,
+    [61.5,20,656.8,61.8],UT_LINES_H,UT_LINES_V,UT_STATIC,null));
   doc.text(601,1006.3,utCertNo(i),9.9,true);
   UT_FIELDS.forEach(([k,,x,y,sz,type])=>{
     // A report filed before the row existed kept the item, the area and the
@@ -11205,6 +11208,130 @@ function irtRowsHtml(t){
    '</div></div></div>';
 }
 /* One printed sheet: the template, then this report's values on top of it. */
+/* ================================================================
+   THE BADGE STRIP AT THE FOOT OF A SHEET
+
+   The strip of accreditation badges was placed sheet by sheet as each
+   blank was matched, and over sixty-odd sheets it drifted badly. Measured
+   across the forms it ran from a sixth of the page wide to more than
+   half - and on the three hand-drawn sheets it was not fitted at all but
+   stretched into whatever box it was given: 45% wider than its own
+   proportions on the MPI and UT sheets, 36% on the tally. Side by side on
+   a desk that reads as carelessness, which is what it was.
+
+   One rule now, and it is arithmetic rather than taste:
+
+     Sized against the SHORT edge of the page. A sheet turned on its side
+     is the same piece of paper and gets the same badge, so portrait and
+     landscape of one size come out alike instead of the landscape one
+     being a third larger for no reason.
+
+     Its own proportions, always.
+
+     Centred on the page, rising only as far as the blank allows: the
+     ceiling is whatever the sheet itself prints above it, and only what
+     stands IN FRONT of the strip counts. A page number in the far corner
+     is not in its way, and treating it as one is what kept these footers
+     small.
+
+     And never smaller than it already was. A sheet somebody measured by
+     hand against a certified blank is left alone rather than trimmed by a
+     point to satisfy a formula.
+   ================================================================ */
+const FOOT_SHARE=0.6;      // of the page's short edge
+const FOOT_GAP=2;          // clear of whatever the sheet prints above it
+const FOOT_FLOOR=4;        // nearest the strip may sit to the page edge
+/* A cramped sheet is drawn under a transform (see irtDrawPage) while the
+   strip is drawn outside it, so the sheet's own coordinates have to be
+   put through that transform before they can be compared with the
+   strip's. */
+function footAt(fit){
+  return fit?{x:v=>fit[0]*v+fit[1],y:v=>fit[0]*v+fit[2],k:fit[0]}
+            :{x:v=>v,y:v=>v,k:1};
+}
+/* The lowest thing the sheet prints that stands in front of a strip
+   spanning x1..x2 and starting at y0. */
+function footCeiling(doc,y0,x1,x2,lh,lv,st,fit){
+  const t=footAt(fit);
+  let c=Infinity;
+  (lh||[]).forEach(r=>{
+    const y=t.y(r[2]),a=t.x(Math.min(r[0],r[1])),b=t.x(Math.max(r[0],r[1]));
+    if(y>y0&&b>x1&&a<x2)c=Math.min(c,y);
+  });
+  (lv||[]).forEach(r=>{
+    const y=t.y(Math.min(r[1],r[2])),x=t.x(r[0]);
+    if(y>y0&&x>x1&&x<x2)c=Math.min(c,y);
+  });
+  (st||[]).forEach(e=>{
+    const str=String(e[2]==null?'':e[2]),sz=e[3]||9;
+    let w;
+    try{ w=doc.twx(str,sz,!!e[4])*t.k; }catch(err){ w=str.length*sz*0.5*t.k; }
+    const y=t.y(e[1]),x=t.x(e[0]);
+    if(y>y0&&x+w>x1&&x<x2)c=Math.min(c,y);
+  });
+  return c;
+}
+/* How wide the strip can be if its foot sits at y0. */
+function footWidest(doc,page,y0,ar,want,lh,lv,st,fit){
+  let w=want;
+  /* Narrowing the strip can clear an obstacle and let it grow again,
+     so this settles rather than solving in one step. A handful of
+     passes is well past where it stops changing. */
+  for(let i=0;i<6;i++){
+    const c=footCeiling(doc,y0,(page[0]-w)/2,(page[0]+w)/2,lh,lv,st,fit);
+    const room=isFinite(c)?c-FOOT_GAP-y0:Infinity;
+    const nw=Math.min(want,Math.max(0,room)*ar);
+    if(!(Math.abs(nw-w)>0.05))return nw;
+    w=nw;
+  }
+  return w;
+}
+/* The rectangle the strip actually gets.
+
+   `box` is what the sheet was measured with. Its foot is kept where
+   the strip still fits above it - on the MPI sheet that foot is
+   deliberate, inside the frame - but where the measured foot leaves
+   too little room the strip slides down towards the edge of the page
+   instead of being made small. The UT sheet needed that: its foot was
+   set at 20 while the sheet's own frame closes at 65, so a strip of
+   any proper height ran straight through the frame - which is what it
+   had been doing, unnoticed, because nothing was checking.
+
+   Its size today is a floor. Where this reasoning would make a strip
+   smaller than the one somebody measured by hand, the measurement
+   wins. */
+function footBox(doc,src,page,box,lh,lv,st,fit){
+  let d=null;
+  try{ d=doc.parseJpegDims(atob(src.split(',')[1])); }catch(e){}
+  if(!d||!d[0]||!d[1])return box;         // unreadable: leave it exactly as it was
+  const ar=d[0]/d[1],pw=page[0],ph=page[1];
+  const now=Math.min(box[2]/d[0],box[3]/d[1])*d[0];   // its size today, fitted
+  const want=FOOT_SHARE*Math.min(pw,ph);
+  /* The measured foot, and the lowest the page allows. Whichever gives
+     the larger strip is the one taken - sliding down is only worth it
+     where the room below is really free. */
+  const tries=[box[1],FOOT_FLOOR];
+  let w=0,y0=box[1];
+  tries.forEach(ty=>{
+    const tw=footWidest(doc,page,ty,ar,want,lh,lv,st,fit);
+    if(tw>w+0.05){w=tw;y0=ty;}
+  });
+  /* The floor holds a measurement in place; it does not defend a
+     mistake. The UT strip was 454 wide at a foot of 20 on a sheet
+     whose frame closes at 65, so it had been printing straight
+     through the frame. Keeping that size would have kept the fault,
+     so the floor only applies where today's strip actually fits. */
+  if(!(w>0)||w<now){
+    /* Measured against the ceiling itself, not against the ceiling
+       less the gap: the gap is breathing room for a strip this is
+       growing, and holding an existing one to it would trim three
+       A4 sheets by a point for no reason anybody could see. */
+    const c=footCeiling(doc,box[1],(pw-now)/2,(pw+now)/2,lh,lv,st,fit);
+    const room=isFinite(c)?c-box[1]:Infinity;
+    if(now/ar<=room||!(w>0)){w=now;y0=box[1];}
+  }
+  return [(pw-w)/2,y0,w,w/ar];
+}
 function irtFitImage(doc,src,box){
   let iw=0,ih=0;
   try{ [iw,ih]=doc.parseJpegDims(atob(src.split(',')[1])); }catch(e){}
@@ -11359,7 +11486,8 @@ function irtDrawPage(doc,t,pageRows,rowOffset,pageNo,pages){
   // the logo pulled wide. They sit centred in the space given instead.
   fitOff();                       // ours, so at its own size on the full page
   if(t.logo)irtFitImage(doc,DP_LOGO_IMG,t.logo);
-  if(t.footer)irtFitImage(doc,DP_BADGES_IMG,t.footer);
+  if(t.footer)irtFitImage(doc,DP_BADGES_IMG,
+    footBox(doc,DP_BADGES_IMG,t.page,t.footer,t.lh,t.lv,t.st,t.fit));
   // the letterhead a sheet has no room for inside its own frame
   (t.head||[]).forEach(([x,y,s2,sz,bo,centre])=>{
     doc.text(centre?x-doc.twx(s2,sz,!!bo)/2:x,y,s2,sz,!!bo);
