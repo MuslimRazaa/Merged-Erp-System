@@ -33,6 +33,8 @@ const MODULE_GROUP = {
   // library. These used to live only in the browser that wrote them, so a
   // report (or contract, or lead) filed at one site was invisible elsewhere.
   workorders: 'Inspection', contracts: 'Inspection', ir_library: 'Inspection',
+  // where a job happened: Location (from the shared master) + Sub Location
+  insplocs: 'Inspection',
   // Accounting (multi-company double-entry GL) — companies (each with its
   // own embedded chart of accounts), currencies and journal entries used to
   // live ONLY in the browser that entered them (a single JSON blob in

@@ -107,6 +107,11 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .appr-locked #fw-mf-approval,.appr-locked #fw-mf-approval *,
 .appr-locked .appr-free,.appr-locked .appr-free *{
   pointer-events:auto;opacity:1}
+/* A box the work order filled in, rather than the inspector. Marked so
+   that what came off the work order and what was typed can be told
+   apart at a glance - which matters most when one of them is wrong. */
+.autofill input,.autofill textarea,.autofill .selx-btn,input.autofill{
+  background:#EAF3FF;border-color:#9EC5F5}
 .appr-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:10px;
   border:1px solid var(--line);border-radius:8px;background:#FFF8E6;font-size:12.5px}
 .irform .hint{color:var(--soft)}
@@ -902,6 +907,15 @@ function nextYearCode(mk,field,prefix){
   return prefix+yyyy+'/'+String(maxSeq+1).padStart(4,'0');
 }
 const REF=(k,l,coll,dk,filter)=>({k,l,t:'ref',coll,dk,filter});
+/* A location, from the register above plus anything the shared master
+   already knows, so a name entered on the ISO side still appears. */
+const LOCF=(k,l)=>({k,l,t:'locref'});
+/* A ref whose list narrows to what another field on the same form has
+   been set to: Sub Location offers the ones under the chosen Location
+   and not all of them, so a pair that does not exist cannot be picked.
+   `on` is the field watched; `by` is the column in the referenced
+   records that has to match it. */
+const REFIN=(k,l,coll,dk,on,by)=>({k,l,t:'ref',coll,dk,narrowOn:on,narrowBy:by});
 // Multi-select version of REF — e.g. NCR/CAPA's Owner, which can name more
 // than one person. Stored as one comma-joined string on the record (same
 // scalar shape every other field uses), so list columns, search and print
@@ -1003,6 +1017,14 @@ function apprFromLabel(v){
 // Fixed company location list for Stock Transactions' From/To dropdowns —
 // branch offices + rig/site countries stock actually moves between.
 const STOCK_LOCATIONS=['Karachi','Islamabad','Dubai','Abu Dhabi','Kuwait','Oman'];
+/* The places a job can be at, as this company's own register lists them.
+   Pasted from that register and tidied the two ways it needed: the row
+   numbers it carried are dropped (they number the register, not the
+   place), and names repeated in it are listed once - Anton-2001 was in
+   there eighteen times, and a picker that offers one name eighteen
+   times is a picker nobody can use.
+   998 rows in, 872 distinct places out. */
+const INSP_LOCATIONS=["Karachi","Hussain Sharif","Muhammad Akram","Rizwan Bashir Arain","Shahid Ali Jatt","Muhammad Wahaj Siddiqui","Majid Ali Gill","Muhammad Fahad","Imran Ramzan","Muhammad Mudassir Hussain Khan","Abaid ur Rehman","Ali Raza","Muhammad Umair","Muhammad Razwan Ghumman","Nohman javed","Muhammad Akhlas Shoukat","Usman Akbar","Ishtiaq Ahmed","Ali Hassan Bhatti","Abdul Wahid","Amir Nazir","Ali North-1","Baudero-1","Bukhari North X-1","Chand South-1","Chanda-5","Gormani-1","Bukhari North-1","Hadaf X-1","Hayat-2","Hilong Yard","KDT-45","Khaddi-2","Lakhman-01","Maroja-1","Mazari-19","Mazari-19 / Hayat-2","Muban-5","Mubarak South-1","Oderolal","Ptis Lab","Ptis Office","Qadir Pur Deep X-1","Qamar X-1","Rajani-10","Rajani-12","Sachoo-01","Sachu-1","Sohrab Deep-7","South Deep-4","South Deep-7","Suhan-1","Sui 109","Sutiari Deep 4","Sutiari Deep 4-Mubarak South-1","Tando Adam","Tando Adam Yard","TRS Department","Unarpur-1","Warar-1","Chanda","Hilong-2","RAJANI-2","Sonro-17/Rajani-09/Gulsher-1","Halipota-6","Gulsher-1","Mazari Yard","Well Serve Yard","Tangri","South Bozdar","Gharo Yard","Rahim X-1","HL Yard","BELA WEST X-1","BELA WEST-1","CHANG-1","KARACHI OFFICE","Khadi-2","Mazari Deep -1","MAZARI SOUTH DEEP-1","PTIS","RAHIM-4","SUKHI SOUTH-1","ZPEC YARD","Hayat-1","Port Qasim Yard","Bin Qasim Yard","Khaur North-1","KHASKHELI YARD","Rajani Deep - 10","Zamzama N-2","Khaur X-1","Roshan-1 / Rehman-5","Rehman -5","Khaskheli","IS YARD SUKKAR","SUKKUR","KHASKHELI BASE","ZAMZAMA SUB - 02","Drillnetic Energy Yard","Naimt West","SMD-1","Guni-1","Bari-09","Naimat Yard","Muqim-1 - Naimat Basal","Muqim-1","Naimat SWD-1","Sutiari Deep-3","Naimat West -3","Naimat Warehouse","Rajani-9","Halipota-06","Moroja-01","MKK Tubing Yard","Sonro - 17","Ghungro East - 1","Kakhman - 1","Lafif - 17","New Makran Eng","Naimat / SWD2","Bari-11","Buzdar Deep - 9","Naimat Basal","Buzdar S - 09","BSD - 09","Saleh - 2","Chahg-1","Mubann V","Rawal - 1","Rawal-1","Mazari -17","Ghungru Deep -1","Tando","Bari-10","Rajani-5","South Mazari Deep-1","Sonro - 15","Mazari-12","Dhabi North - 1","Saleh - 5","Rehab - 1","Miano - 24","Sonro - 18","Ramdhani - 1","Sukan - 1","Mehar - 5","CHAK 25 WELL 1","QADIRPUR - 59","Nur West - 1","MELA - 6","KHANJAR KHEL - 1","WASSAN-1","ZIN DEEP - 2","NOOR WEST - 1","NASHPA - 9","SHAWA-X1","SOORGI X-3","KUNNAR - 12","KOT SARANG YARD","RANGLI","KOT SARANG","ZAIN-DEEP-2","CHAK-25-01","SOGHRI-03","KOT SARANG - SOGHRI - 03","KHADEJI YARD","MELA-6","PASAKI N-EAST-1","GAHRI X-2","SOOGRI X-3","PAND SULTANI","QADIRPUR WELL - 60","SINOPAK-149","SHAWA-1","GARHI X-2","SIAB - 1","MONGINO-1","WEST DEEP - 2","DHOK HUSSAIN","ZINDEEP-2","TOGH-1","QP Deep - 6","HUMAK YARD","CCDC YARD","TALAGANG","ADHI-31","MISIRAL X-1","ADHI-10","PINDORI-10","KHANJAR KHEEL","DHOKE SULTAN 02","PHARPUR X-1","CCDC-23","JSL Yard","Maripur Yard","Manzalai-3","Tolanj East-1 - Manzalai-3","Benari X-1","Nusrat X-1","Makori-1","Siemens Yard","Port Qasim","Siemens Facility","SUKKAR YARD","Nakurji-2 - Nusrat X-1","SPRINT YARD","I 10/3 Yard","GULARCHI","SHAH DINO","RAJPARI-1","REHMAN-5","Kashif Raqeeb","Sanjay Kumar","M. Haris Imam","Osama Bin Zubair","Farhan Khan","Sami Ur Rehman","Tando M.Khan","Pirani","PAHAR PUR X-1","ADHI-32","CCDC-07","BADEELX-1","Nuricon I 10-3 Yard","I-10 YARD","CREEK WAY HOTEL","RAJHANI-11","Margand X-1","Wireline Yard KK","Bolan East-1 - Sukkur Wireline","Bari-12","Unarpur - 2","Malhan-1","MKK WEST CAMP (C.Y)","RIZQ-3","Mitha - 1","Hawksbay Yard","Sawan Pipe Yard","Miano - 28","Miano - 22","DAMACH-1","Bari-13","MULAKI-02","WFT Yard","Anton-2001","Scomi Yard","GOTKI","KDT 47","Sui-106","Schlumberger","Meher 5","Rehman-6","PASAKHI-2/ N-3","Multi Location","Hilong - 17 / Pirani","IOT Yard","Adhi # 07 Pipe Yard","AYUB X-1","Agility Yard","Gambat South","Tarnal ITS Yard","Adhi Well 9","Nooh X-1","Adhi Well 07","Kandkhot","SUI H125","D- Suktan X- 1","PPL Yard","Mari - 1","Rahib-1","SUI - 108","Jani - 1","Gulsher - 2","WDI - 3","MKK","MITHA - 2","Mari-2","Mari Rig","Mari-1","MPCL YARD","Mari - 119","Mari - 112","Miraj-1","ZIA Yard Karachi","K.K Yard","Dhulian Yard","Balkasar - 1","Latif - 18","Nashpa -5A","Moregend X - 1","Pasaki west Deep 2","Sanghar","YYK","Bharia","Rig-33","Gadab","D & M Yard","Zamzama-3","HL-4002","ZPEC-33","RANGUNWARI -01","ADHI-34","Saeed ur Rehaman","Rig-3","Crescent Mill","Nakurji-1","SCR-1","Joyamir-4","Rig-66","Anton-4001","N-2","Peshawar Ring Road","Hyderabad","Sprint","Sinopec -77","Thora Deep-3","Bitro-1 SLR-215","MMKS-1","Mela-7","MMKS-2","Mulaki East-1","Matli","Hilong-17/ Paniro-1","Mazari-20","Dhoke Sultan South X-1","SIAB -1","MEC","Adhi South X-4","Qadirpur-14","Bukhari Deep-4","Sawan-4","Muzaffargarh","Hilong-16","Jhandiyal -2","Ghakkar Phatak Yard","Z S 4 , ZARGHOON","Nuricon Yard","Amir Shahzad","Faisal Mehmood","Muneeb Anjum","HL-02","N-4","Rajian-11","Kathiar-1","Suneel Kumar","Syed Amir Ali","Muhammad Hamza","Anton 2001","Hilong-5","Jan-2","Sinopec-77","WALI-01","JHANG BAHATAR YARD","South Mazari Deep-2","Khandkot","Mulaki-5","Dharian-1","Karachi Yard","Jang Bahtar Yard","Balkasar Yard","Weatherford Yard","Adhi South X-3","Bari-15","Latif-23","Rehman-07","Jatoi -1","Ranjho-1","BSD-09","Cholistan X-1","Qadirpur-15","Tangri-04","Adhi South X-2","Pasaki-11 / N-55","I.S Enterprises Yard Tarnol","Hilal-1","Miano-25","Pasaki-10","Rahim X-2","Dhoro-1","Lucky Rod X-1","Sui Well-110","Mazari-18","Singhar-01","BOBY DEEP X-1","DEEP X-1 A","Seni Gombat-1","S.Zia Yard Islamabad","Mitto-01","Tando Muhammad Khan","Iqbal-01","Washuk-01","Togh Bala-01","Muhammad Rahim","Mustaneer Ul Hassan","Abdul Qaidr","Dakhni Plant","Mazari-11","Sajan-01","Zaur-03","Turk Deep North-01","QP West X-1","SUI-112","Nooriabad","Sui Gas Plant","Kashmore","Khaur Yard","Zia Yard","Sheen Dund-01","Nangpir-01","SHARF-3","MD-21","Baqqa-1","KUC-1","Qadirpur-62 OGDCL","Sial-1 OGDCL","Azeem Saqib","Absar Paracha","Rig","South Mazari Deep-3","Singhar-1","Deutag Yard Burhama","Mari Deep-19","Parwaz Deep-1","Mehtab-1","SUI","Qadirpur Well","Toot Deep-1/Hilong-2","Saindad-1","Manzalai-07/KCA T-72","mehar-4","Pasakhi WIW-1","Kambir-1","UEPL","NASHPA-5","MAKORI","OGDCL N3","Anton -2001","latif 22","Gagani South-1","T 202","North Akri -4","Rig Mari-1","MOL","Burhan yard","Joya mair-1 rig","Sui 72 PPL","baqa-3","miano-20","Nand Lal","Umair Rasheed","Naveed Ahmed","Zeshan Habib","Syed Arif Hussain","Jamshaid Ali","Muhammad Qasim Qadeer","Shahzad Ahmed","Pasakhi-7","Tando Alam Mari","Uch plant","Suleman-1","Qadirpur","Khanot-1","Tangri-3","Tando Alam","Hilong-9","MD-18","MPCL Daharki","Mangrio-02","Ludano deep-1","Jugan-1","Pasaki-12","Moolan-2","Sawan Gas Plant","Rig ccdc 26","togh-02","Qasar x-1","Exalo-303","Rajian","Rig CCDC-23","Mela-8 south","Khipro East X-1","Taj-01","Ranjho-2","Bijoro-3","Exalo","Balkaser yard","Ccdc32","Turk Deep North-2","Bannu- west-1","Rehman-8","Sofiya-03","Patani-1","Turk-1","IPC","Tipu-1","Nuricon energy services limited","Fazil-01","South Mazari-12","Mazari-16","Petro service","Mulaki west-1","Exalo 303","Bari 14","Buzdar South Deep 7","DGK-1","Exalo 2000","umar-4","HL-09","ZEPC-33","Saman 1","PKL South","IVCC yard Sunder industrial estate Lahore","Naimat west-7","Hilong-05","malkani-1","Zaman 01","Bhatti north 1","RIG ZJ30","mehar-3","Mari DEEP-17","Mohar-1","Latif-10 w/o","Taj 03","Latif-10 qadanwari","Naimat west DT-01","Mari Rig-1","mulaki-6","Hl 5","Mehar-6","TAJ-4","Kunnar 10","HL-9","Exalo-305","Lakho 1","Islamabad","Tolanj west 2","ccdc adhi","Ratana-05","Zpec 33","Tajedi-02","Miano-26","Mithrau-14","Zaur West-2","Tando Alam Oil Complex","kunnar KD-11","KCA DEUTAG","Rig Anton 2001","Sui 43","Sinopec 077","Adhi South-5","Naimat west-8","Ccdc -31","Ccdc-31","TAAJ-06","TURI-01","Nim East 01","Pasakhi 07","OGDCL N-4","Mazari-14","Kunnar oil field","Umar-5","Danish Jamil","BALKASSAR YARD","Sawan-10","uet-1","TARNOL-1","kumbh-4","Taj-03","South Buzdar-1","Sutiari Deep 01","SHAHPUARABAD-01","Sahib Dino","Chang - 1","Latif 21","Fida Hussain","Bunesh Kumar","Sajjad","Jamshed","MANZALAI-04","Schlumberger 223","1 Hilong 21","2 Zpec-33","Hilong 21","Bhatti north-2","NMW DT-02","Jugan-2","Saddar 1","DHABI SOUTH-03","Takhat-2","Takht-2","Jabery South-3","CNLC yard","Hilong-21","KK DT2","Hilong-09","CCDC 30","Hilong 9","ADHI-35","Sui 115","Minwal X-1","Bobi 11","MSU beta","Khaskheli-19","KK DT-04","Mehar","Kumbh-5","POL","SLR 215","Shewa-2","UMAR - 6","Duetag Drilling","Mari","Adhi south -06","CCDC-30","UET-01","Murad x 1","Mari-105 W/O","CHANDA-07","Sakhi-08","MAKORI-5","Mohar-2","KK DT-06","Kharo-1","Takhat-3","JHANDIAL-3","JHIM EAST - X1","MAIWAND X-1","SLR-215","Sono-9","Taj South-1","BADIN","Adam 02","Jagir-05","mohsin.mehdi","SFS Yard Tando Adam","Tarique Aziz","Osama Tahir","ADHI WDW-1","SANGJANI YARD","MD-20","Taj-08","Juggan-2","RAZGIR-01","Muhammad Ikram","DHOK PARACHA ISLAMABAD","HALAINI-2","Fahad Ahmed","Haidar Ali","Hilong 5","Ghazij - 4","Isra - 01","Sanwal khan","Halipota-7","Qabul-3HZ","Saad Riaz","Taj-Ws-01","BALOCH 2","HL-5","RIG N-4","Rig HL-5","Adhi","UEPL Rig UET01","Uch-35","Bettani","Brohi -1","MD-22","Ghazij-05","OGDCL","Mohar-3","Hannan Shahid","Turk Deep North 01","Rizq-5","Dabhi South-02","TAJ-10","BROHI-1","MAHAAN-1","Spinwam - 01","Pk Battani - 2","Takhat 04","Baqar Deep 02","Unar pur - 1","Sono - 7","OCTG / Daharki Yard","Sukhi Deep-1","Sawan North Deep -1","Kandewaro-1","Tando Ala Yar","Walidad-1","Baloch -2","Ghazij - 6","Tes-1 Unerpur-1","Rafat-1","Sohnal-1","H-13/4 Islamabad","Soghari North-1","126H Well","Sabzkhani-1","Takhat-5 / TES-1","Shahu - 1","Zorkham South-5","Ghajij-7","Shawal-2","Pateji X-1","Surhadi-1","SND-1 / HILONG-21","CHAK 202-1 . Sadqabad","Takri -01","Surhadi-1 / Tes-1","Sonro-10 W/O / Anton-2001","DARS WEST-1","MAMI KHEL-1 Kohat","IWSS ISB YARD","Umar-8","Chack-02","Lodano-4","Dhok Sultan -3","Bettani Deep-1","Sabzkani-1 / Rig Hilong 9","Bhittai-6","Mazari-17","Baragzai X-1","Ghazij - 8","Umar-04","Well Chuck 2-2","Samabhi-1","K-5","Soharb Deep-1","Anton-2001 / Dhabi-6","Chak 202-2","FAAKIR-1","Bilal X-1","DHAMACH-1","HALIPOTA-8","MAKORI DEEP-03","Water Disposal Well-5","Bolan East-2","Soho -1","Naimat west DT-1","Umer 9","OGDCL ZJ 30","UEPL Takri-2","RAJAHU-1","Bolan west-1","Takri-2","Tubing Yard (kk)","Ghazij CF-A1","FAAKIR-01","LAL X-1/ HL-21","Khaitian-1","Pasaki-14","Gurgalot X-1","WIW Umar-11","Toot deep-01","Jakarho North-1","Chakar-1","Qadirpur 64","Shawal-4","Barki-1","BSD-10","BITRISM EAST -1","Jhakrao N-01","Jhandial-2","Sahan-1","Makhad x-1","Exalo 305","Sonro-9 / Anton-2001","Sahan-1 / Anton-2001","Zarghun South Ghazij-1","BLT-1","OGDCL SK-750","RAJIAN -02","Dars deep 01A","Pasakhi 13 ( OGDCL )","Ghazij-11 Well","Hassu 1","Dharian-01","TIBRI-1","Sono-08","Pindori -9","MORO BYPASS","PALI DEEP 01","EXALO RIZQ 06 SEWAN","Mari Deep-24 Well","Kausar -1 SWD-1","Chandio-01","Well Gaha Wah-1","S.ZIA-UL-HAQ YARD","Miano TGS HZ 1","IWSS","Kunnar WIW 1 Rig N5","Speen-1 well","BSD-11","Tando Allahyar","Dars West-3","SAHITO-1","Sujawal Block","REHMAN-09","NWDT-03","pasaki-13","WIW-1 KUNNAR","THUL WEST-1 KANDANWARI","Shams-1 Well","SUMRO-1 WELL","CCDC-27","Queeta Al Noor Restaurant","Pasakhi North East-02","Lahore","Adhi/Punjab","Soho -2 well","Said Pur-01","BSD-2","well SONO-10","well chack-203-1","SONO-10","Mari-127H","Lashkani-1","Chak 63-5","Mari-128H","Khirun-1-OGDCL","TDM-OGDCL","Mari Ghazij-10","Bhatti South-1","BOBI DEEP-1","HUMWALA-1","WELL CHAK 63-5","PKL-9","Boby-11","Quetta. WOT","UCH WDW-1","Naimat West-9","Dars Deep-01","Punal warehouse MPCL","TAJ-11","SML-3 WELL","SUJAWAL X-1","bobi-11","Ghazij-25 101 Well","Ghazij-26 F01 Well","KAL-4","Ghauri East-1","Ratana well -6","GHAZIJ-13","Quetta WOT","Hakeem Daho-04","Pateji-2","Saleh-2 W/O","Ghazij-027-F01","Shekhano Deep-2","Ghazij-27 F01 Well","Shekhano Deep-02","Ghazij-24 | 01","WDW-1","SML 4","AasuWest-1","PDC Rig 23","Mari ZS-2","UEPL Sawan Pipe Yard","Balkassar A-7","MAKORI-7","SUJAWAL SOUTH X-01","MEHRANI-1","Ghazij-28 F01 Well","Ghazij-23 I01 Well","WDW-6 WELL","Chakar Deep-01","Mehar-04","CORE LINE YARD DHOK MASKEEN","Barak 1","Ghazij-29 A01 WELL","Nahiyoon-1 (Horizontal)","Ghazij-29 A01"];
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
@@ -1023,13 +1045,30 @@ payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Vouch
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
+/* Where a job actually happened, named once instead of typed again on
+   every report. A row is one Location and one Sub Location under it;
+   the Location names come from the master list this company shares with
+   its ISO system, and a Sub Location is ERP's own - that table has no
+   room for one. Work Orders pick from these, and a report picks a Work
+   Order, so a site is spelled the same way everywhere it appears. */
+insplocs:{g:'Inspection',ic:'◉',name:'Add Location',cols:2,
+  /* Typed, not picked. This screen is where a place gets its name; the
+     register of names belongs on the work order, which is where one is
+     chosen. Putting nine hundred names in front of somebody who came
+     here to add one is no help to them.
+
+     Both are required: a location with no sub location under it is a
+     location a work order cannot finish naming. */
+  fields:[{...T('loc','Location','Karachi'),req:1},
+          {...T('subloc','Sub Location','Site A'),req:1}],
+  list:['loc','subloc']},
 contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
    (see woPdf() — every field below prints, and nothing prints that isn't
    entered here). `contract`/`status` are the only two ERP-only extras:
    they drive the contract map + KPIs and stay off the printed sheet. */
 /* nolist: the saved-records table lives on its own screen (View Work
    Orders — renderWoView), so this one only shows the entry form. */
-workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),REF('loc','Location','shared_locations','name'),REF('client','Bill To Customer','customers','name'),REF('subloc','Sub Location','shared_locations','name'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),S('approval','Approval',APPROVALS),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status','approval'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
+workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),LOCF('loc','Location'),REF('client','Bill To Customer','customers','name'),REFIN('subloc','Sub Location','insplocs','subloc','loc','loc'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),S('approval','Approval',APPROVALS),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status','approval'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
 trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',cols:2,att:1,list_presorted:true,
   fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Date completed'),D('expiry','Expiry date (leave blank if it never expires)'),T('certno','Certificate no.'),
     C('status','Status',trainingStatus)],
@@ -1116,7 +1155,7 @@ function bootGoTake(){
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
   'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
-  'Inspection':['insp_report','insp_list','contracts','workorders','insp_wo_view','insp_map'],
+  'Inspection':['insp_report','insp_list','insplocs','contracts','workorders','insp_wo_view','insp_map'],
 };
 let NAV_EXPANDED=new Set();
 function navExtraItemHtml(x){
@@ -6494,7 +6533,7 @@ async function grnSyncPoStatus(poNo){
    the source of truth: a save only counts once the server confirmed it.
    Compliance first; Inventory / Procurement / Fixed Assets are enabled the
    same way by adding their keys here. */
-const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings','workorders','items','stockmoves','purchaseorders','grns','vendorbills','payments','leads','activities','contracts']);
+const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings','workorders','items','stockmoves','purchaseorders','grns','vendorbills','payments','leads','activities','contracts','insplocs']);
 function isSrv(k){return SERVER_MODS.has(k);}
 const REC_AT={},REC_BUSY={};
 /* One-time rescue per browser: records (and attached files) that only ever
@@ -6850,7 +6889,38 @@ function fieldInput(f,v,idPrefix,onSelectChange){
     return selx(idPrefix+f.k,v,opts,onSelectChange||null,'\u2014 choose \u2014',
                 f.k==='approval');
   }
-  if(f.t==='ref')return selx(idPrefix+f.k,v,coll(f.coll).filter(r=>!f.filter||f.filter(r)).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
+  if(f.t==='locref'){
+    /* The register, plus anything the shared master knows, plus any
+       location already put down here - a name typed in once has to be
+       pickable the next time without being typed again. */
+    const extra=coll('shared_locations').map(r=>String(r.name||'').trim())
+      .concat(coll('insplocs').map(r=>String(r.loc||'').trim())).filter(Boolean);
+    const seen=new Set(),opts=[];
+    INSP_LOCATIONS.concat(extra).forEach(n=>{
+      const key=n.toLowerCase();
+      if(seen.has(key))return;seen.add(key);opts.push(n);
+    });
+    if(v&&!seen.has(String(v).toLowerCase()))opts.unshift(String(v));
+    return selx(idPrefix+f.k,v,opts,onSelectChange||null,'— choose —',true);
+  }
+  if(f.t==='ref'){
+    let rows=coll(f.coll).filter(r=>!f.filter||f.filter(r));
+    if(f.narrowOn){
+      /* Read off the form as it stands, so the list matches what is on
+         screen rather than what was saved. Before the parent has been
+         picked there is nothing to narrow to, and the whole list is
+         offered rather than none of it. */
+      const pe=document.getElementById(idPrefix+f.narrowOn);
+      const pv=pe?String(pe.value||'').trim().toLowerCase():'';
+      /* Compared without its capitals: the register spells one place
+         BADIN and somebody typed Badin against its sub location, and a
+         case-sensitive match would have quietly offered nothing - which
+         is the same site spelled two ways, the very thing this is for. */
+      if(pv)rows=rows.filter(r=>String(r[f.narrowBy]||'').trim().toLowerCase()===pv);
+    }
+    const opts=[...new Set(rows.map(r=>r[f.dk]).filter(Boolean))];
+    return selx(idPrefix+f.k,v,opts,onSelectChange||null,'\u2014 choose \u2014');
+  }
   if(f.t==='refm')return selxMulti(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
@@ -6888,6 +6958,39 @@ function reqFieldMissingLabel(m,idPrefix){
   return null;
 }
 function applyConditionalFields(m,idPrefix){
+  /* A narrowed list is drawn from the parent's value, so it has to be
+     drawn again when that value changes - otherwise it keeps offering
+     the sub locations of the location picked before. */
+  m.fields.forEach(f=>{
+    if(!f.narrowOn)return;
+    const wrap=document.getElementById('fw-'+idPrefix+f.k);
+    if(!wrap)return;
+    const cur=document.getElementById(idPrefix+f.k);
+    const keep=cur?cur.value:'';
+    const lab=wrap.querySelector('label');
+    wrap.innerHTML=(lab?lab.outerHTML:'')+fieldInput(f,keep,idPrefix,null);
+    /* A value that the narrowed list no longer offers is dropped: it
+       belonged to the location that was just changed away from. */
+    const now=document.getElementById(idPrefix+f.k);
+    if(now&&now.value!==keep&&cur)now.value=now.value||'';
+    /* One sub location under the chosen location means there is nothing
+       to choose, so it is filled in rather than asked for - which is what
+       being connected to the location has to mean to be worth having. */
+    if(now&&!now.value){
+      const pe=document.getElementById(idPrefix+f.narrowOn);
+      const pv=pe?String(pe.value||'').trim().toLowerCase():'';
+      const only=(f.narrowOn&&pv)
+        ?[...new Set(coll(f.coll)
+            .filter(r=>String(r[f.narrowBy]||'').trim().toLowerCase()===pv)
+            .map(r=>String(r[f.dk]||'').trim()).filter(Boolean))]
+        :[];
+      if(only.length===1){
+        now.value=only[0];
+        const shown=wrap.querySelector('.selx-btn span');
+        if(shown)shown.textContent=only[0];
+      }
+    }
+  });
   m.fields.forEach(f=>{
     if(!f.showIf)return;
     const watchEl=document.getElementById(idPrefix+f.showIf.field);
@@ -6919,6 +7022,8 @@ function renderModule(){
   // Any field some OTHER field's showIf watches needs to re-run
   // applyConditionalFields the moment it's picked, not just on next render.
   const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
+  // a narrowed list has to be re-offered when the field it narrows on moves
+  m.fields.forEach(f=>{if(f.narrowOn)watchedFields.add(f.narrowOn);});
   /* A released work order is read, not retyped. */
   const lk=APPR_MODS.has(k)&&editId&&apprLocked(rec);
   const form='<div class="card'+(lk?' appr-locked':'')+'"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
@@ -7004,6 +7109,8 @@ function editRecModal(id){
   m.fields.filter(f=>f.t==='file').forEach(f=>delete FILE_STAGE['mf-'+f.k]);
   document.getElementById('recedit-title').textContent='Edit — '+esc(m.name);
   const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
+  // a narrowed list has to be re-offered when the field it narrows on moves
+  m.fields.forEach(f=>{if(f.narrowOn)watchedFields.add(f.narrowOn);});
   const mlk=APPR_MODS.has(k)&&apprLocked(r);
   document.getElementById('recedit-body').className=mlk?'appr-locked':'';
   document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null)+'</div>').join('')+'</div>'+
@@ -9347,7 +9454,21 @@ function dpCertNo(){
   // on the shared header
   return 'PTISDP-'+(dpF().workOrderNum||f.wo||'WO')+'-'+(f.no||irNextReportNo());
 }
-function dpField(label,key){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><input value="'+esc(v)+'" oninput="dpF().'+key+'=this.value;irSave()"></div>'; }
+function dpField(label,key){
+  const d=dpF(),v=d[key]||'';
+  /* The four a work order already knows are picked, not typed. */
+  if(WOF_KEYS.wo.indexOf(key)>=0)
+    return '<div class="field"><label>'+label+'</label>'+wofPickHtml(v,'dp-'+key)+'</div>';
+  if(WOF_KEYS.client.indexOf(key)>=0)return wofCustHtml(label,v,'dp-'+key);
+  if(WOF_KEYS.loc.indexOf(key)>=0)
+    return '<div class="field'+(wofAuto('loc',v)?' autofill':'')+'"><label>'+label+'</label>'+
+      wofPickSite('dp-'+key,v,wofLocOpts(),x=>{dpF()[key]=x;irSave();render();})+'</div>';
+  if(WOF_KEYS.rigwell.indexOf(key)>=0)
+    return '<div class="field'+(wofAuto('rigwell',v)?' autofill':'')+'"><label>'+label+'</label>'+
+      wofPickSite('dp-'+key,v,wofRigOpts(d.location||''),
+        x=>{dpF()[key]=x;irSave();render();})+'</div>';
+  return '<div class="field"><label>'+label+'</label><input value="'+esc(v)+'" oninput="dpF().'+key+'=this.value;irSave()"></div>';
+}
 function dpSelect2(label,key,optA,optB){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><select onchange="dpF().'+key+'=this.value;irSave()"><option value=""'+(v===''?' selected':'')+'></option><option'+(v===optA?' selected':'')+'>'+optA+'</option><option'+(v===optB?' selected':'')+'>'+optB+'</option></select></div>'; }
 /* The certified sheet ticks a box for these, so the form does too — one of the
    pair at a time, and un-ticking clears the field. */
@@ -9835,13 +9956,17 @@ function mpiCardHtml(){
   if(IR.type!==MPI_TYPE)return '';
   const m=mpiF();
   const fld=f=>{
-    const t=f[6]||'text';
-    if(t==='customer'){
-      const k=f[0];
-      return '<div class="field"><label>'+f[1]+'</label>'+
-        selx('mpi-'+k,m[k]||'',coll('customers').map(c=>c.name).filter(Boolean),
-             v=>{mpiSet(k,v);},'\u2014 choose \u2014')+'</div>';
-    }
+    const t=f[6]||'text',k=f[0];
+    if(WOF_KEYS.wo.indexOf(k)>=0)
+      return '<div class="field"><label>'+f[1]+'</label>'+wofPickHtml(m[k]||'','mpi-'+k)+'</div>';
+    if(WOF_KEYS.loc.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('loc',m[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
+        wofPickSite('mpi-'+k,m[k]||'',wofLocOpts(),v=>{mpiSet(k,v);render();})+'</div>';
+    if(WOF_KEYS.rigwell.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('rigwell',m[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
+        wofPickSite('mpi-'+k,m[k]||'',wofRigOpts(m.location||''),
+          v=>{mpiSet(k,v);render();})+'</div>';
+    if(t==='customer'||WOF_KEYS.client.indexOf(k)>=0)return wofCustHtml(f[1],m[k],'mpi-'+k);
     return '<div class="field"><label>'+f[1]+'</label><input'+(t==='date'?' type="date"':'')+
       ' value="'+esc(m[f[0]]||'')+'" oninput="mpiSet(\'' +f[0]+ '\',this.value)"></div>';
   };
@@ -10092,12 +10217,20 @@ function utCardHtml(){
   if(IR.type!==UT_TYPE)return '';
   const u=utF();
   const fld=f=>{
-    if(f[5]==='customer'){
-      const k=f[0];
-      return '<div class="field"><label>'+f[1]+'</label>'+
-        selx('ut-'+k,u[k]||'',coll('customers').map(c=>c.name).filter(Boolean),
-             v=>{utSet(k,v);},'\u2014 choose \u2014')+'</div>';
-    }
+    const k=f[0];
+    if(WOF_KEYS.wo.indexOf(k)>=0)
+      return '<div class="field"><label>'+f[1]+'</label>'+wofPickHtml(u[k]||'','ut-'+k)+'</div>';
+    if(WOF_KEYS.loc.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('loc',u[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
+        wofPickSite('ut-'+k,u[k]||'',wofLocOpts(),v=>{utSet(k,v);render();})+'</div>';
+    if(WOF_KEYS.subloc.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('subloc',u[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
+        wofPickSite('ut-'+k,u[k]||'',wofSubOpts(u.location||''),v=>{utSet(k,v);render();})+'</div>';
+    if(WOF_KEYS.rigwell.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('rigwell',u[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
+        wofPickSite('ut-'+k,u[k]||'',wofRigOpts(u.location||''),
+          v=>{utSet(k,v);render();})+'</div>';
+    if(f[5]==='customer'||WOF_KEYS.client.indexOf(k)>=0)return wofCustHtml(f[1],u[k],'ut-'+k);
     return '<div class="field"><label>'+f[1]+'</label><input'+(f[5]==='date'?' type="date"':'')+
       ' value="'+esc(u[f[0]]||'')+'" oninput="utSet(\''+f[0]+'\',this.value)"></div>';
   };
@@ -11355,16 +11488,41 @@ function irtAttachHtml(t){
    'To add or remove one afterwards, open the report from Saved Reports.</div>'+
    '</div></div>';
 }
+/* Which location and sub location this sheet currently names, whichever
+   of its keys it happens to use for them. */
+function irtSiteLoc(t,b){
+  for(const k of WOF_KEYS.loc)if(b.f[k])return b.f[k];
+  return '';
+}
+function irtSiteSub(t,b){
+  for(const k of WOF_KEYS.subloc)if(b.f[k])return b.f[k];
+  return '';
+}
 function irtCardHtml(){
   const t=irtFor();
   if(!t)return '';
   const b=irtF(t);
   const fld=f=>{
     const k=f[0];
-    if(f[5]==='customer')
+    /* The four the work order already knows. Driven by the key rather
+       than by a role on each field, because there are sixty-eight
+       descriptors and tagging them one at a time is how one gets
+       missed. irRecHeader reads these same keys. */
+    if(WOF_KEYS.wo.indexOf(k)>=0)
       return '<div class="field"><label>'+esc(f[1])+'</label>'+
-        selx('irt-'+k,b.f[k]||'',coll('customers').map(c=>c.name).filter(Boolean),
-             v=>{irtSet(k,v);},'\u2014 choose \u2014')+'</div>';
+        wofPickHtml(b.f[k]||'','irt-'+k)+'</div>';
+    if(WOF_KEYS.loc.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('loc',b.f[k])?' autofill':'')+'"><label>'+esc(f[1])+'</label>'+
+        wofPickSite('irt-'+k,b.f[k]||'',wofLocOpts(),v=>{irtSet(k,v);render();})+'</div>';
+    if(WOF_KEYS.subloc.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('subloc',b.f[k])?' autofill':'')+'"><label>'+esc(f[1])+'</label>'+
+        wofPickSite('irt-'+k,b.f[k]||'',wofSubOpts(irtSiteLoc(t,b)),v=>{irtSet(k,v);render();})+'</div>';
+    if(WOF_KEYS.rigwell.indexOf(k)>=0)
+      return '<div class="field'+(wofAuto('rigwell',b.f[k])?' autofill':'')+'"><label>'+esc(f[1])+'</label>'+
+        wofPickSite('irt-'+k,b.f[k]||'',
+          wofRigOpts(irtSiteLoc(t,b)),v=>{irtSet(k,v);render();})+'</div>';
+    if(f[5]==='customer'||WOF_KEYS.client.indexOf(k)>=0)
+      return wofCustHtml(f[1],b.f[k],'irt-'+k);
     /* A box the sheet rules a dozen lines deep is written in as a dozen
        lines, not squeezed into one. */
     if(f[5]==='wrap')
@@ -13466,6 +13624,170 @@ function irtDateKeys(t){
   };
   t._dateKeys=keys.slice().sort((a,b)=>rank(a)-rank(b)).filter(k=>rank(k)<999);
   return t._dateKeys;
+}
+/* ================================================================
+   A WORK ORDER FILLS IN WHERE THE JOB WAS
+
+   Who the customer is, where the work happened, which sub location, which
+   rig or well: all four are already written down once, on the work order.
+   They were then typed again on every report, on eighty-odd formats, each
+   of which keeps them under its own key in its own bag - and a site spelled
+   two ways is a site the Saved Reports search cannot find.
+
+   irRecHeader already knows where every format READS these from. This is
+   the same knowledge pointing the other way, and the two are deliberately
+   written next to each other: a format added to one and forgotten in the
+   other is the bug this pairing exists to make obvious.
+
+   The keys per concept, as the formats actually spell them:
+
+     customer      client, jobCustomer, customer
+     location      location, loc, usedAt, jobLocation, siteLocation
+     sub location  subLocation, subloc
+     rig / well    rigWell, rigNo, projectRig, rig
+     work order    wo, workOrderNum
+
+   On a certified sheet only the keys that sheet declares are written. The
+   bag is what gets printed, and putting a key in it that the blank has no
+   box for would be writing into a drawer nobody opens.
+   ================================================================ */
+const WOF_KEYS={
+  client:['client','jobCustomer','customer'],
+  loc:   ['location','loc','usedAt','jobLocation','siteLocation'],
+  subloc:['subLocation','subloc'],
+  rigwell:['rigWell','rigNo','projectRig','rig'],
+  wo:    ['wo','workOrderNum'],
+};
+/* The work order behind a number, as the Work Orders screen holds it. */
+function wofFind(no){
+  const n=String(no==null?'':no).trim();
+  if(!n)return null;
+  return coll('workorders').find(w=>String(w.no||'').trim()===n)||null;
+}
+/* Every work order number there is to pick from, newest first - an
+   inspector is nearly always filing against one of the last few. */
+function wofNumbers(){
+  return [...new Set(coll('workorders').map(w=>String(w.no||'').trim()).filter(Boolean))].reverse();
+}
+/* What a work order says about the job. */
+function wofValues(no){
+  const w=wofFind(no);
+  if(!w)return null;
+  /* A sheet that rules a Rig / Well No. box is asking the same question
+     as one that rules a Sub Location box, so both are answered from the
+     one value the work order carries. The UT sheet rules both, and
+     prints the same answer in each. */
+  return {client:w.client||'',loc:w.loc||'',subloc:w.subloc||'',
+          rigwell:w.subloc||'',wo:String(w.no||'').trim()};
+}
+/* Write one concept into whichever keys the open report keeps it under.
+   `only` limits a certified sheet to the keys its own descriptor declares. */
+function wofPut(bag,concept,val,only){
+  if(!bag)return 0;
+  let n=0;
+  WOF_KEYS[concept].forEach(k=>{
+    if(only&&!only.has(k))return;
+    if(bag[k]===val)return;
+    bag[k]=val;n++;
+  });
+  return n;
+}
+/* Fill the open report in from a work order. Returns how many boxes moved,
+   so the person is told something happened rather than left guessing. */
+function wofApply(no){
+  const v=wofValues(no);
+  if(!v)return 0;
+  if(!IR.fields)IR.fields={};
+  let n=0;
+  // the shared header
+  n+=wofPut(IR.fields,'client',v.client);
+  n+=wofPut(IR.fields,'loc',v.loc);
+  n+=wofPut(IR.fields,'wo',v.wo);
+  // the three sheets that carry their own card
+  if(IR.type===MPI_TYPE){const m=mpiF();
+    m.client=v.client;m.location=v.loc;m.rigWell=v.rigwell;m.wo=v.wo;n+=4;}
+  if(IR.type===UT_TYPE){const u=utF();
+    u.client=v.client;u.location=v.loc;u.subLocation=v.subloc;
+    u.rigWell=v.rigwell;u.wo=v.wo;n+=5;}
+  if(IR.type===DP_TALLY_TYPE){const d=dpF();
+    d.customer=v.client;d.location=v.loc;d.rigWell=v.rigwell;d.workOrderNum=v.wo;n+=4;}
+  // and a certified sheet, in the keys its own blank rules boxes for
+  const t=irtFor();
+  if(t){
+    const b=irtF(t);
+    const only=new Set((t.fields||[]).map(f=>f[0]));
+    n+=wofPut(b.f,'client',v.client,only);
+    n+=wofPut(b.f,'loc',v.loc,only);
+    n+=wofPut(b.f,'subloc',v.subloc,only);
+    n+=wofPut(b.f,'rigwell',v.rigwell,only);
+    n+=wofPut(b.f,'wo',v.wo,only);
+  }
+  irSave();
+  return n;
+}
+/* Where a job happened, offered rather than typed. The lists come
+   from Add Location, and each one narrows the next, so a pair that was
+   never set up cannot be reached. Typing is not allowed in any of the
+   three: a site spelled two ways is a site Saved Reports cannot find,
+   which is the whole reason this exists. */
+function wofLocOpts(){
+  return [...new Set(coll('insplocs').map(r=>String(r.loc||'').trim()).filter(Boolean))];
+}
+function wofSubOpts(loc){
+  const want=String(loc==null?'':loc).trim().toLowerCase();
+  return [...new Set(coll('insplocs')
+    .filter(r=>!want||String(r.loc||'').trim().toLowerCase()===want)
+    .map(r=>String(r.subloc||'').trim()).filter(Boolean))];
+}
+/* Rig / Well No. and Sub Location are the same question asked twice, so
+   they are offered the same answers. */
+function wofRigOpts(loc){return wofSubOpts(loc);}
+/* A value already on the report that the lists no longer offer is kept
+   as a choice of its own, or opening an older report would silently show
+   its site as blank. */
+function wofPickSite(id,cur,opts,onpick){
+  const v=String(cur==null?'':cur);
+  const list=opts.slice();
+  if(v&&list.indexOf(v)<0)list.unshift(v);
+  return selx(id,v,list,onpick,'\u2014 choose \u2014',true);
+}
+/* Was this box filled in by the work order rather than typed?
+
+   Worked out from what the report says now, not remembered from when
+   it happened: the report names a work order, and this value is what
+   that work order says. Nothing has to be stored, and a value somebody
+   has since changed stops being marked, which is the honest answer. */
+function wofAuto(concept,val){
+  const v=String(val==null?'':val).trim();
+  if(!v)return false;
+  const h=irRecHeader(IR);
+  const w=wofValues(h.wo);
+  return !!w&&String(w[concept]||'').trim()===v;
+}
+/* Customer is not asked for any more. It is whoever the work order is
+   for, so it is shown rather than offered - a report naming one customer
+   and a work order naming another is worth nobody's time to reconcile. */
+function wofCustHtml(label,val,id){
+  const v=String(val==null?'':val).trim();
+  return '<div class="field'+(v?' autofill':'')+'"><label>'+esc(label)+'</label>'+
+    '<input'+(id?' id="'+id+'"':'')+' value="'+esc(v)+'" readonly '+
+      'title="Comes from the work order">'+
+    (v?'':'<div class="hint" style="margin-top:4px">Pick the work order above.</div>')+
+  '</div>';
+}
+/* The control every format uses for its Work Order box. Picking one is
+   what fills the rest in, so this is the only place that has to be got
+   right. */
+function wofPickHtml(cur,id){
+  return selx(id,String(cur==null?'':cur),wofNumbers(),v=>{wofPick(v);},'— choose —',true);
+}
+function wofPick(no){
+  const moved=wofApply(no);
+  const v=wofValues(no);
+  if(!v){render();return;}
+  toast('Work order '+v.wo+(v.client?' — '+v.client:'')+
+    (v.loc?', '+v.loc:'')+'. '+moved+' field'+(moved===1?'':'s')+' filled in.','ok');
+  render();
 }
 function irRecHeader(r){
   r=r||{};
