@@ -906,6 +906,21 @@ function nextYearCode(mk,field,prefix){
   const maxSeq=coll(mk).reduce((mx,r)=>{const mt=re.exec(r[field]||'');return mt?Math.max(mx,+mt[1]):mx;},0);
   return prefix+yyyy+'/'+String(maxSeq+1).padStart(4,'0');
 }
+// Vendor Bills' own numbering — one series PER PO CATEGORY (plain PO,
+// PO_FA, Service PO), each starting at 001 and counting up independently,
+// year-scoped like every other auto-code here: "Bill/PO-2026-001",
+// "Bill/PO_FA-2026-001", "Bill/Ser_PO-2026-001". The category comes from
+// the PO the bill is raised against (purchaseorders.potype), not from
+// anything typed on the bill itself — see vbPickPo().
+function vbCatCode(potype){
+  return potype==='PO_FA'?'PO_FA':potype==='Service PO'?'Ser_PO':'PO';
+}
+function nextVendorBillNo(potype){
+  const cat=vbCatCode(potype),yyyy=new Date().getFullYear();
+  const re=new RegExp('^Bill\\/'+cat+'-'+yyyy+'-(\\d+)$');
+  const maxSeq=coll('vendorbills').reduce((mx,r)=>{const mt=re.exec(r.no||'');return mt?Math.max(mx,+mt[1]):mx;},0);
+  return 'Bill/'+cat+'-'+yyyy+'-'+String(maxSeq+1).padStart(3,'0');
+}
 const REF=(k,l,coll,dk,filter)=>({k,l,t:'ref',coll,dk,filter});
 /* A location, from the register above plus anything the shared master
    already knows, so a name entered on the ISO side still appears. */
@@ -1039,7 +1054,7 @@ stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
 grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},T('who','Received by')],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
-vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',fields:[T('no','Bill no.'),D('date','Date'),REF('vendor','Vendor','vendors','name'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'),N('amount','Amount'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Received','Approved','Paid','Disputed']),D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Received','Approved'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AP'}]},
+vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Closed'},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
@@ -7018,6 +7033,7 @@ function renderModule(){
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
   if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
   if(m.grnlines&&!renderModule._lk){GRL=(rec.grnlines&&rec.grnlines.length)?JSON.parse(JSON.stringify(rec.grnlines)):[];}
+  if(m.vblines&&!renderModule._lk){VBL=(rec.vblines&&rec.vblines.length)?JSON.parse(JSON.stringify(rec.vblines)):[];}
   renderModule._lk=false;
   // Any field some OTHER field's showIf watches needs to re-run
   // applyConditionalFields the moment it's picked, not just on next render.
@@ -7038,6 +7054,7 @@ function renderModule(){
     (m.polines?'<div id="po-zone">'+poGrid(rec)+'</div>':'')+
     (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     (m.grnlines?'<div id="grn-zone">'+grnGrid(rec)+'</div>':'')+
+    (m.vblines?'<div id="vb-zone">'+vbGrid(rec)+'</div>':'')+
     '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
@@ -7217,6 +7234,7 @@ async function saveRec(){
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
   if(m.smlines){rec.smlines=SML.filter(l=>l.item||l.qty);rec.itemsSummary=rec.smlines.map(l=>(l.item||'')+(l.qty?' x'+l.qty:'')).filter(Boolean).join(', ');}
   if(m.grnlines){rec.grnlines=GRL.map(l=>({item:l.item,poQty:l.poQty,recvQty:+l.recvQty||0,rejQty:+l.rejQty||0}));}
+  if(m.vblines){rec.vblines=VBL.map(l=>({item:l.item,qty:+l.qty||0,price:+l.price||0}));}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     const now=new Date().toISOString();
@@ -7761,7 +7779,10 @@ function grnPickPo(){
    one pulls in its Vendor, plus its Amount/Tax split back out of the PO's
    tax-inclusive grand total (POs only ever store that grand total + the tax
    %, see poGrid's saveRec hook) so the bill opens pre-filled instead of
-   asking the user to retype numbers the PO already has. */
+   asking the user to retype numbers the PO already has. It also loads the
+   PO's own line items into the read-only grid below (see vbGrid()) and
+   refreshes the Bill No. preview, since that number's series depends on
+   which PO category (potype) was just picked — see nextVendorBillNo(). */
 function vbPickPo(){
   const el=document.getElementById('f-po');
   const po=coll('purchaseorders').find(p=>p.no===(el?el.value:''));
@@ -7772,6 +7793,12 @@ function vbPickPo(){
   const amtEl=document.getElementById('f-amount');if(amtEl)amtEl.value=sub.toFixed(2);
   const taxEl=document.getElementById('f-tax');if(taxEl)taxEl.value=(grand-sub).toFixed(2);
   const curEl=document.getElementById('f-cur');if(curEl)curEl.value=po.cur||'';
+  VBL=(po.polines||[]).map(l=>({item:l.item,qty:+l.qty||0,price:+l.price||0}));
+  vbRefresh();
+  if(!editId){
+    const noEl=document.getElementById('f-no');
+    if(noEl)noEl.value=nextVendorBillNo(po.potype);
+  }
 }
 // Goods Receipts and Vendor Bills both have a field named "po", so they share
 // the DOM id "f-po" — one dispatcher routes the pick to whichever module is
@@ -7797,6 +7824,26 @@ function grnRefresh(){renderModule._lk=true;const z=document.getElementById('grn
 function grnRefreshRow(i){
   const el=document.getElementById('grn-tot-'+i);if(el)el.textContent=fmt(grnLineTotal(GRL[i]));
 }
+/* ============ Vendor Bill line grid ============================
+   Read-only — just shows what's being billed, pulled straight off the
+   selected PO's own line items (see vbPickPo()) so the bill's grid always
+   matches the PO's grid instead of being retyped. Nothing here is edited
+   by hand; it's there so the person approving the bill can see the same
+   item breakdown the PO/GRN already showed. */
+let VBL=[];
+function vbGrid(rec){
+  if(!VBL.length)return '<div class="hint" style="margin:10px 0 4px">Select a PO above to load its items.</div>';
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items billed</div>'+
+   '<div class="tblwrap"><table><thead><tr>'+
+     '<th>Item</th><th style="width:90px" class="num">Qty</th><th style="width:110px" class="num">Unit price</th><th style="width:120px" class="num">Line total</th>'+
+   '</tr></thead><tbody>'+
+   VBL.map(l=>'<tr><td>'+esc(l.item||'')+'</td>'+
+     '<td class="num">'+fmt(l.qty||0)+'</td>'+
+     '<td class="num">'+fmt(l.price||0)+'</td>'+
+     '<td class="num">'+fmt((+l.qty||0)*(+l.price||0))+'</td></tr>').join('')+
+   '</tbody></table></div>';
+}
+function vbRefresh(){renderModule._lk=true;const z=document.getElementById('vb-zone');if(z)z.innerHTML=vbGrid(null);}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
