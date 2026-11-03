@@ -921,15 +921,22 @@ function nextVendorBillNo(potype){
   const maxSeq=coll('vendorbills').reduce((mx,r)=>{const mt=re.exec(r.no||'');return mt?Math.max(mx,+mt[1]):mx;},0);
   return 'Bill/'+cat+'-'+yyyy+'-'+String(maxSeq+1).padStart(3,'0');
 }
-// A Vendor Bill's displayed status always mirrors its PO's CURRENT
-// cumulative billing progress (billstatus, set by vbSyncPoStatus — see
-// below), never a frozen snapshot from whenever this particular bill was
-// saved — so if a later bill against the same PO finishes it off, every
-// earlier bill's row flips to "Closed" too, same list, same moment. Used
-// as BOTH the status field's fn AND the module's badge (so listTable's
+// A Vendor Bill's status just mirrors its PO's own GOODS-RECEIPT status
+// (the one GRNs drive, via grnSyncPoStatus) — if the PO is only partially
+// received so far, the bill it's billed against stays "Partially billed"
+// too; once the PO is fully "Received", the bill reads "Closed" straight
+// away. Always read live off the PO, never a frozen snapshot from whenever
+// this particular bill was saved — so the moment a GRN finishes receiving
+// the PO, every bill already raised against it flips to "Closed" too, same
+// list, same moment, no separate billing-progress field to keep in sync.
+// Used as BOTH the status field's fn AND the module's badge (so listTable's
 // pill-matching, which compares the two, never disagrees with itself).
 function vbStatus(r){
-  return r.po?((coll('purchaseorders').find(p=>p.no===r.po)||{}).billstatus||'Partially billed'):'Closed';
+  if(!r.po)return 'Closed';
+  const po=coll('purchaseorders').find(p=>p.no===r.po)||{};
+  if(po.status==='Received')return 'Closed';
+  if(po.status==='Partially received')return 'Partially billed';
+  return po.status||'Closed';
 }
 const REF=(k,l,coll,dk,filter)=>({k,l,t:'ref',coll,dk,filter});
 /* A location, from the register above plus anything the shared master
@@ -1064,7 +1071,7 @@ stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
 grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},T('who','Received by')],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
-vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'&&r.billstatus!=='Closed'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
+vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
 assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
@@ -7086,7 +7093,6 @@ function renderModule(){
   document.getElementById('content').innerHTML=kpis+form+list;
   if(watchedFields.size)applyConditionalFields(m,'f-');
   if(m.polines)poSyncAmountField();
-  if(m.vblines)vbSyncAmountFields();
   if(m.fields.some(f=>f.t==='file'))fileSummaryLoad(k);
 }
 function listTable(m,rows,k){
@@ -7245,7 +7251,7 @@ async function saveRec(){
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
   if(m.smlines){rec.smlines=SML.filter(l=>l.item||l.qty);rec.itemsSummary=rec.smlines.map(l=>(l.item||'')+(l.qty?' x'+l.qty:'')).filter(Boolean).join(', ');}
   if(m.grnlines){rec.grnlines=GRL.map(l=>({item:l.item,poQty:l.poQty,recvQty:+l.recvQty||0,rejQty:+l.rejQty||0}));}
-  if(m.vblines){rec.vblines=VBL.map(l=>({item:l.item,poQty:+l.poQty||0,billQty:+l.billQty||0,price:+l.price||0}));const t=vbTotals(rec);rec.amount=t.sub.toFixed(2);rec.tax=t.tax.toFixed(2);}
+  if(m.vblines){rec.vblines=VBL.map(l=>({item:l.item,qty:+l.qty||0,price:+l.price||0}));}
   if(wasNew&&!rec.createdon)rec.createdon=today();  // printed as "Entered On" on the work-order form
   if(isSrv(k)){
     const now=new Date().toISOString();
@@ -7257,8 +7263,14 @@ async function saveRec(){
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
       collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
-      if(k==='grns'&&saved.po)await grnSyncPoStatus(saved.po);
-      if(k==='vendorbills'&&saved.po)await vbSyncPoStatus(saved.po);
+      // grnSyncPoStatus's PUT lands AFTER the render() above, so without a
+      // follow-up refresh the PO's new receiving status (Partially received
+      // / Received) — which both the GRN list's own Status column AND any
+      // Vendor Bill against that PO (see vbStatus()) read straight off the
+      // PO — wouldn't show up until the next unrelated re-render (e.g.
+      // leaving this screen and coming back). Re-render the list now that
+      // the sync has actually landed, so it reflects immediately instead.
+      if(k==='grns'&&saved.po){await grnSyncPoStatus(saved.po);if(modKey()===k)renderListOnly();}
     }catch(e){
       /* The server refused it - a Viewer account, a validation fault - and
          that is worth stopping for, with the form still open and nothing
@@ -7787,62 +7799,32 @@ function grnPickPo(){
   GRL=(po.polines||[]).map(l=>({item:l.item,poQty:+l.qty||0,recvQty:'',rejQty:''}));
   grnRefresh();
 }
-/* Vendor Bills' "PO ref" picks from the same list of Received, not-yet-fully-
-   billed POs — selecting one pulls in its Vendor + Currency, loads its line
-   items into the editable grid below (see vbGrid()) with Bill Qty defaulted
-   to whatever of each line is STILL unbilled (PO Qty minus however much
-   every OTHER vendor bill against this same PO has already billed — this
-   bill's own prior amount, if it's being edited, is excluded from that so
-   re-editing doesn't shrink its own remaining room), and refreshes the Bill
+/* Vendor Bills' "PO ref" picks from the same list of Received / Partially
+   received POs — selecting one pulls in its Vendor, Currency and Amount/Tax
+   (split back out of the PO's tax-inclusive grand total — POs only ever
+   store that grand total + the tax %, see poGrid's saveRec hook), and loads
+   its line items into the read-only grid below (see vbGrid()) purely for
+   reference — nothing there is edited by hand. It also refreshes the Bill
    No. preview, since that number's series depends on which PO category
-   (potype) was just picked — see nextVendorBillNo(). Amount/Tax are then
-   derived from the grid's own Bill Qty x Price lines (see vbTotals()), not
-   simply copied from the PO's grand total, so a bill can cover only PART of
-   a PO — the rest stays open for a later bill against the same PO. Cumulative
-   billed-so-far across every bill, and the PO's own billing status
-   (Partially billed / Closed), are worked out at save time — see
-   vbSyncPoStatus(). */
+   (potype) was just picked — see nextVendorBillNo(). Whether the bill is
+   "Partially billed" or "Closed" isn't tracked here at all — it just reads
+   the PO's own GRN-driven receiving status live, see vbStatus(). */
 function vbPickPo(){
   const el=document.getElementById('f-po');
   const po=coll('purchaseorders').find(p=>p.no===(el?el.value:''));
   if(!po)return;
   if(po.vendor&&document.getElementById('f-vendor'))selxPick('f-vendor',po.vendor);
+  const taxpct=+po.taxpct||0,grand=+po.amount||0;
+  const sub=grand/(1+taxpct/100);
+  const amtEl=document.getElementById('f-amount');if(amtEl)amtEl.value=sub.toFixed(2);
+  const taxEl=document.getElementById('f-tax');if(taxEl)taxEl.value=(grand-sub).toFixed(2);
   const curEl=document.getElementById('f-cur');if(curEl)curEl.value=po.cur||'';
-  const otherBills=coll('vendorbills').filter(b=>b.po===po.no&&b.id!==editId);
-  VBL=(po.polines||[]).map((l,i)=>{
-    const poQty=+l.qty||0;
-    const billedElsewhere=otherBills.reduce((s,b)=>{const bl=b.vblines&&b.vblines[i];return s+(bl?(+bl.billQty||0):0);},0);
-    return {item:l.item,poQty,billQty:Math.max(0,poQty-billedElsewhere),price:+l.price||0};
-  });
+  VBL=(po.polines||[]).map(l=>({item:l.item,qty:+l.qty||0,price:+l.price||0}));
   vbRefresh();
-  vbSyncAmountFields();
   if(!editId){
     const noEl=document.getElementById('f-no');
     if(noEl)noEl.value=nextVendorBillNo(po.potype);
   }
-}
-// Sums, per PO line, how much every vendor bill raised against it has
-// billed so far, and sets the PO's own billstatus — 'Closed' once every
-// line's cumulative Bill Qty has reached its PO Qty, 'Partially billed'
-// while some lines still have room left. A separate field from the PO's own
-// receiving `status` (Issued/Received/…, driven by GRNs) so billing and
-// goods-receipt progress never clobber each other. Best-effort, same as
-// grnSyncPoStatus: the bill itself has already saved by the time this runs.
-async function vbSyncPoStatus(poNo){
-  const po=coll('purchaseorders').find(r=>r.no===poNo);
-  if(!po||!po.polines||!po.polines.length)return;
-  const billsForPo=coll('vendorbills').filter(b=>b.po===poNo);
-  const billed=po.polines.map((l,i)=>billsForPo.reduce((s,b)=>{
-    const bl=b.vblines&&b.vblines[i];
-    return s+(bl?(+bl.billQty||0):0);
-  },0));
-  const allDone=po.polines.every((l,i)=>billed[i]>=(+l.qty||0));
-  const newBillStatus=allDone?'Closed':'Partially billed';
-  if(newBillStatus===po.billstatus)return;
-  try{
-    const saved=await api('/api/records/purchaseorders/'+encodeURIComponent(po.id),{method:'PUT',body:JSON.stringify({...po,billstatus:newBillStatus})});
-    recUpsertLocal('purchaseorders',saved);
-  }catch(e){}
 }
 // Goods Receipts and Vendor Bills both have a field named "po", so they share
 // the DOM id "f-po" — one dispatcher routes the pick to whichever module is
@@ -7869,61 +7851,25 @@ function grnRefreshRow(i){
   const el=document.getElementById('grn-tot-'+i);if(el)el.textContent=fmt(grnLineTotal(GRL[i]));
 }
 /* ============ Vendor Bill line grid ============================
-   Pulled straight off the selected PO's own line items (see vbPickPo()):
-   Item/PO Qty/Price are read-only reference, Bill Qty is the one thing
-   editable — how much of that line THIS bill covers, which can be less
-   than PO Qty so a PO can be billed over several bills (partial billing),
-   same idea as GRN's Receive Qty vs PO Qty. */
+   Read-only — just shows what's being billed, pulled straight off the
+   selected PO's own line items (see vbPickPo()) so the bill's grid always
+   matches the PO's grid instead of being retyped. Nothing here is edited
+   by hand; it's there so the person approving the bill can see the same
+   item breakdown the PO/GRN already showed. */
 let VBL=[];
-function vbLineTotal(l){return (+l.billQty||0)*(+l.price||0);}
-function vbTotals(rec){
-  const sub=VBL.reduce((s,l)=>s+vbLineTotal(l),0);
-  const poEl=document.getElementById('f-po');
-  const poNo=poEl?poEl.value:(rec&&rec.po);
-  const po=coll('purchaseorders').find(p=>p.no===poNo);
-  const taxpct=+(po&&po.taxpct)||0;
-  const tax=sub*taxpct/100;
-  return {sub,taxpct,tax,grand:sub+tax};
-}
 function vbGrid(rec){
   if(!VBL.length)return '<div class="hint" style="margin:10px 0 4px">Select a PO above to load its items.</div>';
-  const t=vbTotals(rec);
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items billed<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Reduce Bill Qty below PO Qty to bill only part of a line — the rest stays open for a later bill</span></div>'+
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items billed</div>'+
    '<div class="tblwrap"><table><thead><tr>'+
-     '<th>Item</th><th style="width:90px" class="num">PO Qty</th><th style="width:110px" class="num">Bill Qty</th><th style="width:100px" class="num">Price</th><th style="width:120px" class="num">Line Total</th>'+
+     '<th>Item</th><th style="width:90px" class="num">Qty</th><th style="width:110px" class="num">Unit price</th><th style="width:120px" class="num">Line total</th>'+
    '</tr></thead><tbody>'+
-   VBL.map((l,i)=>'<tr><td>'+esc(l.item||'')+'</td>'+
-     '<td class="num">'+fmt(l.poQty||0)+'</td>'+
-     '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.billQty||'')+'" oninput="VBL['+i+'].billQty=this.value;vbRefreshRow('+i+')"></td>'+
+   VBL.map(l=>'<tr><td>'+esc(l.item||'')+'</td>'+
+     '<td class="num">'+fmt(l.qty||0)+'</td>'+
      '<td class="num">'+fmt(l.price||0)+'</td>'+
-     '<td class="num" id="vb-tot-'+i+'">'+fmt(vbLineTotal(l))+'</td></tr>').join('')+
-   '</tbody><tfoot>'+
-    '<tr><td colspan="3"></td><td style="text-align:right">Subtotal</td><td class="num" id="vb-subtotal">'+fmt(t.sub)+'</td></tr>'+
-    '<tr><td colspan="3"></td><td style="text-align:right">Tax ('+t.taxpct+'%)</td><td class="num" id="vb-taxamt">'+fmt(t.tax)+'</td></tr>'+
-    '<tr><td colspan="3"></td><td style="text-align:right;font-weight:700">Grand Total</td><td class="num" style="font-weight:700" id="vb-grand">'+fmt(t.grand)+'</td></tr>'+
-   '</tfoot></table></div>';
+     '<td class="num">'+fmt((+l.qty||0)*(+l.price||0))+'</td></tr>').join('')+
+   '</tbody></table></div>';
 }
 function vbRefresh(){renderModule._lk=true;const z=document.getElementById('vb-zone');if(z)z.innerHTML=vbGrid(null);}
-function vbRefreshRow(i){
-  const el=document.getElementById('vb-tot-'+i);if(el)el.textContent=fmt(vbLineTotal(VBL[i]));
-  vbRefreshTotals();
-}
-function vbRefreshTotals(){
-  const t=vbTotals();
-  const se=document.getElementById('vb-subtotal');if(se)se.textContent=fmt(t.sub);
-  const tae=document.getElementById('vb-taxamt');if(tae)tae.textContent=fmt(t.tax);
-  const ge=document.getElementById('vb-grand');if(ge)ge.textContent=fmt(t.grand);
-  vbSyncAmountFields();
-}
-// The top Amount/Tax fields are read-only-in-practice mirrors of the grid's
-// own Subtotal/Tax (same idea as poSyncAmountField) — kept as real N()
-// fields rather than computed ones purely so DOCPDF/kpi code that reads
-// rec.amount/rec.tax directly keeps working unchanged.
-function vbSyncAmountFields(){
-  const t=vbTotals();
-  const amtEl=document.getElementById('f-amount');if(amtEl)amtEl.value=t.sub.toFixed(2);
-  const taxEl=document.getElementById('f-tax');if(taxEl)taxEl.value=t.tax.toFixed(2);
-}
 function quoteDoc(id){
   const q=coll('quotes').find(r=>r.id===id);if(!q){alert('Save the quotation first.');return null;}
   const cust=coll('customers').find(c=>c.name===q.customer)||{};
