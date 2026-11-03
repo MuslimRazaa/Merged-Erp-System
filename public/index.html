@@ -6531,6 +6531,21 @@ function recUpsertLocal(k,saved){
 function recRemoveLocal(k,id){
   collSet(k,coll(k).filter(r=>r.id!==id));REC_AT[k]=0;
 }
+// Per PO line, net quantity actually accepted so far — Receive Qty minus
+// Rejected Qty, summed across every GRN raised against that PO (rejected
+// units were received at the dock but failed inspection, so they're taken
+// back out; what's left is both "received" for grnSyncPoStatus's status
+// check AND, priced out, what's actually payable — see grnPayable()).
+// `excludeId` leaves one GRN's own saved line out of the sum — used while
+// that very GRN is open for editing, so its own prior numbers aren't
+// double-counted against the fresh ones still sitting in GRL.
+function grnReceivedQty(po,excludeId){
+  const grnsForPo=coll('grns').filter(g=>g.po===po.no&&g.id!==excludeId);
+  return (po.polines||[]).map((l,i)=>grnsForPo.reduce((s,g)=>{
+    const gl=g.grnlines&&g.grnlines[i];
+    return s+(gl?(+gl.recvQty||0)-(+gl.rejQty||0):0);
+  },0));
+}
 // Saving a GRN re-totals, per PO line, everything received so far across
 // EVERY GRN raised against that PO (this one included — it's already in
 // the local cache by the time this runs), and sets the PO's status from
@@ -6542,11 +6557,7 @@ function recRemoveLocal(k,id){
 async function grnSyncPoStatus(poNo){
   const po=coll('purchaseorders').find(r=>r.no===poNo);
   if(!po||!po.polines||!po.polines.length)return;
-  const grnsForPo=coll('grns').filter(g=>g.po===poNo);
-  const received=po.polines.map((l,i)=>grnsForPo.reduce((s,g)=>{
-    const gl=g.grnlines&&g.grnlines[i];
-    return s+(gl?(+gl.recvQty||0)-(+gl.rejQty||0):0);
-  },0));
+  const received=grnReceivedQty(po);
   const allDone=po.polines.every((l,i)=>received[i]>=(+l.qty||0));
   const anyProgress=received.some(n=>n>0);
   const newStatus=allDone?'Received':(anyProgress?'Partially received':po.status);
@@ -7791,6 +7802,63 @@ function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-z
    grnSyncPoStatus(). */
 let GRL=[];
 function grnLineTotal(l){return (+l.recvQty||0)-(+l.rejQty||0);}
+// What's actually owed to the vendor against this PO so far — priced off
+// net ACCEPTED quantity (Receive Qty minus Rejected Qty, cumulative across
+// every GRN raised against this PO, including whatever's still being typed
+// into THIS one right now), so a rejected unit's price drops straight back
+// out of what's payable instead of the full PO amount being owed regardless
+// of what actually passed inspection. e.g. 10 ordered, 7 received-and-
+// accepted, 3 rejected -> payable on 7, not 10.
+function grnPayable(rec){
+  // Record-first, DOM-as-fallback. renderModule() calls grnGrid(rec) once
+  // while it's still assembling the page's innerHTML string — #f-po at
+  // that moment is still whatever the PREVIOUS screen left behind (not yet
+  // overwritten), so when a real `rec` is on hand — reopening an existing
+  // GRN for edit — it, not that stale element, is the one telling the
+  // truth. Only once there's no rec to go on (a live edit already in the
+  // DOM — grnPickPo()/grnRefreshRow() calling this with nothing) does the
+  // live #f-po value become the right thing to read.
+  const el=document.getElementById('f-po');
+  const poNo=(rec&&rec.po)?rec.po:(el?el.value:'');
+  const po=coll('purchaseorders').find(p=>p.no===poNo);
+  if(!po||!po.polines||!po.polines.length)return null;
+  const priorElsewhere=grnReceivedQty(po,editId);
+  const received=po.polines.map((l,i)=>{
+    const draft=GRL[i]?(+GRL[i].recvQty||0)-(+GRL[i].rejQty||0):0;
+    return Math.max(0,priorElsewhere[i]+draft);
+  });
+  const sub=po.polines.reduce((s,l,i)=>s+received[i]*(+l.price||0),0);
+  const taxpct=+po.taxpct||0,tax=sub*taxpct/100;
+  // Read live off what's actually in the grid right now (including
+  // whatever's still being typed into THIS GRN), not off the PO's own
+  // `status` field — that only updates once this GRN is saved and
+  // grnSyncPoStatus's PUT lands, so before then it would still read
+  // whatever the PO's status was BEFORE this GRN, which is misleading
+  // while the numbers on screen already say otherwise.
+  const allDone=po.polines.every((l,i)=>received[i]>=(+l.qty||0));
+  const anyProgress=received.some(n=>n>0);
+  const payStatus=allDone?'Received':(anyProgress?'Partially received':'Not received');
+  return {sub,tax,grand:sub+tax,poGrand:+po.amount||0,payStatus};
+}
+function grnPayableHtml(rec){
+  const pay=grnPayable(rec);
+  if(!pay)return '';
+  // Picked directly off payStatus, not via pillCls()'s generic substring
+  // heuristic — "Not yet received" contains the word "received" and would
+  // otherwise come out green (done) when it means the opposite (nothing
+  // received yet).
+  const cls=pay.payStatus==='Received'?'g':(pay.payStatus==='Partially received'?'a':'b');
+  const label=pay.payStatus==='Received'?'Fully payable':pay.payStatus==='Partially received'?'Partially payable':'Not yet received';
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Payment payable</div>'+
+   '<div class="tblwrap"><table><tbody>'+
+    '<tr><td style="font-weight:700;width:220px">Payable status</td><td><span class="pill '+cls+'">'+esc(label)+'</span></td></tr>'+
+    '<tr><td style="font-weight:700">Payable amount<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;display:block">Rejected quantity’s value is excluded</span></td>'+
+      '<td class="num" style="font-weight:700">'+fmt(pay.grand)+' of '+fmt(pay.poGrand)+'</td></tr>'+
+   '</tbody></table></div>';
+}
+function grnRefreshPayable(){
+  const z=document.getElementById('grn-payable-zone');if(z)z.innerHTML=grnPayableHtml();
+}
 function grnPickPo(){
   const el=document.getElementById('f-po');
   const po=coll('purchaseorders').find(p=>p.no===(el?el.value:''));
@@ -7844,11 +7912,13 @@ function grnGrid(rec){
      '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.recvQty||'')+'" oninput="GRL['+i+'].recvQty=this.value;grnRefreshRow('+i+')"></td>'+
      '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.rejQty||'')+'" oninput="GRL['+i+'].rejQty=this.value;grnRefreshRow('+i+')"></td>'+
      '<td class="num" id="grn-tot-'+i+'">'+fmt(grnLineTotal(l))+'</td></tr>').join('')+
-   '</tbody></table></div>';
+   '</tbody></table></div>'+
+   '<div id="grn-payable-zone">'+grnPayableHtml(rec)+'</div>';
 }
 function grnRefresh(){renderModule._lk=true;const z=document.getElementById('grn-zone');if(z)z.innerHTML=grnGrid(null);}
 function grnRefreshRow(i){
   const el=document.getElementById('grn-tot-'+i);if(el)el.textContent=fmt(grnLineTotal(GRL[i]));
+  grnRefreshPayable();
 }
 /* ============ Vendor Bill line grid ============================
    Read-only — just shows what's being billed, pulled straight off the
