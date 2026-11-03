@@ -128,6 +128,133 @@ function cleanRecord(body, id) {
   return rec;
 }
 
+/* ---------------- what is waiting on you ----------------
+   Declared BEFORE /:module, or Express reads "approvals" as a module name
+   and the :module param handler turns it down as unknown.
+
+   Who may decide: an admin tier sees everything, everyone else only the
+   records whose author reports to them. That is the test upsert() applies
+   when the approval is actually pushed, so nothing is offered here that
+   would be refused there.
+
+   data is LONGTEXT rather than a JSON column; MySQL casts it for
+   JSON_EXTRACT. A record saved by an older build has no approval key at
+   all and is simply not released, which is how apprOf() reads it too.
+*/
+const APPR_SQL_FROM = `
+  FROM erp_records r
+  LEFT JOIN employees e ON e.employee_id = r.created_by
+  LEFT JOIN erp_employee_profile p ON p.employee_id = e.id
+ WHERE r.module IN (?) AND r.deleted_at IS NULL
+   AND JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.approval')) = 'ReleasedForApproval'
+   AND (r.created_by IS NULL OR r.created_by <> ?)
+   AND (? = 1 OR p.reports_to = ?)`;
+
+function apprArgs(req) {
+  return [[...APPR_MODS], req.erpUser.employeeId,
+          isAdminTier(req.erpUser.role) ? 1 : 0, req.erpUser.id];
+}
+/* May this person accept this record? The author is ruled out before
+   anything else, because an approval you grant yourself is not one.
+   Both doors into the decision - a pushed Approved and the Approve
+   button - go through here, so they cannot drift apart. */
+async function mayApprove(req, authorCode) {
+  if (authorCode && authorCode === req.erpUser.employeeId) return false;
+  if (isAdminTier(req.erpUser.role)) return true;
+  if (!authorCode) return false;
+  const [authorRow] = await pool.query(
+    'SELECT id FROM employees WHERE employee_id = ? LIMIT 1', [authorCode]
+  );
+  const authorId = authorRow[0] && authorRow[0].id;
+  return !!authorId && (await hodOf(authorId)) === req.erpUser.id;
+}
+
+/* Whether to show the Requests button at all, and the number on it.
+   isApprover also tells the browser who may be offered "Approved". */
+router.get('/approvals/pending-count', async (req, res) => {
+  const [rows] = await pool.query(`SELECT COUNT(*) c ${APPR_SQL_FROM}`, apprArgs(req));
+  const [reports] = await pool.query(
+    'SELECT COUNT(*) c FROM erp_employee_profile WHERE reports_to = ?', [req.erpUser.id]
+  );
+  res.json({
+    count: rows[0].c,
+    isApprover: isAdminTier(req.erpUser.role) || reports[0].c > 0,
+  });
+});
+
+/* POST /api/records/approvals/:module/:id/approve - the HOD's word.
+
+   Same test as upsert() applies to a pushed Approved, re-run here because
+   this is a separate door into the same decision and a door is only as
+   good as its own lock. */
+router.post('/approvals/:module/:id/approve', requireWrite, async (req, res) => {
+  const { module, id } = req.params;
+  if (!APPR_MODS.has(module)) return res.status(400).json({ error: `Nothing is approved in "${module}".` });
+  if (!canAccess(req.erpUser.role, MODULE_GROUP[module])) {
+    return res.status(403).json({ error: `Your role (${req.erpUser.role}) has no access to ${MODULE_GROUP[module]}.` });
+  }
+  const [rows] = await pool.query(
+    'SELECT data, created_by FROM erp_records WHERE module = ? AND id = ? AND deleted_at IS NULL LIMIT 1',
+    [module, id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'That record is no longer on the server.' });
+
+  if (!(await mayApprove(req, rows[0].created_by))) {
+    return res.status(403).json({
+      error: rows[0].created_by === req.erpUser.employeeId
+        ? 'You released this one, so it is not yours to approve.'
+        : 'Only the HOD this record answers to can approve it.' });
+  }
+
+  let rec;
+  try { rec = JSON.parse(rows[0].data); } catch (e) { return res.status(500).json({ error: 'That record cannot be read.' }); }
+  if (apprOf(rec) !== 'ReleasedForApproval') {
+    return res.status(409).json({ error: `It is ${apprOf(rec)}, not waiting for approval.` });
+  }
+  rec.approval = 'Approved';
+  rec.id = id;
+  await pool.query(
+    'UPDATE erp_records SET data = ?, updated_by = ? WHERE module = ? AND id = ?',
+    [JSON.stringify(rec), req.erpUser.employeeId, module, id]
+  );
+  await audit(req.erpUser.employeeId, 'record-approve', `${module}/${id}`);
+  /* The thing they were told about is done, so the notice stops waiting. */
+  await pool.query(
+    'UPDATE erp_notifications SET read_at = NOW() WHERE recipient_id = ? AND module = ? AND record_id = ? AND read_at IS NULL',
+    [req.erpUser.id, module, id]
+  );
+  res.json(rec);
+});
+
+/* The list. Only the handful of fields the panel shows: a report carries
+   its photographs in `data`, and nobody needs those to decide. */
+router.get('/approvals/pending', async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT r.module, r.id, r.created_by, r.updated_at,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.type'))          AS type,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.fields.docId'))  AS docId,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.fields.no'))     AS repNo,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.fields.client')) AS repClient,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.fields.date'))   AS repDate,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.no'))            AS woNo,
+            JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.client'))        AS woClient,
+            e.full_name AS authorName
+       ${APPR_SQL_FROM} ORDER BY r.updated_at DESC LIMIT 100`,
+    apprArgs(req)
+  );
+  res.json(rows.map((r) => ({
+    module: r.module,
+    id: r.id,
+    what: r.module === 'workorders' ? 'Work order' : 'Report',
+    label: r.module === 'workorders' ? (r.woNo || r.id) : (r.docId || r.repNo || r.id),
+    type: r.module === 'workorders' ? '' : (r.type || ''),
+    client: (r.module === 'workorders' ? r.woClient : r.repClient) || '',
+    date: r.repDate || '',
+    author: r.authorName || r.created_by || '',
+    at: r.updated_at,
+  })));
+});
+
 // GET /api/records/:module — every live (non-deleted) record, oldest first
 // (the screens reverse it themselves to show newest on top).
 router.get('/:module', async (req, res) => {
@@ -178,17 +305,11 @@ async function upsert(req, res, id) {
         'SELECT created_by FROM erp_records WHERE module = ? AND id = ? LIMIT 1', [module, id]
       );
       const authorCode = owner[0] && owner[0].created_by;
-      let mayApprove = isAdminTier(req.erpUser.role);
-      if (!mayApprove && authorCode) {
-        const [authorRow] = await pool.query(
-          'SELECT id FROM employees WHERE employee_id = ? LIMIT 1', [authorCode]
-        );
-        const authorId = authorRow[0] && authorRow[0].id;
-        if (authorId) mayApprove = (await hodOf(authorId)) === req.erpUser.id;
-      }
-      if (!mayApprove) {
+      if (!(await mayApprove(req, authorCode))) {
         return res.status(403).json({
-          error: 'Only the HOD this report answers to can approve it.' });
+          error: authorCode === req.erpUser.employeeId
+            ? 'You released this one, so it is not yours to approve.'
+            : 'Only the HOD this report answers to can approve it.' });
       }
     }
     rec.approval = want;
