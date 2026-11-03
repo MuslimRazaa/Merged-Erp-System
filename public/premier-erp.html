@@ -110,7 +110,13 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 /* A box the work order filled in, rather than the inspector. Marked so
    that what came off the work order and what was typed can be told
    apart at a glance - which matters most when one of them is wrong. */
-.autofill input,.autofill textarea,.autofill .selx-btn,input.autofill{
+/* .field.autofill, not .autofill: the generic .field input rule below
+   sets a white background at the same weight and comes later, so the
+   plain boxes - Customer among them - stayed white while the pickers,
+   whose rule this already out-ranked, went blue. Two classes beat one
+   whatever the order, so this no longer depends on where it sits. */
+.field.autofill input,.field.autofill textarea,.field.autofill select,
+.field.autofill .selx-btn,input.autofill{
   background:#EAF3FF;border-color:#9EC5F5}
 .appr-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:10px;
   border:1px solid var(--line);border-radius:8px;background:#FFF8E6;font-size:12.5px}
@@ -313,7 +319,6 @@ body.locked #app{display:none}
     <div><div class="crumb" id="crumb">HOME</div><h1 id="title">Dashboard</h1></div>
     <div class="top-actions">
       <span id="lv-inbox-slot" style="position:relative"></span>
-      <span id="nt-slot" style="position:relative"></span>
       <span id="userchip"></span>
       <div class="chip-sync offline" id="syncchip"><div class="dot"></div><span id="synctext">Local only</span></div>
       <button class="btn ghost small" onclick="syncNow()">Sync now</button>
@@ -383,6 +388,15 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end">
     <button class="btn ghost" onclick="closeModal('otconfirmmodal')">Cancel</button>
     <button class="btn" id="otconfirm-submit-btn" onclick="otConfirmSubmit()">Confirm &amp; Log</button>
+  </div>
+</div></div>
+
+<div class="modal" id="apprlockmodal"><div class="box" style="max-width:460px">
+  <h3 id="apprlock-title">Closed to editing</h3>
+  <div id="apprlock-body"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('apprlockmodal')">Close</button>
+    <button class="btn" id="apprlock-back" onclick="apprLockBack()">Set back to In Process</button>
   </div>
 </div></div>
 
@@ -1416,7 +1430,7 @@ function applySession(r){
   nav();render();
   pullSharedMaster();recBootstrap();
   updateSyncBar();scheduleAutoSync();
-  lvPollPending();ntPoll();
+  lvPollPending();
   /* There is a fresh token now. Anything the queue was holding because the
      last one had expired goes straight away, rather than waiting for a
      timer or for somebody to find the button. */
@@ -1432,9 +1446,8 @@ function logout(){
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
   LEAVE_PENDING_COUNT=0;PO_PENDING_COUNT=0;
-  const nslot=document.getElementById('nt-slot');if(nslot)nslot.innerHTML='';
   /* Whether this person may approve went with their session. */
-  NT_COUNT=0;NT_ROWS=[];APPR_IS_HOD=false;
+  APPR_PENDING_COUNT=0;APPR_PENDING=[];APPR_IS_HOD=false;
   document.getElementById('l-user').value='';document.getElementById('l-pass').value='';showLogin();
 }
 /* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
@@ -2761,6 +2774,10 @@ let LEAVE_PENDING_COUNT=0;
 // Requests (see lvPollPending/lvLoadInboxPanel below) — "Requests", not
 // "Leave Inbox", since it now covers both.
 let PO_PENDING_COUNT=0;
+/* Reports and work orders released for approval and waiting on this
+   person - read off the records themselves, so a notice that was
+   missed, already read, or never written changes nothing here. */
+let APPR_PENDING_COUNT=0,APPR_PENDING=[];
 let LV_MINE=[],LV_QUEUE=[],LV_EDIT=null; // LV_EDIT = the leave row currently loaded in the form, or null = new
 const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Work From Home','Maternity Leave'];
 const LV_REQUEST_TYPES=['Full Day','Half Day'];
@@ -3315,81 +3332,12 @@ async function lvLoadQueue(){
 // on EVERY screen, not just the Leave Requests page) stay current even while
 // parked elsewhere — same interval-poll approach the rest of this
 // offline-first app already uses (no websocket infra here).
-/* ================================================================
-   THE BELL
-
-   A report released on a rig is only released as far as the rig until
-   somebody is told. When the push lands, the server addresses a row to
-   the HOD the inspector reports to; this is the part of that which the
-   HOD actually sees.
-
-   Built the same way as the Leave Inbox beside it - a polled count, a
-   badge, a panel - rather than a second mechanism doing the same job.
-   Polling, not pushing: there is no socket in this system, and a count
-   every minute is what the leave inbox has been doing all along.
-   ================================================================ */
-let NT_COUNT=0,NT_ROWS=[];
-async function ntPoll(){
-  const slot=document.getElementById('nt-slot');
-  /* Offline there is nobody to ask, and an offline session has no token;
-     asking would only produce a halt the person cannot act on. */
-  if(!SESSION||SESSION.offline||!navigator.onLine){if(slot)slot.innerHTML='';return;}
-  try{
-    const {count,isHod}=await api('/api/notifications/count');
-    APPR_IS_HOD=!!isHod;                 // who may be offered "Approved"
-    if(!count&&!isHod){if(slot)slot.innerHTML='';return;}
-    if(slot&&!slot.innerHTML)slot.innerHTML=ntShellHtml();
-    NT_COUNT=count;ntBadge();
-  }catch(e){/* silent: a badge is not worth an error on screen */}
-}
-setInterval(ntPoll,60000);
-function ntShellHtml(){
-  return '<button class="btn ghost small" id="nt-btn" onclick="ntToggle(event)" '+
-     'title="Reports and work orders awaiting your approval">☑ Approvals<span id="nt-badge"></span></button>'+
-   '<div id="nt-panel" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:#fff;'+
-     'border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);'+
-     'margin-top:6px;width:380px;max-height:440px;overflow:auto;padding:10px" onclick="event.stopPropagation()">'+
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
-      '<b style="font-size:12.5px">Awaiting your approval</b>'+
-      '<button class="btn ghost small" onclick="ntReadAll()">Mark all read</button></div>'+
-    '<div id="nt-list"><div class="empty">Loading…</div></div>'+
-   '</div>';
-}
-function ntBadge(){
-  const el=document.getElementById('nt-badge');if(!el)return;
-  el.innerHTML=NT_COUNT>0?' <span class="pill r">'+NT_COUNT+'</span>':'';
-}
-function ntToggle(ev){
-  if(ev)ev.stopPropagation();
-  const panel=document.getElementById('nt-panel');if(!panel)return;
-  const opening=panel.style.display==='none';
-  panel.style.display=opening?'block':'none';
-  if(opening)ntLoad();
-  if(!window.__ntOutsideListener){
-    window.__ntOutsideListener=true;
-    document.addEventListener('click',()=>{const p=document.getElementById('nt-panel');if(p)p.style.display='none';});
-  }
-}
-async function ntLoad(){
-  const body=document.getElementById('nt-list');if(!body)return;
-  try{
-    NT_ROWS=await api('/api/notifications');
-    body.innerHTML=NT_ROWS.length?NT_ROWS.map(ntRowHtml).join('')
-      :'<div class="empty">Nothing is waiting for you.</div>';
-  }catch(e){body.innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>';}
-}
-function ntRowHtml(n){
-  return '<div style="padding:7px 0;border-top:1px solid var(--line);font-size:12.5px">'+
-    (n.read?'':'<span class="pill r" style="margin-right:6px">New</span>')+
-    '<b>'+esc(n.title)+'</b>'+
-    (n.body?'<div class="hint" style="margin-top:2px">'+esc(n.body)+'</div>':'')+
-    '<div class="hint" style="margin-top:2px">'+esc(String(n.at||'').slice(0,16).replace('T',' '))+'</div>'+
-   '</div>';
-}
-async function ntReadAll(){
-  try{await api('/api/notifications/read',{method:'POST',body:JSON.stringify({})});
-    NT_COUNT=0;ntBadge();ntLoad();}catch(e){toast('Could not mark read: '+e.message,'err');}
-}
+/* The reports and work orders waiting on an HOD are shown in the
+   Requests dropdown below, beside the leave and purchase-order
+   decisions, rather than in a bell of their own that could list them
+   and do nothing about them. The server still writes a notification
+   row per release - that is the record that the HOD was told, and the
+   approve route marks it read. */
 async function lvPollPending(){
   const slot=document.getElementById('lv-inbox-slot');
   // Visible to Human Resources-access users, to a plain employee who is
@@ -3400,13 +3348,19 @@ async function lvPollPending(){
   // locally.
   if(!SESSION){if(slot)slot.innerHTML='';return;}
   try{
-    const [lv,po]=await Promise.all([
+    const [lv,po,ap]=await Promise.all([
       api('/api/leave/pending-count'),
-      api('/api/po-approvals/pending-count').catch(()=>({count:0,isApprover:false}))
+      api('/api/po-approvals/pending-count').catch(()=>({count:0,isApprover:false})),
+      api('/api/records/approvals/pending-count').catch(()=>({count:0,isApprover:false}))
     ]);
-    if(!canSee('Human Resources')&&!lv.isHod&&!po.isApprover){if(slot)slot.innerHTML='';return;}
+    /* Who may be offered "Approved" on a form. This used to be set by a
+       poll of its own behind the second button; the answer is the same
+       one and there is no reason to ask twice. */
+    APPR_IS_HOD=!!ap.isApprover;
+    if(!canSee('Human Resources')&&!lv.isHod&&!po.isApprover&&!ap.isApprover){if(slot)slot.innerHTML='';return;}
     if(slot&&!slot.innerHTML)slot.innerHTML=lvInboxShellHtml();
     if(lv.count!==LEAVE_PENDING_COUNT||po.count!==PO_PENDING_COUNT){LEAVE_PENDING_COUNT=lv.count;PO_PENDING_COUNT=po.count;nav();}
+    APPR_PENDING_COUNT=ap.count;
     lvUpdateInboxBadge();
   }catch(e){/* silent — just a background badge refresh */}
 }
@@ -3420,7 +3374,7 @@ function lvInboxShellHtml(){
 }
 function lvUpdateInboxBadge(){
   const el=document.getElementById('lv-inbox-badge');if(!el)return;
-  const n=LEAVE_PENDING_COUNT+PO_PENDING_COUNT;
+  const n=LEAVE_PENDING_COUNT+PO_PENDING_COUNT+APPR_PENDING_COUNT;
   el.innerHTML=n>0?' <span class="pill r">'+n+'</span>':'';
 }
 function lvToggleInbox(ev){
@@ -3442,11 +3396,15 @@ async function lvLoadInboxPanel(){
     // Both pending stages at once: still-with-the-HOD requests (this
     // viewer's own reports, or theirs to decide directly if no HOD/admin)
     // AND ones already forwarded to HR for the final call.
-    const [rows,poRows]=await Promise.all([
+    const [rows,poRows,apRows]=await Promise.all([
       api('/api/leave?status=ReleasedForApproval,PendingHRApproval'),
-      api('/api/po-approvals/pending').catch(()=>[])
+      api('/api/po-approvals/pending').catch(()=>[]),
+      api('/api/records/approvals/pending').catch(()=>[])
     ]);
-    LEAVE_PENDING_COUNT=rows.length;PO_PENDING_COUNT=poRows.length;nav();lvUpdateInboxBadge();
+    LEAVE_PENDING_COUNT=rows.length;PO_PENDING_COUNT=poRows.length;
+    APPR_PENDING=apRows;APPR_PENDING_COUNT=apRows.length;
+    nav();lvUpdateInboxBadge();
+    const apHtml=apRows.map(apprReqHtml).join('');
     const poHtml=poRows.map(r=>
        '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
         '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:12.5px">'+esc(r.no||'')+'</b><span class="pill b">Draft</span></div>'+
@@ -3473,10 +3431,57 @@ async function lvLoadInboxPanel(){
           '<button class="btn ghost small" onclick="lvRecordsOpenFor(\''+esc(r.employeeCode)+'\');go(\'hr_leave_records\');document.getElementById(\'lv-inbox-panel\').style.display=\'none\'">Open</button>'+
          '</div></div>';
       }).join('');
-    body.innerHTML=(poHtml||lvHtml)
-     ?((poHtml?'<div class="hint" style="margin-bottom:4px">Purchase order approvals</div>'+poHtml:'')+(lvHtml?'<div class="hint" style="margin:8px 0 4px">Leave requests</div>'+lvHtml:''))
+    body.innerHTML=(apHtml||poHtml||lvHtml)
+     ?((apHtml?'<div class="hint" style="margin-bottom:4px">Reports and work orders</div>'+apHtml:'')+
+       (poHtml?'<div class="hint" style="margin:8px 0 4px">Purchase order approvals</div>'+poHtml:'')+
+       (lvHtml?'<div class="hint" style="margin:8px 0 4px">Leave requests</div>'+lvHtml:''))
      :'<div class="empty">Nothing waiting on you right now.</div>';
   }catch(e){body.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
+}
+/* One released report or work order, waiting on whoever is looking.
+   Read it first, then say yes: Open is offered before Approve for that
+   reason, and approving asks once because it cannot be taken back by
+   the person who did it. */
+function apprReqHtml(r){
+  const arg="'"+esc(r.module)+"','"+esc(r.id)+"'";
+  return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'+
+   '<div style="display:flex;justify-content:space-between;align-items:baseline">'+
+     '<b style="font-size:12.5px">'+esc(r.label)+'</b>'+apprPill(APPR_RELEASED)+'</div>'+
+   '<div style="font-size:12.5px;margin:4px 0">'+esc(r.what)+(r.type?' \u00b7 '+esc(r.type):'')+'</div>'+
+   '<div class="hint">'+esc(r.author||'')+(r.client?' \u00b7 '+esc(r.client):'')+'</div>'+
+   '<div style="margin-top:6px;display:flex;gap:6px">'+
+    '<button class="btn ghost small" style="flex:1" onclick="apprReqOpen('+arg+')">Open</button>'+
+    '<button class="btn small" style="flex:1" onclick="apprReqApprove('+arg+')">Approve</button>'+
+   '</div></div>';
+}
+/* Reading it means the document, not the entry form: the form is shut
+   to a released record, and the PDF is what was actually certified. */
+async function apprReqOpen(module,id){
+  const panel=document.getElementById('lv-inbox-panel');if(panel)panel.style.display='none';
+  try{
+    if(module===IR_LIB){
+      if(!irLibLocal().some(r=>r.id===id))await irLibPull(true);
+      if(!irLibLocal().some(r=>r.id===id))throw new Error('this machine has not got that report yet');
+      await irPdfSaved(id);
+    }else{
+      await recEnsure(module);
+      go('m_'+module);viewRec(id);
+    }
+  }catch(e){toast('Could not open it \u2014 '+e.message,'err');}
+}
+/* The server re-reads the record and changes the approval alone, so the
+   report this machine happens to be holding never overwrites the one
+   the inspector filed. */
+async function apprReqApprove(module,id){
+  const what=module==='workorders'?'work order':'report';
+  if(!confirm('Approve this '+what+'?\n\nIt is closed to editing once you do.'))return;
+  try{
+    const saved=await api('/api/records/approvals/'+encodeURIComponent(module)+
+      '/'+encodeURIComponent(id)+'/approve',{method:'POST',body:'{}'});
+    if(module===IR_LIB)await irLibPull(true);else recUpsertLocal(module,saved);
+    toast('Approved.','ok');
+    lvLoadInboxPanel();render();
+  }catch(e){toast('Could not approve it \u2014 '+e.message,'err');}
 }
 // Approve/Reject a PO straight from the Requests dropdown — see
 // backend/routes/poApprovals.js for who's actually allowed to decide it
@@ -7100,7 +7105,16 @@ function viewRec(id){
   openModal('recviewmodal');
 }
 let REC_EDIT_ID=null;
+/* Same rule as a report, and said the same way: a released work order
+   opens to be read, not retyped. */
 function editRecModal(id){
+  const k=modKey();
+  const r=coll(k).find(x=>x.id===id);if(!r)return;
+  if(!APPR_MODS.has(k)){editRecModalNow(id);return;}
+  apprLockAsk(r,(MODULES[k].name||'record').toLowerCase(),
+    ()=>editRecModalNow(id),()=>editRecModalNow(id));
+}
+function editRecModalNow(id){
   const k=modKey(),m=MODULES[k];
   const r=coll(k).find(x=>x.id===id);if(!r)return;
   REC_EDIT_ID=id;
@@ -7266,7 +7280,14 @@ async function saveRec(){
     if(prevShiftStart!==undefined && rec.shiftstart!==prevShiftStart)await pushEmployeeShift(rec);
   }
 }
-function editRec(id){editId=id;renderModule._lk=false;render();window.scrollTo({top:0,behavior:'smooth'});}
+function editRec(id){
+  const k=modKey();
+  const r=APPR_MODS.has(k)?coll(k).find(x=>x.id===id):null;
+  if(!r){editRecNow(id);return;}
+  apprLockAsk(r,(MODULES[k].name||'record').toLowerCase(),
+    ()=>editRecNow(id),()=>editRecNow(id));
+}
+function editRecNow(id){editId=id;renderModule._lk=false;render();window.scrollTo({top:0,behavior:'smooth'});}
 async function delRec(id){
   if(!confirm('Delete this record?'))return;
   const k=modKey();const rec=coll(k).find(r=>r.id===id);
@@ -7438,8 +7459,11 @@ function attSize(n){n=+n||0;return n>1048576?(n/1048576).toFixed(1)+' MB':n>1024
 // instead, which lives outside #content and so never gets touched by
 // render(). This refreshes that modal's contents in place when it's the
 // one currently open, so an upload/remove shows up without closing it.
+// Straight to editRecModalNow: this is the open modal redrawing itself, not
+// somebody asking to edit, so it must not raise the closed-to-editing modal
+// on top of the very modal it is refreshing.
 function refreshRecModalIfOpen(id){
-  if(REC_EDIT_ID===id&&document.getElementById('recimodal').classList.contains('open'))editRecModal(id);
+  if(REC_EDIT_ID===id&&document.getElementById('recimodal').classList.contains('open'))editRecModalNow(id);
 }
 function attUpload(id,list){
   const files=Array.from(list||[]);if(!files.length)return;
@@ -9521,8 +9545,12 @@ function renderInspReport(){
   const sc=irSchema();
   const custOpts=coll('customers').map(c=>'<option value="'+esc(c.name)+'">').join('');
   document.getElementById('content').innerHTML=
-  '<div class="irform'+(apprLocked(IR)?' appr-locked':'')+'">'+
-  apprBarHtml(IR)+
+  /* No lock here, and no bar saying there is one. A report on the screen
+     is a report being written, whatever its Approval says: the status is
+     a field like any other and takes effect when the report is filed.
+     What is closed is the copy in the library, and Open is where that
+     is said - see apprLockAsk. */
+  '<div class="irform">'+
   irDraftOffer()+
   '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
   '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label>'+
@@ -12793,22 +12821,27 @@ function irPhotos(files){
     img.src=URL.createObjectURL(f);
   });
 }
-/* Changing it on the open report. A report already in the library is
-   updated and re-queued there and then, so releasing one does not mean
-   filing it a second time. */
+/* Picking a status on the form is picking a field, nothing more. It used
+   to rewrite the library's copy and re-queue it the moment it was
+   touched, which is why the form died under the inspector mid-report.
+   It is written down with the report when the report is filed. */
 function irSetApproval(v){
   IR.approval=apprOf({approval:v});
   irSave();
-  const lib=lsGet('ir_library',[]),i=lib.findIndex(r=>r.id===IR.id);
-  if(i>=0){
-    lib[i].approval=IR.approval;
-    lib[i]._dirty=true;lib[i]._sync='pending';
-    lsSet('ir_library',lib);
-    irImgQueue(lib[i],null);            // the queue gets it as it now stands
-    toast(IR.approval===APPR_RELEASED
-      ?'Released for approval \u2014 press Sync now to send it.'
-      :'Saved. This report will not leave this machine while it is in process.','ok');
-  }
+  render();
+}
+/* Pulling a filed report back, from the modal that refused to open it.
+   The library's copy is the one that was closed, so it is the one that
+   is opened again. */
+function irUnrelease(id){
+  const lib=lsGet('ir_library',[]),i=lib.findIndex(r=>r.id===id);
+  if(i<0)return;
+  lib[i].approval=APPR_INPROC;
+  lib[i]._dirty=true;lib[i]._sync='pending';
+  lsSet('ir_library',lib);
+  irImgQueue(lib[i],null);
+  if(IR&&IR.id===id){IR.approval=APPR_INPROC;irSave();}
+  toast('Back in process \u2014 the report can be opened and corrected.','ok');
   render();
 }
 /* Said once, at the top, in the words an inspector would use. */
@@ -12821,22 +12854,67 @@ function apprBarHtml(rec){
       :'Released for approval, so it is closed to editing. To correct it, '+
        'set Approval back to In Process.')+'</span></div>';
 }
-/* A report still being written needs no explaining; the other two
-   states already say what they mean in the bar at the top. */
+/* Clicking Open on a closed document used to land you in a form that
+   swallowed every keystroke without a word. The reason is given first,
+   and then it opens anyway: reading and printing a released report is
+   the ordinary thing to want, and setting one back to In Process is
+   done on the form itself. */
+let APPR_LOCK_BACK=null;
+function apprLockAsk(rec,what,go,back){
+  if(!apprLocked(rec)){go();return;}
+  const a=apprOf(rec);
+  /* Undoing a release is an administrator's act, whatever the state. An
+     inspector who could take their own report back out of approval
+     could edit one the office has already been told is finished, which
+     is the thing this whole gate exists to stop. */
+  APPR_LOCK_BACK=(back&&isAdmin())?back:null;
+  document.getElementById('apprlock-title').textContent=apprLabel(a);
+  document.getElementById('apprlock-body').innerHTML=
+    '<div class="appr-bar">'+apprPill(a)+'<span>This '+esc(what)+' is '+
+      esc(apprLabel(a).toLowerCase())+', so it is closed to editing.</span></div>'+
+    '<p style="margin:12px 0 0;font-size:13px;line-height:1.6">'+
+      (a===APPR_APPROVED
+        ?'It has been accepted on the live system and cannot be changed as it stands. '
+        :'It cannot be changed while it is waiting. ')+
+      (APPR_LOCK_BACK
+        ?'Set it back to In Process to correct it, and release it again '+
+         'when it is right.'
+        // a dead end is only a dead end if nobody says who holds the key
+        :'Only an Administrator can set it back to In Process.')+
+      '</p>'+
+      '<p class="hint" style="margin:10px 0 0">The \u2193 PDF and Print '+
+      'buttons on its line still work.</p>';
+  const b=document.getElementById('apprlock-back');
+  if(b)b.style.display=APPR_LOCK_BACK?'':'none';
+  openModal('apprlockmodal');
+}
+function apprLockBack(){
+  closeModal('apprlockmodal');
+  const back=APPR_LOCK_BACK;APPR_LOCK_BACK=null;
+  if(back)back();
+}
+/* Releasing explains itself when it matters - in the modal that refuses
+   to open the filed report. Saying it under the picker as well said it
+   before it was true, to somebody still writing. */
 function apprHint(s){
-  return s===APPR_RELEASED
-    ?'Goes to the live system the next time Sync now is pressed.'
-    :s===APPR_APPROVED
+  return s===APPR_APPROVED
     ?'Accepted by the HOD on the live system.'
     :'';
 }
 function irStore(){
-  /* A released report is not re-filed over. Correcting one means setting
-     its approval back to In Process first, which is a deliberate act and
-     a visible one. */
-  if(apprLocked(IR)){
-    toast(apprLabel(apprOf(IR))+' — this report is closed to editing. '+
-      'Set Approval back to In Process to correct it.','err');
+  /* What is locked is the copy the library holds, not the report on the
+     screen. So this reads the STORED record: filing a report that is
+     released on the form is how it becomes released, and must go
+     through; re-filing over one the library already holds as released
+     must not. Reading apprLocked(IR) instead - the draft - refused the
+     very press that was meant to file it. */
+  const filed=lsGet('ir_library',[]).find(r=>r.id===IR.id);
+  if(filed&&apprLocked(filed)){
+    /* Not 'change it on the form': the form no longer unlocks anything,
+       because what is locked is the copy below. Saved Reports is where
+       it is pulled back, and the Open button there says so. */
+    toast(apprLabel(apprOf(filed))+' — this report is already filed and '+
+      'closed. Open it in Saved Reports to set it back to In Process.','err');
     return;
   }
   if(!IR.fields.no)IR.fields.no=irNextReportNo();   // stamped once, on the first filing
@@ -13044,6 +13122,14 @@ function irImgHaveAdd(recId,h){
   if(list.indexOf(h)<0){list.push(h);m[recId]=list;lsSet('img_have',m);}
 }
 async function irImgQueue(rec,att){
+  /* A specimen is here to be looked at, not filed. The guard used to sit
+     in irLibPush alone, so every OTHER way of queueing a record - the
+     old Release button, the old approval picker, pulling one back - put
+     demo reports on the server, where everybody then saw them among
+     their own. It belongs here, where every caller passes. Filing a
+     specimen is different: irStore drops _local first, because a
+     specimen somebody worked on is their report now. */
+  if(!rec||rec._local)return;
   const {thin,imgs}=await irImgThin(rec);
   obEnqueue({kind:'rec',module:IR_LIB,recId:rec.id,
              label:(rec.fields&&rec.fields.no)||rec.id,
@@ -13921,9 +14007,8 @@ function irLibTable(){
      '<td>'+esc(h.loc)+'</td><td>'+esc(h.wo)+'</td><td>'+esc(h.date)+'</td>'+
      '<td class="num">'+(r.items||[]).length+'</td><td class="num">'+(imgs||'')+'</td>'+
      '<td>'+String(r.savedAt||'').slice(0,10)+'</td>'+
-     '<td>'+apprPill(apprOf(r))+(apprOf(r)===APPR_INPROC&&!r._local
-       ?' <button class="btn ghost small" onclick="irRelease(\''+r.id+'\')" '+
-        'title="Mark it finished so the next Sync now sends it">Release</button>':'')+'</td>'+
+     // the status, as it was filed; it is set on the report, not here
+     '<td>'+apprPill(apprOf(r))+'</td>'+
      '<td>'+irSyncPill(r)+'</td>'+
      '<td class="no-print" style="white-space:nowrap">'+
       '<button class="btn ghost small" onclick="irOpen(\''+r.id+'\')">Open</button> '+
@@ -13931,23 +14016,6 @@ function irLibTable(){
       '<button class="btn ghost small" onclick="irPrintSaved(\''+r.id+'\')">Print</button> '+
       '<button class="del" onclick="irDel(\''+r.id+'\')">✕</button></td></tr>';
   }).join('')+'</tbody></table>';
-}
-/* Releasing from Saved Reports, without opening the report. Same act as
-   the dropdown on the form, and the same consequence: the queue is given
-   the record as it now stands, and the next Sync now sends it. */
-function irRelease(id){
-  const lib=lsGet('ir_library',[]),i=lib.findIndex(r=>r.id===id);
-  if(i<0)return;
-  if(!confirm('Release report '+((lib[i].fields||{}).no||id)+' for approval?\n\n'+
-    'It goes to the live system the next time Sync now is pressed, and your '+
-    'HOD is told it is waiting.'))return;
-  lib[i].approval=APPR_RELEASED;
-  lib[i]._dirty=true;lib[i]._sync='pending';
-  lsSet('ir_library',lib);
-  irImgQueue(lib[i],null);
-  if(IR&&IR.id===id){IR.approval=APPR_RELEASED;irSave();}
-  toast('Released for approval \u2014 press Sync now to send it.','ok');
-  render();
 }
 function irqSet(k,v){
   IRQ[k]=v;
@@ -13997,8 +14065,19 @@ async function irWith(id,fn){
   try{fn();}finally{IR=keepIR;if(keepDraft)lsSet('ir_current',keepDraft);}
 }
 function irPdfSaved(id){return irWith(id,irPdf);}
-async function irPrintSaved(id){await irOpen(id);setTimeout(()=>window.print(),500);}
-async function irOpen(id){
+/* Printing opens the report to print it. That is not somebody asking to
+   edit a closed one, so it goes straight to irOpenNow and raises no
+   modal - only the Open button does. */
+async function irPrintSaved(id){await irOpenNow(id);setTimeout(()=>window.print(),500);}
+function irOpen(id){
+  const r=lsGet('ir_library',[]).find(x=>x.id===id);if(!r)return;
+  /* A closed report is not opened at all - the form it would open has no
+     lock on it any more, so opening one would be handing over a report
+     that is supposed to be closed. The way back is a status change on
+     the library's copy, after which Open works as usual. */
+  apprLockAsk(r,'report',()=>irOpenNow(id),()=>irUnrelease(id));
+}
+async function irOpenNow(id){
   const lib=lsGet('ir_library',[]);
   const r=lib.find(x=>x.id===id);if(!r)return;
   await irImgEnsure(r);
@@ -14437,7 +14516,7 @@ irMigrateReportNos();
       bootGoTake();
       nav();render();restored=true;
       pullSharedMaster();recBootstrap();
-      lvPollPending();ntPoll();
+      lvPollPending();
     }catch(e){
       /* Only an actual rejection signs anybody out. Being unable to reach
          the server is the normal state on a remote site, and the session
