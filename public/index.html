@@ -1098,7 +1098,7 @@ items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPdf',editModal:'grnEditOpen',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},T('who','Received by')],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPdf',editModal:'grnEditOpen',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},{...D('date','Date'),req:1},{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),req:1},REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},{...T('who','Received by'),req:1}],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
@@ -7276,6 +7276,17 @@ async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
   const missingReq=reqFieldMissingLabel(m,'f-');
   if(missingReq)return toast(missingReq+' is required.','err');
+  // GRN's own items grid isn't one of m.fields (it's the GRL array, kept
+  // outside the generic field system), so reqFieldMissingLabel() above
+  // never sees it — nothing stops a blank Receive Qty / Rejected Qty from
+  // being submitted otherwise. Blank, specifically: a typed 0 (nothing
+  // received, or nothing rejected) is a real, valid answer and must stay
+  // allowed — this only catches the field never having been touched.
+  if(k==='grns'){
+    if(!GRL.length)return toast('Select a PO to load its items before saving.','err');
+    const blankRow=GRL.findIndex(l=>l.recvQty===''||l.recvQty==null||l.rejQty===''||l.rejQty==null);
+    if(blankRow>=0)return toast('Receive Qty and Rejected Qty are required for every item (row '+(blankRow+1)+').','err');
+  }
   const wasNew=!editId;
   const existing=editId?data.find(r=>r.id===editId):null;
   // Server-backed modules edit a COPY: the cache must only change once the
@@ -7982,8 +7993,9 @@ function grnGrid(rec){
      '<td class="num" id="grn-tot-'+i+'">'+fmt(grnLineTotal(l))+'</td>'+
      '<td class="num" id="grn-lineamt-'+i+'">'+fmt(grnLineAmount(l,i,po))+'</td></tr>').join('')+
    '</tbody><tfoot>'+
-    (taxpct?'<tr><td colspan="5" style="text-align:right;color:var(--faint,#98A2B3);font-size:11px">Tax</td><td class="num" style="color:var(--faint,#98A2B3);font-size:11px" id="grn-taxpct">'+taxpct+'%</td></tr>':'')+
     '<tr><td colspan="5" style="text-align:right;font-weight:700">Sub Total</td><td class="num" style="font-weight:700" id="grn-subtotal">'+fmt(subTotal)+'</td></tr>'+
+    (taxpct?'<tr><td colspan="5" style="text-align:right;color:var(--faint,#98A2B3);font-size:11px">Tax ('+taxpct+'%)</td><td class="num" style="color:var(--faint,#98A2B3);font-size:11px" id="grn-taxamt">'+fmt(subTotal*taxpct/100)+'</td></tr>':'')+
+    (taxpct?'<tr><td colspan="5" style="text-align:right;font-weight:700">Total</td><td class="num" style="font-weight:700" id="grn-grandtotal">'+fmt(subTotal+subTotal*taxpct/100)+'</td></tr>':'')+
    '</tfoot></table></div>'+
    '<div id="grn-payable-zone">'+grnPayableHtml(rec)+'</div>';
 }
@@ -7992,7 +8004,11 @@ function grnRefreshRow(i){
   const el=document.getElementById('grn-tot-'+i);if(el)el.textContent=fmt(grnLineTotal(GRL[i]));
   const po=grnPoFor();
   const ae=document.getElementById('grn-lineamt-'+i);if(ae)ae.textContent=fmt(grnLineAmount(GRL[i],i,po));
-  const se=document.getElementById('grn-subtotal');if(se)se.textContent=fmt(GRL.reduce((s,l,j)=>s+grnLineAmount(l,j,po),0));
+  const subTotal=GRL.reduce((s,l,j)=>s+grnLineAmount(l,j,po),0);
+  const se=document.getElementById('grn-subtotal');if(se)se.textContent=fmt(subTotal);
+  const taxpct=po?+po.taxpct||0:0,taxAmt=subTotal*taxpct/100;
+  const tae=document.getElementById('grn-taxamt');if(tae)tae.textContent=fmt(taxAmt);
+  const ge=document.getElementById('grn-grandtotal');if(ge)ge.textContent=fmt(subTotal+taxAmt);
   grnRefreshPayable();
 }
 /* A GRN's own printed sheet — the generic key/value docPdf() layout (used
@@ -8002,53 +8018,154 @@ function grnRefreshRow(i){
    included), Sub Total/Tax, and the same Payable Amount/Status this PO
    shows everywhere else — computed off EVERY GRN against the PO (via
    grnReceivedQty()), not just this one, same as the live grid does. */
+/* A GRN's own printed sheet — built on the SAME letterhead (watermark,
+   logo, company header, bordered details grid, boxed totals) as
+   poPdf()'s Purchase Order, instead of the bare key/value-and-table
+   layout the generic docPdf() would produce (it has no concept of a
+   module's line items at all). Payable Amount/Status is computed off
+   EVERY GRN against the PO (grnReceivedQty(), no excludeId — a finished,
+   saved document, not a live edit), same math as the on-screen panel. */
 function grnPdf(id){
   const r=coll('grns').find(x=>x.id===id);
   if(!r){alert('Save the record first.');return;}
   const po=coll('purchaseorders').find(p=>p.no===r.po)||{};
   const vend=coll('vendors').find(v=>v.name===r.vendor)||{};
   const lines=(r.grnlines&&r.grnlines.length)?r.grnlines:[];
+  const doc=new PdfDoc();
+  doc.noFooter=true;
+  const L=doc.mL,R=doc.w-doc.mR,W=R-L;
+  const TY=t2=>doc.h-t2;
+  const rty=(t2,h)=>TY(t2+h);
+  const drawWatermark=()=>{
+    const wmSize=120,ang=Math.PI/4,cosA=Math.cos(ang),sinA=Math.sin(ang);
+    const wmW=doc.twx('PTIS',wmSize,true);
+    const cx=doc.w/2,cy=doc.h/2;
+    const x0=cx-(wmW/2)*cosA,y0=cy-(wmW/2)*sinA;
+    doc.cur.ops.push('BT /F2 '+wmSize+' Tf 0.955 0.955 0.96 rg '+cosA.toFixed(4)+' '+sinA.toFixed(4)+' '+(-sinA).toFixed(4)+' '+cosA.toFixed(4)+' '+x0.toFixed(1)+' '+y0.toFixed(1)+' Tm ('+doc.esc('PTIS')+') Tj ET');
+  };
+  drawWatermark();
+
+  /* ---------- letterhead ---------- */
+  doc.rect(0,doc.h-3,doc.w,3,'0.10 0.16 0.30');
+  const logoW=70,logoH=46.7,logoX=L+(W-logoW)/2;
+  doc.imageAt(PTIS_LOGO_JPEG,logoX,rty(12,logoH),logoW,logoH);
+  doc.textC(L+W/2,TY(72),WO_CO.name,14,true);
+  doc.textC(L+W/2,TY(87),WO_CO.addr,8);
+  doc.textC(L+W/2,TY(99),'City: '+WO_CO.city+', Zip Code: '+WO_CO.zip+'    Phone: '+WO_CO.phone+'   Fax: '+WO_CO.fax,7.8);
+  doc.textC(L+W/2,TY(111),'NTN#: '+WO_CO.ntn+'   GST#: '+WO_CO.gst,7.8);
+  doc.rect(L,rty(121,2.2),W,2.2,'0.10 0.16 0.30');
+  doc.textC(L+W/2,TY(140),'GOODS RECEIPT NOTE',16,true);
+
+  /* ---------- GRN details — 3 cols x 2 rows ---------- */
+  const grnRows=[
+    [['DATE',woDmy(r.date)],['GRN NO.',r.no||''],['STATUS',po.status||'Draft']],
+    [['PO REF.',r.po||''],['VENDOR',r.vendor||''],['RECEIVED BY',r.who||'']],
+  ];
+  const pgColW=W/3,pgRowH=17,pgTop=156,pgH=pgRowH*grnRows.length;
+  doc.box(L,rty(pgTop,pgH),W,pgH);
+  for(let ci=1;ci<3;ci++)doc.rule(L+ci*pgColW,rty(pgTop,pgH),L+ci*pgColW,TY(pgTop),0.8);
+  grnRows.forEach((row,ri)=>{
+    const rt=pgTop+ri*pgRowH;
+    if(ri>0)doc.rule(L,TY(rt),L+W,TY(rt),0.7);
+    row.forEach((pr,ci)=>{
+      const cx=L+ci*pgColW;
+      doc.text(cx+6,TY(rt+11.5),doc.fit(pr[0],58,7),7,true,'0.35 0.38 0.45');
+      doc.text(cx+68,TY(rt+11.5),doc.fit(String(pr[1]),pgColW-74,8.5),8.5);
+    });
+  });
+  let t=pgTop+pgH+14;
+  if(vend.contact||vend.addr){
+    const vH=26;
+    doc.box(L,rty(t,vH),W,vH);
+    doc.text(L+6,TY(t+15),doc.fit('Vendor contact: '+[vend.contact,vend.addr].filter(Boolean).join(' — '),W-12,8),8);
+    t+=vH+10;
+  }
+
+  /* ---------- items table ---------- */
+  const cw={sn:22,item:150,poqty:56,recv:62,rej:62,net:68,price:62,amt:70};
+  const cols=[['#',cw.sn],['ITEM',cw.item],['PO QTY',cw.poqty],['RECEIVE QTY',cw.recv],['REJECTED QTY',cw.rej],['TOTAL RECEIVED',cw.net],['PRICE',cw.price],['AMOUNT',cw.amt]];
+  const tblX=L;
+  const colX=[];{let x=tblX;cols.forEach(c=>{colX.push(x);x+=c[1];});}
+  const tblW=colX[colX.length-1]+cols[cols.length-1][1]-tblX;
+  const thH=22;
+  const drawHead=()=>{
+    doc.rect(tblX,rty(t,thH),tblW,thH,'0.85 0.86 0.88');
+    cols.forEach((c,i)=>{doc.textC(colX[i]+c[1]/2,TY(t+13),c[0],6.8,true);});
+    t+=thH;
+  };
+  drawHead();
   const taxpct=+po.taxpct||0;
   let sub=0;
-  const rows=lines.map((l,i)=>{
+  if(!lines.length){
+    doc.text(tblX+6,TY(t+12),'No items on this GRN.',8.5,false,'0.35 0.38 0.45');
+    t+=18;
+  }
+  lines.forEach((l,i)=>{
     const price=(po.polines&&po.polines[i])?+po.polines[i].price||0:0;
     const net=(+l.recvQty||0)-(+l.rejQty||0);
     const amt=net*price;
     sub+=amt;
-    return [String(i+1),l.item||'',fmt(l.poQty||0),fmt(+l.recvQty||0),fmt(+l.rejQty||0),fmt(net),price?fmt(price):'',fmt(amt)];
+    const rowH=15;
+    if(t+rowH>doc.h-doc.mB-130){
+      doc.rule(tblX,TY(t),tblX+tblW,TY(t),0.9);
+      doc.newPage();t=doc.mT;drawWatermark();drawHead();
+    }
+    const vals=[String(i+1),l.item||'',fmt(l.poQty||0),fmt(+l.recvQty||0),fmt(+l.rejQty||0),fmt(net),price?fmt(price):'',fmt(amt)];
+    cols.forEach((c,ci)=>{doc.text(colX[ci]+3,TY(t+11),doc.fit(vals[ci],c[1]-6,7.5),7.5,ci===1);});
+    doc.rule(tblX,TY(t+rowH-2),tblX+tblW,TY(t+rowH-2),0.6,'0.75 0.76 0.8');
+    t+=rowH;
   });
+  doc.rule(tblX,TY(t),tblX+tblW,TY(t),0.9);
+  t+=14;
+
+  /* ---------- totals box (right) + Payable Amount/Status (left) ---------- */
   const tax=sub*taxpct/100,grand=sub+tax;
-  const doc=new PdfDoc();
-  doc.header('GOODS RECEIPT NOTE '+(r.no||''),'Goods Receipts');
-  const kv=[['Vendor',r.vendor||''],['Date',r.date||''],['PO ref',r.po||''],['Status',po.status||'Draft'],['Received by',r.who||'']];
-  if(vend.contact)kv.push(['Contact',vend.contact]);
-  if(vend.addr)kv.push(['Address',String(vend.addr).replace(/\n/g,', ').slice(0,70)]);
-  doc.kv(kv);
-  doc.y-=6;
-  doc.table(['#','Item','PO Qty','Receive Qty','Rejected Qty','Total Received','Price','Amount'],rows);
-  doc.y-=6;
-  doc.need(60);
-  doc.rect(doc.mL,doc.y-(taxpct?48:22),doc.w-doc.mL-doc.mR,(taxpct?56:30),'0.95 0.96 0.98');
-  if(taxpct){
-    doc.text(doc.mL+8,doc.y-4,'Sub Total: '+fmt(sub),9,false,'0.35 0.38 0.45');doc.y-=13;
-    doc.text(doc.mL+8,doc.y-4,'Tax ('+taxpct+'%): '+fmt(tax),9,false,'0.35 0.38 0.45');doc.y-=13;
-    doc.text(doc.mL+8,doc.y-4,'TOTAL: '+fmt(grand)+' '+(po.cur||''),12,true);doc.y-=18;
-  }else{
-    doc.text(doc.mL+8,doc.y-4,'TOTAL: '+fmt(sub)+' '+(po.cur||''),12,true);doc.y-=18;
-  }
+  const totW=170,totX=R-totW,totRowH=15,totH=totRowH*(taxpct?3:2);
+  if(t+Math.max(totH,56)>doc.h-doc.mB-110){doc.newPage();t=doc.mT;drawWatermark();}
   if(po.polines&&po.polines.length){
     const received=grnReceivedQty(po);
     const payGrand=po.polines.reduce((s,l,i)=>s+received[i]*(+l.price||0),0)*(1+taxpct/100);
     const allDone=po.polines.every((l,i)=>received[i]>=(+l.qty||0));
     const anyProgress=received.some(n=>n>0);
     const payStatus=allDone?'Fully payable':(anyProgress?'Partially payable':'Not yet received');
-    doc.need(26);
-    doc.text(doc.mL+8,doc.y-2,'Payable status (all GRNs against this PO): '+payStatus,8,false,'0.35 0.38 0.45');doc.y-=11;
-    doc.text(doc.mL+8,doc.y-2,'Payable amount: '+fmt(payGrand)+' of '+fmt(+po.amount||0),8,false,'0.35 0.38 0.45');doc.y-=26;
-  }else doc.y-=12;
-  doc.need(50);doc.y-=22;
-  doc.line(doc.mL,doc.y,doc.mL+170,doc.y);doc.line(doc.w-doc.mR-170,doc.y,doc.w-doc.mR,doc.y);
-  doc.y-=11;doc.text(doc.mL,doc.y,'Received by',8);doc.text(doc.w-doc.mR-170,doc.y,'Inspected by',8);
+    doc.text(L,TY(t+11),'Payable status',8,true,'0.35 0.38 0.45');
+    doc.text(L,TY(t+24),payStatus,9,true);
+    doc.text(L,TY(t+40),'Payable amount (whole PO, net of rejections):',7.8,false,'0.35 0.38 0.45');
+    doc.text(L,TY(t+53),fmt(payGrand)+' of '+fmt(+po.amount||0)+' '+(po.cur||''),9,true);
+  }
+  doc.box(totX,rty(t,totH),totW,totH);
+  doc.rule(totX,TY(t+totRowH),totX+totW,TY(t+totRowH),0.7);
+  doc.text(totX+6,TY(t+11),'Sub Total',8);doc.textR(totX+totW-6,TY(t+11),fmt(sub),8.5);
+  if(taxpct){
+    doc.rule(totX,TY(t+totRowH*2),totX+totW,TY(t+totRowH*2),0.9);
+    doc.text(totX+6,TY(t+totRowH+11),'Tax ('+taxpct+'%)',8);doc.textR(totX+totW-6,TY(t+totRowH+11),fmt(tax),8.5);
+    doc.text(totX+6,TY(t+totRowH*2+12),'TOTAL',9.5,true);doc.textR(totX+totW-6,TY(t+totRowH*2+12),(po.cur||'')+' '+fmt(grand),10,true);
+  }else{
+    doc.text(totX+6,TY(t+totRowH+12),'TOTAL',9.5,true);doc.textR(totX+totW-6,TY(t+totRowH+12),(po.cur||'')+' '+fmt(sub),10,true);
+  }
+  t+=totH+24;
+
+  /* ---------- signatures ---------- */
+  if(t+60>doc.h-doc.mB-30){doc.newPage();t=doc.mT;drawWatermark();}
+  const sigX2=R-170;
+  doc.rule(L,TY(t),L+150,TY(t),0.8);
+  doc.rule(sigX2,TY(t),sigX2+150,TY(t),0.8);
+  t+=12;
+  doc.text(L,TY(t),'Received by',8,false,'0.35 0.38 0.45');
+  doc.text(sigX2,TY(t),'Inspected by',8,false,'0.35 0.38 0.45');
+
+  /* ---------- footer: printed by / date / time / page ---------- */
+  const now=new Date();
+  const rd=(now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear();
+  const rt2=now.toLocaleTimeString('en-US',{hour12:true}).replace(/\s+/g,'');
+  const printedBy=(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:'';
+  const total=doc.pages.length;
+  doc.pages.forEach((p,i)=>{
+    doc.cur=p;
+    doc.rule(L,doc.mB-14,R,doc.mB-14,0.9);
+    doc.text(L,doc.mB-26,'Printed By: '+printedBy+'   '+rd+' '+rt2,8);
+    doc.textR(R,doc.mB-26,'Page '+(i+1)+' of '+total,8);
+  });
   doc.out('grn-'+String(r.no||id).replace(/[^A-Za-z0-9_-]+/g,'-'));
 }
 // The GRN list's Edit✎ button — same as editRec(id), just without the
