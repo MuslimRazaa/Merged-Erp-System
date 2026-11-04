@@ -35,7 +35,7 @@ const { toYmd, daysBetween, financialYearRange } = require('../fieldJobs');
 const router = express.Router();
 router.use(requireAuth);
 
-const LEAVE_TYPES = ['Annual Leave', 'Casual Leave', 'Medical Leave', 'Field Break', 'Leave Without Pay', 'Field Shift', 'Compensatory Leave', 'Work From Home', 'Maternity Leave'];
+const LEAVE_TYPES = ['Annual Leave', 'Casual Leave', 'Medical Leave', 'Field Break', 'Leave Without Pay', 'Field Shift', 'Compensatory Leave', 'Maternity Leave'];
 const REQUEST_TYPES = ['Full Day', 'Half Day'];
 const EMPLOYEE_STATUSES = ['InProcess', 'ReleasedForApproval', 'Cancelled'];
 // Both the HOD's recommendation and HR/Admin's final call are picked from

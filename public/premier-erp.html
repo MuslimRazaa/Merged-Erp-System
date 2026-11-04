@@ -2825,7 +2825,7 @@ let PO_PENDING_COUNT=0;
    missed, already read, or never written changes nothing here. */
 let APPR_PENDING_COUNT=0,APPR_PENDING=[];
 let LV_MINE=[],LV_QUEUE=[],LV_EDIT=null; // LV_EDIT = the leave row currently loaded in the form, or null = new
-const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Work From Home','Maternity Leave'];
+const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Maternity Leave'];
 const LV_REQUEST_TYPES=['Full Day','Half Day'];
 const LV_DECISIONS=['Approved','Rejected','Leave Without Pay','Cancelled','No Order','Valid for Reporting'];
 async function renderLeaveRequests(){
@@ -2913,6 +2913,16 @@ function otPickDate(btn){
   btn.classList.add('on');
   const el=document.getElementById('ot-date');if(el)el.value=btn.dataset.v;
 }
+// How a logged late sitting was actually worked — a required pick (see
+// otOpenConfirm()'s check below), not defaulted to either one, since it
+// changes what HR's audit list shows this entry as. Kept server-side too,
+// see backend/routes/lateSitting.js's WORK_MODES.
+const OT_WORK_MODES=['Offsite working','Work From Home'];
+function otPickMode(btn){
+  btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const el=document.getElementById('ot-mode');if(el)el.value=btn.dataset.v;
+}
 async function renderOvertime(){
   const hasHr=canSee('Human Resources');
   const c=document.getElementById('content');
@@ -2933,6 +2943,11 @@ async function renderOvertime(){
      opts.map((o,i)=>'<button type="button" class="att-tab'+(i===0?' on':'')+'" data-v="'+esc(o.v)+'" onclick="otPickDate(this)">'+o.label+' <span style="opacity:.6;font-weight:400">· '+o.sub+'</span></button>').join('')+
     '</div>'+
     '<input type="hidden" id="ot-date" value="'+esc(opts[0].v)+'">'+
+    '<div style="font-weight:700;font-size:12.5px;margin:16px 0 8px">How were you working?</div>'+
+    '<div class="att-tabs" id="ot-mode-tabs">'+
+     OT_WORK_MODES.map((wm)=>'<button type="button" class="att-tab" data-v="'+esc(wm)+'" onclick="otPickMode(this)">'+esc(wm)+'</button>').join('')+
+    '</div>'+
+    '<input type="hidden" id="ot-mode" value="">'+
     '<div class="field full" style="margin:18px 0 0;max-width:460px">'+
      '<label>Attachment (optional)</label><input type="file" id="ot-file" accept="image/*,.pdf">'+
      '<div class="hint" style="margin-top:4px">A screenshot of the email/message that shows you were working late — optional, but helps if this is ever questioned.</div>'+
@@ -2956,7 +2971,7 @@ function otFeedRow(r,withEmployee){
   return '<div class="att-row">'+
    '<span style="font-size:17px;flex:0 0 auto">🕗</span>'+
    '<div style="flex:1;min-width:0">'+
-    '<b>'+rptFmtDate(r.workDate)+'</b>'+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
+    '<b>'+rptFmtDate(r.workDate)+'</b>'+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
     '<div class="hint" style="margin-top:2px">Logged at '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · submitted '+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'+
    '</div>'+
    (r.hasAttachment?'<button class="btn ghost small" onclick="otViewAttachment('+r.id+')">📎 View</button>':'<span class="hint" style="white-space:nowrap">No attachment</span>')+
@@ -3017,15 +3032,19 @@ function otOpenConfirm(){
   const dateEl=document.getElementById('ot-date');
   const workDate=dateEl?dateEl.value:'';
   if(!workDate){err.textContent='Pick a date.';err.style.display='block';return;}
+  const modeEl=document.getElementById('ot-mode');
+  const workMode=modeEl?modeEl.value:'';
+  if(!workMode){err.textContent='Pick how you were working — Offsite working or Work From Home.';err.style.display='block';return;}
   const activeTab=document.querySelector('#ot-date-tabs .att-tab.on');
   const dateLabel=activeTab?activeTab.textContent.replace(/\s*·\s*/,' — '):workDate;
   const fileEl=document.getElementById('ot-file');
   const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
-  OT_PENDING={workDate,outTime:new Date()};
+  OT_PENDING={workDate,workMode,outTime:new Date()};
   document.getElementById('otconfirm-body').innerHTML=
    '<div class="hint" style="margin-bottom:10px">You’re about to log this late sitting:</div>'+
    '<div style="background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:10px">'+
     '<div><span class="hint">Day</span><br><b>'+esc(dateLabel)+'</b></div>'+
+    '<div><span class="hint">Working</span><br><b>'+esc(workMode)+'</b></div>'+
     '<div><span class="hint">Time (this device, right now)</span><br><b style="font-size:19px">'+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</b></div>'+
     '<div><span class="hint">Attachment</span><br><b>'+(file?esc(file.name):'None')+'</b></div>'+
    '</div>';
@@ -3043,6 +3062,7 @@ async function otConfirmSubmit(){
   const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
   const fd=new FormData();
   fd.append('workDate',OT_PENDING.workDate);
+  fd.append('workMode',OT_PENDING.workMode);
   fd.append('outTime',otLocalIso(OT_PENDING.outTime));
   if(file)fd.append('file',file,file.name);
   const btn=document.getElementById('otconfirm-submit-btn');
@@ -3729,6 +3749,7 @@ function empSectionHtml(k){
    efField('ef-status','Status','select',{options:['Active','On leave','Resigned','Terminated','Inactive']})+
    efField('ef-join','Join Date','date')+
    efField('ef-jobend','Job End Date','date')+
+   efField('ef-bloodgroup','Blood Group','select',{options:['','A+','A-','B+','B-','AB+','AB-','O+','O-']})+
    '</div>'+
    (EMP_EDIT?'<div class="hint" style="margin-top:6px">Changing Employee ID here fixes it in the ERP (login, payroll, records) immediately. If this ID is also registered on the physical attendance machine, update it there too, or future punches won\'t match this employee.</div>':'');
   if(k==='personal')return '<div class="fgrid">'+
@@ -3842,7 +3863,6 @@ function empSectionHtml(k){
    efField('ef-iban','IBAN #','text')+
    efField('ef-accno','Account No.','text')+
    efField('ef-accounttitle','Account Title','text')+
-   efField('ef-bloodgroup','Blood Group','select',{options:['','A+','A-','B+','B-','AB+','AB-','O+','O-']})+
    '</div>';
   }
   if(k==='ref')return '<div class="fgrid">'+
@@ -4238,6 +4258,7 @@ function empFillFormInner(){
   set('ef-dept',e.department);set('ef-desig',p.designation||'');set('ef-loc',e.location);
   set('ef-gender',p.gender);set('ef-email',e.email);set('ef-status',e.status);
   set('ef-join',(p.joinDate||'').slice(0,10));set('ef-jobend',(p.jobEndDate||'').slice(0,10));
+  set('ef-bloodgroup',p.bloodGroup);
   if(canManageRoles()){
     const isAdminRole=e.erpRole==='Administrator',isSubAdminRole=e.erpRole==='Sub Admin';
     const mods=(e.erpRole||'').split(',').map(s=>s.trim());
@@ -4268,7 +4289,7 @@ function empFillFormInner(){
   set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'PKR');
   set('ef-homeaddr',p.homeAddress);set('ef-mailaddr',p.mailingAddress);
   set('ef-bankname',p.bankName);set('ef-iban',p.iban);set('ef-accno',p.accountNo);
-  set('ef-accounttitle',p.accountTitle);set('ef-bloodgroup',p.bloodGroup);
+  set('ef-accounttitle',p.accountTitle);
   set('ef-refname',p.refName);set('ef-refcontact',p.refContact);set('ef-refemail',p.refEmail);set('ef-refoffice',p.refOffice);
   set('ef-kinname',p.kinName);set('ef-kinrelation',p.kinRelation);set('ef-kincontact',p.kinContact);set('ef-kinnic',p.kinNic);set('ef-kinemail',p.kinEmail);
   set('ef-phonecountry',p.phoneCountry||'PK');set('ef-phonenumber',p.phoneNumber);
@@ -4875,8 +4896,8 @@ function evAttExportCsv(){
 // Casual/Medical: 12 days/year each, Permanent employees only. Annual: 1
 // day/year, Permanent employees only, and only once they've completed a
 // full year of service (join date). Every other leave type in LV_TYPES
-// (Field Break, Compensatory Leave, Work From Home, Maternity Leave,
-// Leave Without Pay, Field Shift) has no fixed quota — those are entirely
+// (Field Break, Compensatory Leave, Maternity Leave, Leave Without Pay,
+// Field Shift) has no fixed quota — those are entirely
 // HR/HOD approval-based, so only an "Availed" count is shown for them.
 function evLeaveDays(r){
   const d1=new Date(r.fromDate),d2=new Date(r.toDate);

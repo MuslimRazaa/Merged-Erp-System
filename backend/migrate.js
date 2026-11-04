@@ -765,6 +765,11 @@ async function migrate() {
   // Deductions as a straight subtraction — see routes/payroll.js. A row past
   // its Valid Till date is simply skipped at payroll time, not deleted, so
   // the history of what an employee used to get stays on their profile.
+  // Which of the two Overtime forgives this late sitting as — logged
+  // offsite (at a client site, say) vs. from home. Nullable: existing rows
+  // logged before this field existed stay valid, just unlabeled.
+  try { await pool.query("ALTER TABLE erp_late_sittings ADD COLUMN work_mode VARCHAR(30) NULL AFTER out_time"); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_allowances JSON NULL AFTER field_allowance'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_deductions JSON NULL AFTER other_allowances'); }

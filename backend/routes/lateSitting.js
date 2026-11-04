@@ -56,15 +56,21 @@ function requireHr(req, res, next) {
 // timezones ahead of UTC (Pakistan Standard Time).
 const ymdLocal = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
+// The two ways a logged late sitting was actually worked — shown as a
+// required pick on the Overtime form before it can be submitted (see
+// otOpenConfirm() on the front end), stored so HR's audit list shows which
+// one it was, not just that a late sitting happened.
+const WORK_MODES = ['Offsite working', 'Work From Home'];
+
 function shapeMine(r) {
-  return { id: r.id, workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, hasAttachment: !!r.attachment_name, submittedAt: r.created_at };
+  return { id: r.id, workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, hasAttachment: !!r.attachment_name, submittedAt: r.created_at };
 }
 
 // GET /api/late-sittings/mine — the signed-in employee's own submissions,
 // most recent first.
 router.get('/mine', async (req, res) => {
   const [rows] = await pool.query(
-    'SELECT id, work_date, out_time, attachment_name, created_at FROM erp_late_sittings WHERE employee_id = ? ORDER BY work_date DESC, out_time DESC',
+    'SELECT id, work_date, out_time, work_mode, attachment_name, created_at FROM erp_late_sittings WHERE employee_id = ? ORDER BY work_date DESC, out_time DESC',
     [req.erpUser.id]
   );
   res.json(rows.map(shapeMine));
@@ -72,17 +78,17 @@ router.get('/mine', async (req, res) => {
 
 // GET /api/late-sittings — EVERY employee's submissions. HR/Admin only —
 // this is the audit list: who logged a manual late sitting, which day, what
-// time, and whether they attached proof.
+// time, which work mode, and whether they attached proof.
 router.get('/', requireHr, async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.attachment_name, ls.created_at,
+    `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.work_mode, ls.attachment_name, ls.created_at,
             e.employee_id AS emp_code, e.full_name AS emp_name, e.department
      FROM erp_late_sittings ls JOIN employees e ON e.id = ls.employee_id
      ORDER BY ls.work_date DESC, ls.out_time DESC`
   );
   res.json(rows.map((r) => ({
     id: r.id, employeeId: r.employee_id, employeeCode: r.emp_code, employeeName: r.emp_name, department: r.department,
-    workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, hasAttachment: !!r.attachment_name, submittedAt: r.created_at,
+    workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, hasAttachment: !!r.attachment_name, submittedAt: r.created_at,
   })));
 });
 
@@ -100,6 +106,9 @@ const YESTERDAY_CUTOFF_HOUR = 6;
 router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => {
   const workDate = String(req.body.workDate || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return res.status(400).json({ error: 'workDate must be YYYY-MM-DD.' });
+
+  const workMode = String(req.body.workMode || '');
+  if (!WORK_MODES.includes(workMode)) return res.status(400).json({ error: 'Pick whether you were working offsite or from home.' });
 
   const now = new Date();
   const today = ymdLocal(now);
@@ -147,13 +156,13 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
       throw e;
     }
     const [result] = await conn.query(
-      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, attendance_log_id, attachment_name, attachment_mime, attachment_data)
-       VALUES (?,?,?,?,?,?,?)`,
-      [emp.id, workDate, outTime, logId, fileName, file ? file.mimetype : null, file ? file.buffer : null]
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id, attachment_name, attachment_mime, attachment_data)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [emp.id, workDate, outTime, workMode, logId, fileName, file ? file.mimetype : null, file ? file.buffer : null]
     );
     await conn.commit();
-    await audit(emp.employeeId, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)}${file ? ' (with attachment)' : ''}`);
-    res.status(201).json({ id: result.insertId, workDate, outTime, hasAttachment: !!file, submittedAt: new Date() });
+    await audit(emp.employeeId, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)} (${workMode})${file ? ' (with attachment)' : ''}`);
+    res.status(201).json({ id: result.insertId, workDate, outTime, workMode, hasAttachment: !!file, submittedAt: new Date() });
   } catch (e) {
     await conn.rollback();
     throw e;
