@@ -399,6 +399,13 @@ async function computeAttendanceRows(from, to, filter = {}) {
         }
       }
 
+      // A day whose punches were all backfilled with source 'manual-wfh'
+      // (see the one-off CIS-migration backfill) still counts as a normal
+      // Present day everywhere (payroll, quotas, etc.) — this only adds a
+      // label so the Attendance Report can say so, same idea as Field's own
+      // "Present (Field)" label just below.
+      const workMode = (punches.length && punches.every((p) => p.source === 'manual-wfh')) ? 'Work From Home' : null;
+
       const fieldJob = fieldJobByEmpDate.get(key);
       // On a field job that day and no approved leave / leave-without-pay
       // covering it -> it counts as attendance, and Field ALWAYS takes
@@ -438,7 +445,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
         unmapped: false, department: emp.department, location: punchLoc || emp.location,
         checkIn, checkOut, punches: punches.length,
         shiftStart, graceMinutes: emp.grace_minutes, late, lateMinutes, lateSitting, lateSittingMinutes,
-        dayType, holidayName: holiday ? holiday.name : null,
+        dayType, workMode, holidayName: holiday ? holiday.name : null,
         onLeave: dayType === 'Leave' || dayType === 'LeaveWithoutPay',
         // dayOfWeek (0=Sunday..6=Saturday) so a WeeklyOff day can be shown/
         // counted as "Gazetted Holiday (Sunday)" vs a rotational Saturday

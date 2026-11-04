@@ -1967,7 +1967,9 @@ function rptDayTypeLabel(r){
       return 'Present (Field'+(note?' · '+note:'')+')'+(r.fieldJobRef?' — '+r.fieldJobRef:'')+(r.fieldJobOpen?' — job open (no end date)':'');
     }
     case 'Absent': return 'Absent';
-    default: return null; // 'Present' — show the real times
+    default:
+      if(r.workMode)return 'Present ('+r.workMode+')';
+      return null; // 'Present' — show the real times
   }
 }
 function rptBuildDetailed(){
