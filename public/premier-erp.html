@@ -459,6 +459,20 @@ body.locked #app{display:none}
   <div class="lerr" id="dcrmodal-err" style="display:none"></div>
   <div class="actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeModal('dcrmodal')">Cancel</button><button class="btn" onclick="dcrSave()">Save</button></div>
 </div></div>
+<!-- Editing an existing Goods Receipt opens here — the main GRN form
+     (fields, items grid, Payable panel, Save/Cancel), unchanged, just
+     rendered into this full-page modal instead of inline at the top of
+     the list. #grnmodal-body is filled by renderModule() itself (see
+     its grnModalEdit branch), not by a dedicated render function, so
+     there's no separate "save" button here — the form's own one lives
+     inside #grnmodal-body and already does the right thing. -->
+<div class="modal" id="grnmodal"><div class="box" style="max-width:1020px;width:96vw;max-height:92vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h3 style="margin:0">Edit — Goods Receipt</h3>
+    <button class="btn ghost small" onclick="editId=null;closeModal('grnmodal');render()">✕ Close</button>
+  </div>
+  <div id="grnmodal-body"></div>
+</div></div>
 
 <div class="modal" id="mtepickmodal"><div class="box" style="max-width:1020px;width:96vw">
   <h3>Choose equipment from the M&amp;TE register</h3>
@@ -1084,7 +1098,7 @@ items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},T('who','Received by')],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPdf',editModal:'grnEditOpen',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},D('date','Date'),REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},T('who','Received by')],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
@@ -7088,7 +7102,7 @@ function renderModule(){
     (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     (m.grnlines?'<div id="grn-zone">'+grnGrid(rec)+'</div>':'')+
     (m.vblines?'<div id="vb-zone">'+vbGrid(rec)+'</div>':'')+
-    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
+    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\'grnmodal\');render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
     '</div></div></div>'+
@@ -7106,7 +7120,20 @@ function renderModule(){
     expBtns('list-zone',k)+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
     '<div class="tblwrap" id="list-zone">'+listTable(m,rows,k)+'</div></div></div>';
-  document.getElementById('content').innerHTML=kpis+form+list;
+  // GRN specifically: editing an EXISTING record (not creating a new one)
+  // opens this exact same form — fields, items grid, Payable panel, Save/
+  // Cancel, all of it — inside a proper full-page modal instead of inline
+  // at the top of the list, per how the user asked for it. Only ONE copy
+  // of the form's `f-…` ids is ever live at a time (either here, inline,
+  // for a brand-new GRN, or in the modal, for editing one — never both),
+  // so every grnGrid()/grnPickPo()/saveRec() reference to `f-po` etc. still
+  // resolves correctly with no change to any of that code.
+  const grnModalEdit=(k==='grns'&&editId);
+  document.getElementById('content').innerHTML=kpis+(grnModalEdit?'':form)+list;
+  if(grnModalEdit){
+    document.getElementById('grnmodal-body').innerHTML=form;
+    openModal('grnmodal');
+  }
   if(watchedFields.size)applyConditionalFields(m,'f-');
   if(m.polines)poSyncAmountField();
   if(m.fields.some(f=>f.t==='file'))fileSummaryLoad(k);
@@ -7132,7 +7159,15 @@ function listTable(m,rows,k){
     }).join('')+(ac
       ?'<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View" onclick="event.stopPropagation();viewRec(\''+r.id+'\')">👁</button> <button class="btn ghost small" title="Edit" onclick="event.stopPropagation();editRecModal(\''+r.id+'\')">✎</button> <button class="del" title="Delete" onclick="event.stopPropagation();delRec(\''+r.id+'\')">🗑</button></td>'
       :m.rowPdf
-        ?'<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View" onclick="event.stopPropagation();'+m.rowPdf+'(\''+r.id+'\',\'view\')">👁</button> <button class="btn ghost small" title="Download PDF" onclick="event.stopPropagation();'+m.rowPdf+'(\''+r.id+'\')">⬇</button> <button class="del" title="Delete" onclick="event.stopPropagation();delRec(\''+r.id+'\')">🗑</button></td>'
+        // m.editModal (a function name string, like m.rowPdf) swaps the
+        // View👁 button for an Edit✎ one — used by modules (GRN) whose
+        // "view" and "edit" are the same screen anyway, so a separate
+        // view-only button is redundant busywork.
+        ?'<td class="no-print" style="white-space:nowrap">'+
+           (m.editModal
+             ?'<button class="btn ghost small" title="Edit" onclick="event.stopPropagation();'+m.editModal+'(\''+r.id+'\')">✎</button> '
+             :'<button class="btn ghost small" title="View" onclick="event.stopPropagation();'+m.rowPdf+'(\''+r.id+'\',\'view\')">👁</button> ')+
+           '<button class="btn ghost small" title="Download PDF" onclick="event.stopPropagation();'+m.rowPdf+'(\''+r.id+'\')">⬇</button> <button class="del" title="Delete" onclick="event.stopPropagation();delRec(\''+r.id+'\')">🗑</button></td>'
         :'<td class="no-print"><button class="del" onclick="event.stopPropagation();delRec(\''+r.id+'\')">✕</button></td>')+'</tr>').join('')+'</tbody></table>';
 }
 /* ============ generic record View / Edit modals (opt-in via m.actionsCol) ============ */
@@ -7287,7 +7322,7 @@ async function saveRec(){
       await Promise.all(m.fields.filter(f=>f.t==='file').map(f=>fileFieldApplyStaged(k,saved.id,'f-'+f.k)));
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
-      collSet(k,cur);REC_AT[k]=0;editId=null;render();toast('Saved.','ok');
+      collSet(k,cur);REC_AT[k]=0;editId=null;if(k==='grns')closeModal('grnmodal');render();toast('Saved.','ok');
       // grnSyncPoStatus's PUT lands AFTER the render() above, so without a
       // follow-up refresh the PO's new receiving status (Partially received
       // / Received) — which both the GRN list's own Status column AND any
@@ -7834,17 +7869,14 @@ function grnLineTotal(l){return (+l.recvQty||0)-(+l.rejQty||0);}
 // of what actually passed inspection. e.g. 10 ordered, 7 received-and-
 // accepted, 3 rejected -> payable on 7, not 10.
 function grnPayable(rec){
-  // Record-first, DOM-as-fallback. renderModule() calls grnGrid(rec) once
-  // while it's still assembling the page's innerHTML string — #f-po at
-  // that moment is still whatever the PREVIOUS screen left behind (not yet
+  // grnPoFor()'s record-first, DOM-as-fallback resolution matters here
+  // specifically because renderModule() calls grnGrid(rec) once while
+  // it's still assembling the page's innerHTML string — #f-po at that
+  // moment is still whatever the PREVIOUS screen left behind (not yet
   // overwritten), so when a real `rec` is on hand — reopening an existing
   // GRN for edit — it, not that stale element, is the one telling the
-  // truth. Only once there's no rec to go on (a live edit already in the
-  // DOM — grnPickPo()/grnRefreshRow() calling this with nothing) does the
-  // live #f-po value become the right thing to read.
-  const el=document.getElementById('f-po');
-  const poNo=(rec&&rec.po)?rec.po:(el?el.value:'');
-  const po=coll('purchaseorders').find(p=>p.no===poNo);
+  // truth.
+  const po=grnPoFor(rec);
   if(!po||!po.polines||!po.polines.length)return null;
   const priorElsewhere=grnReceivedQty(po,editId);
   const received=po.polines.map((l,i)=>{
@@ -7925,25 +7957,105 @@ SELX_CB['f-po']=function(){
   if(modKey()==='grns')grnPickPo();
   else if(modKey()==='vendorbills')vbPickPo();
 };
+// Resolves which PO this grid's lines are priced against — record-first,
+// DOM-as-fallback, same reasoning as grnPayable() (reopening an existing
+// GRN for edit calls this before the DOM has actually been replaced).
+function grnPoFor(rec){
+  const el=document.getElementById('f-po');
+  const poNo=(rec&&rec.po)?rec.po:(el?el.value:'');
+  return coll('purchaseorders').find(p=>p.no===poNo);
+}
+function grnLineAmount(l,i,po){return grnLineTotal(l)*(po&&po.polines&&po.polines[i]?(+po.polines[i].price||0):0);}
 function grnGrid(rec){
   if(!GRL.length)return '<div class="hint" style="margin:10px 0 4px">Select a PO above to load its items.</div>';
+  const po=grnPoFor(rec);
+  const subTotal=GRL.reduce((s,l,i)=>s+grnLineAmount(l,i,po),0);
+  const taxpct=po?+po.taxpct||0:0;
   return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items received</div>'+
    '<div class="tblwrap"><table><thead><tr>'+
-     '<th>Item</th><th style="width:90px" class="num">PO Qty</th><th style="width:110px" class="num">Receive Qty</th><th style="width:110px" class="num">Rejected Qty</th><th style="width:120px" class="num">Total Received</th>'+
+     '<th>Item</th><th style="width:90px" class="num">PO Qty</th><th style="width:110px" class="num">Receive Qty</th><th style="width:110px" class="num">Rejected Qty</th><th style="width:120px" class="num">Total Received</th><th style="width:120px" class="num">Amount</th>'+
    '</tr></thead><tbody>'+
    GRL.map((l,i)=>'<tr><td>'+esc(l.item||'')+'</td>'+
      '<td class="num">'+fmt(l.poQty||0)+'</td>'+
      '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.recvQty||'')+'" oninput="GRL['+i+'].recvQty=this.value;grnRefreshRow('+i+')"></td>'+
      '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.rejQty||'')+'" oninput="GRL['+i+'].rejQty=this.value;grnRefreshRow('+i+')"></td>'+
-     '<td class="num" id="grn-tot-'+i+'">'+fmt(grnLineTotal(l))+'</td></tr>').join('')+
-   '</tbody></table></div>'+
+     '<td class="num" id="grn-tot-'+i+'">'+fmt(grnLineTotal(l))+'</td>'+
+     '<td class="num" id="grn-lineamt-'+i+'">'+fmt(grnLineAmount(l,i,po))+'</td></tr>').join('')+
+   '</tbody><tfoot>'+
+    (taxpct?'<tr><td colspan="5" style="text-align:right;color:var(--faint,#98A2B3);font-size:11px">Tax</td><td class="num" style="color:var(--faint,#98A2B3);font-size:11px" id="grn-taxpct">'+taxpct+'%</td></tr>':'')+
+    '<tr><td colspan="5" style="text-align:right;font-weight:700">Sub Total</td><td class="num" style="font-weight:700" id="grn-subtotal">'+fmt(subTotal)+'</td></tr>'+
+   '</tfoot></table></div>'+
    '<div id="grn-payable-zone">'+grnPayableHtml(rec)+'</div>';
 }
 function grnRefresh(){renderModule._lk=true;const z=document.getElementById('grn-zone');if(z)z.innerHTML=grnGrid(null);}
 function grnRefreshRow(i){
   const el=document.getElementById('grn-tot-'+i);if(el)el.textContent=fmt(grnLineTotal(GRL[i]));
+  const po=grnPoFor();
+  const ae=document.getElementById('grn-lineamt-'+i);if(ae)ae.textContent=fmt(grnLineAmount(GRL[i],i,po));
+  const se=document.getElementById('grn-subtotal');if(se)se.textContent=fmt(GRL.reduce((s,l,j)=>s+grnLineAmount(l,j,po),0));
   grnRefreshPayable();
 }
+/* A GRN's own printed sheet — the generic key/value docPdf() layout (used
+   by Vendor Bills, Payment Vouchers, …) has no idea this module even has
+   line items, so it would print a GRN with no items table at all. This
+   mirrors exactly what's on screen: the items grid (Amount column
+   included), Sub Total/Tax, and the same Payable Amount/Status this PO
+   shows everywhere else — computed off EVERY GRN against the PO (via
+   grnReceivedQty()), not just this one, same as the live grid does. */
+function grnPdf(id){
+  const r=coll('grns').find(x=>x.id===id);
+  if(!r){alert('Save the record first.');return;}
+  const po=coll('purchaseorders').find(p=>p.no===r.po)||{};
+  const vend=coll('vendors').find(v=>v.name===r.vendor)||{};
+  const lines=(r.grnlines&&r.grnlines.length)?r.grnlines:[];
+  const taxpct=+po.taxpct||0;
+  let sub=0;
+  const rows=lines.map((l,i)=>{
+    const price=(po.polines&&po.polines[i])?+po.polines[i].price||0:0;
+    const net=(+l.recvQty||0)-(+l.rejQty||0);
+    const amt=net*price;
+    sub+=amt;
+    return [String(i+1),l.item||'',fmt(l.poQty||0),fmt(+l.recvQty||0),fmt(+l.rejQty||0),fmt(net),price?fmt(price):'',fmt(amt)];
+  });
+  const tax=sub*taxpct/100,grand=sub+tax;
+  const doc=new PdfDoc();
+  doc.header('GOODS RECEIPT NOTE '+(r.no||''),'Goods Receipts');
+  const kv=[['Vendor',r.vendor||''],['Date',r.date||''],['PO ref',r.po||''],['Status',po.status||'Draft'],['Received by',r.who||'']];
+  if(vend.contact)kv.push(['Contact',vend.contact]);
+  if(vend.addr)kv.push(['Address',String(vend.addr).replace(/\n/g,', ').slice(0,70)]);
+  doc.kv(kv);
+  doc.y-=6;
+  doc.table(['#','Item','PO Qty','Receive Qty','Rejected Qty','Total Received','Price','Amount'],rows);
+  doc.y-=6;
+  doc.need(60);
+  doc.rect(doc.mL,doc.y-(taxpct?48:22),doc.w-doc.mL-doc.mR,(taxpct?56:30),'0.95 0.96 0.98');
+  if(taxpct){
+    doc.text(doc.mL+8,doc.y-4,'Sub Total: '+fmt(sub),9,false,'0.35 0.38 0.45');doc.y-=13;
+    doc.text(doc.mL+8,doc.y-4,'Tax ('+taxpct+'%): '+fmt(tax),9,false,'0.35 0.38 0.45');doc.y-=13;
+    doc.text(doc.mL+8,doc.y-4,'TOTAL: '+fmt(grand)+' '+(po.cur||''),12,true);doc.y-=18;
+  }else{
+    doc.text(doc.mL+8,doc.y-4,'TOTAL: '+fmt(sub)+' '+(po.cur||''),12,true);doc.y-=18;
+  }
+  if(po.polines&&po.polines.length){
+    const received=grnReceivedQty(po);
+    const payGrand=po.polines.reduce((s,l,i)=>s+received[i]*(+l.price||0),0)*(1+taxpct/100);
+    const allDone=po.polines.every((l,i)=>received[i]>=(+l.qty||0));
+    const anyProgress=received.some(n=>n>0);
+    const payStatus=allDone?'Fully payable':(anyProgress?'Partially payable':'Not yet received');
+    doc.need(26);
+    doc.text(doc.mL+8,doc.y-2,'Payable status (all GRNs against this PO): '+payStatus,8,false,'0.35 0.38 0.45');doc.y-=11;
+    doc.text(doc.mL+8,doc.y-2,'Payable amount: '+fmt(payGrand)+' of '+fmt(+po.amount||0),8,false,'0.35 0.38 0.45');doc.y-=26;
+  }else doc.y-=12;
+  doc.need(50);doc.y-=22;
+  doc.line(doc.mL,doc.y,doc.mL+170,doc.y);doc.line(doc.w-doc.mR-170,doc.y,doc.w-doc.mR,doc.y);
+  doc.y-=11;doc.text(doc.mL,doc.y,'Received by',8);doc.text(doc.w-doc.mR-170,doc.y,'Inspected by',8);
+  doc.out('grn-'+String(r.no||id).replace(/[^A-Za-z0-9_-]+/g,'-'));
+}
+// The GRN list's Edit✎ button — same as editRec(id), just without the
+// scroll-to-top (pointless once this opens as a modal instead of an
+// inline section at the top of the page — see renderModule()'s
+// grnModalEdit branch, which is what actually puts the form in the modal).
+function grnEditOpen(id){editId=id;renderModule._lk=false;render();}
 /* ============ Vendor Bill line grid ============================
    Read-only — just shows what's being billed, pulled straight off the
    selected PO's own line items (see vbPickPo()) so the bill's grid always
