@@ -7307,6 +7307,8 @@ async function saveRec(){
     if(!GRL.length)return toast('Select a PO to load its items before saving.','err');
     const blankRow=GRL.findIndex(l=>l.recvQty===''||l.recvQty==null||l.rejQty===''||l.rejQty==null);
     if(blankRow>=0)return toast('Receive Qty and Rejected Qty are required for every item (row '+(blankRow+1)+').','err');
+    const overRow=GRL.findIndex(l=>(+l.recvQty||0)>(+l.poQty||0)||(+l.rejQty||0)>(+l.poQty||0));
+    if(overRow>=0)return toast('Receive Qty / Rejected Qty cannot exceed PO Qty (row '+(overRow+1)+').','err');
   }
   const wasNew=!editId;
   const existing=editId?data.find(r=>r.id===editId):null;
@@ -7787,7 +7789,7 @@ function poTotals(rec){
 function poGrid(rec){
   const itemNames=coll('items').map(x=>x.name).filter(Boolean);
   const t=poTotals(rec);
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Line items <button class="btn ghost small" style="margin-left:8px" onclick="POL.push({});poRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick an item from Item Master — Category, UOM &amp; Price auto-fill</span></div>'+
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Line items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick an item from Item Master — Category, UOM &amp; Price auto-fill</span></div>'+
   '<div class="tblwrap po-lines-wrap pogrid"><table><thead><tr>'+
     '<th style="width:26px">#</th><th style="width:220px">Item</th><th style="width:110px">Category</th><th style="width:80px">UOM</th>'+
     '<th style="width:80px">Quantity</th><th style="width:100px">Price</th><th>Note to Vendor</th>'+
@@ -7807,7 +7809,8 @@ function poGrid(rec){
    '<tr><td colspan="6"></td><td style="text-align:right">Tax (<span id="po-taxpct-label">'+t.taxpct+'</span>%)</td><td class="num" id="po-taxamt">'+fmt(t.tax)+'</td><td></td></tr>'+
    '<tr><td colspan="6"></td><td style="text-align:right;font-weight:700">Grand Total</td><td class="num" style="font-weight:700" id="po-grand">'+fmt(t.grand)+'</td><td></td></tr>'+
    '<tr><td colspan="6"></td><td style="text-align:right">Capital Expense</td><td style="text-align:center"><input type="checkbox" id="po-capex" disabled '+(poCapexOn(rec)?'checked':'')+'></td><td></td></tr>'+
-  '</tfoot></table></div>';
+  '</tfoot></table></div>'+
+  '<button type="button" class="btn ghost small" style="margin-top:6px" onclick="POL.push({});poRefresh()">+ Add line</button>';
 }
 function poRefresh(){renderModule._lk=true;const z=document.getElementById('po-zone');if(z)z.innerHTML=poGrid(null);poSyncAmountField();poSyncCapex();}
 function poRefreshRow(i){
@@ -7937,11 +7940,17 @@ function grnPayableHtml(rec){
   // received yet).
   const cls=pay.payStatus==='Received'?'g':(pay.payStatus==='Partially received'?'a':'b');
   const label=pay.payStatus==='Received'?'Fully payable':pay.payStatus==='Partially received'?'Partially payable':'Not yet received';
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Payment payable</div>'+
+  // Same Sub Total/Tax/Total shape as the grid's own footer just above, so
+  // the two numbers read as one calculation instead of two different ones —
+  // this one is just scoped to the WHOLE PO (every GRN raised against it,
+  // including this one's own draft lines), where the grid's footer is only
+  // this GRN's own lines.
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Payment payable<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Across every GRN raised against this PO so far — rejected quantity excluded</span></div>'+
    '<div class="tblwrap"><table><tbody>'+
     '<tr><td style="font-weight:700;width:220px">Payable status</td><td><span class="pill '+cls+'">'+esc(label)+'</span></td></tr>'+
-    '<tr><td style="font-weight:700">Payable amount<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;display:block">Rejected quantity’s value is excluded</span></td>'+
-      '<td class="num" style="font-weight:700">'+fmt(pay.grand)+' of '+fmt(pay.poGrand)+'</td></tr>'+
+    '<tr><td>Sub Total</td><td class="num">'+fmt(pay.sub)+'</td></tr>'+
+    (pay.tax?'<tr><td style="color:var(--faint,#98A2B3);font-size:11px">Tax</td><td class="num" style="color:var(--faint,#98A2B3);font-size:11px">'+fmt(pay.tax)+'</td></tr>':'')+
+    '<tr><td style="font-weight:700">Payable amount</td><td class="num" style="font-weight:700">'+fmt(pay.grand)+' of '+fmt(pay.poGrand)+'</td></tr>'+
    '</tbody></table></div>';
 }
 function grnRefreshPayable(){
@@ -8009,16 +8018,27 @@ function grnGrid(rec){
    '</tr></thead><tbody>'+
    GRL.map((l,i)=>'<tr><td>'+esc(l.item||'')+'</td>'+
      '<td class="num">'+fmt(l.poQty||0)+'</td>'+
-     '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.recvQty||'')+'" oninput="GRL['+i+'].recvQty=this.value;grnRefreshRow('+i+')"></td>'+
-     '<td><input type="number" step="0.01" style="text-align:right" value="'+esc(l.rejQty||'')+'" oninput="GRL['+i+'].rejQty=this.value;grnRefreshRow('+i+')"></td>'+
+     '<td><input type="number" step="0.01" max="'+esc(l.poQty||0)+'" style="text-align:right" value="'+esc(l.recvQty||'')+'" oninput="grnQtyInput('+i+',\'recvQty\',this)"></td>'+
+     '<td><input type="number" step="0.01" max="'+esc(l.poQty||0)+'" style="text-align:right" value="'+esc(l.rejQty||'')+'" oninput="grnQtyInput('+i+',\'rejQty\',this)"></td>'+
      '<td class="num" id="grn-tot-'+i+'">'+fmt(grnLineTotal(l))+'</td>'+
      '<td class="num" id="grn-lineamt-'+i+'">'+fmt(grnLineAmount(l,i,po))+'</td></tr>').join('')+
    '</tbody><tfoot>'+
-    '<tr><td colspan="5" style="text-align:right;font-weight:700">Sub Total</td><td class="num" style="font-weight:700" id="grn-subtotal">'+fmt(subTotal)+'</td></tr>'+
+    '<tr><td colspan="5" style="text-align:right;font-weight:700">This GRN — Sub Total</td><td class="num" style="font-weight:700" id="grn-subtotal">'+fmt(subTotal)+'</td></tr>'+
     (taxpct?'<tr><td colspan="5" style="text-align:right;color:var(--faint,#98A2B3);font-size:11px">Tax ('+taxpct+'%)</td><td class="num" style="color:var(--faint,#98A2B3);font-size:11px" id="grn-taxamt">'+fmt(subTotal*taxpct/100)+'</td></tr>':'')+
-    (taxpct?'<tr><td colspan="5" style="text-align:right;font-weight:700">Total</td><td class="num" style="font-weight:700" id="grn-grandtotal">'+fmt(subTotal+subTotal*taxpct/100)+'</td></tr>':'')+
+    (taxpct?'<tr><td colspan="5" style="text-align:right;font-weight:700">This GRN — Total</td><td class="num" style="font-weight:700" id="grn-grandtotal">'+fmt(subTotal+subTotal*taxpct/100)+'</td></tr>':'')+
    '</tfoot></table></div>'+
    '<div id="grn-payable-zone">'+grnPayableHtml(rec)+'</div>';
+}
+// Receive Qty / Rejected Qty can never exceed that line's own PO Qty — e.g.
+// 20 ordered, someone types 25 received, it just gets clamped straight back
+// to 20 with a toast instead of silently accepting an impossible quantity.
+function grnQtyInput(i,field,el){
+  const cap=+GRL[i].poQty||0;
+  let v=+el.value||0;
+  if(v<0){v=0;el.value='0';}
+  else if(v>cap){v=cap;el.value=String(cap);toast('Cannot exceed PO quantity ('+fmt(cap)+').','err');}
+  GRL[i][field]=el.value;
+  grnRefreshRow(i);
 }
 function grnRefresh(){renderModule._lk=true;const z=document.getElementById('grn-zone');if(z)z.innerHTML=grnGrid(null);}
 function grnRefreshRow(i){
@@ -8593,9 +8613,14 @@ function poPdf(id,mode){
   t+=ptH+10;
 
   /* ---------- line items ---------- */
-  const cw={sn:22,cat:72,desc:120,uom:46,qty:42,price:65,amt:70};
+  // Column widths sum to exactly W so the table always spans the full page
+  // width — Note to Vendor gets its own column (used to spill as small grey
+  // text under the row, indented under no particular column; that read as
+  // broken alignment and effectively hid the note).
+  const cw={sn:20,cat:60,desc:95,uom:32,qty:32,price:56,amt:60};
+  cw.note=W-(cw.sn+cw.cat+cw.desc+cw.uom+cw.qty+cw.price+cw.amt);
   const cols=[['S.NO',cw.sn],['CATEGORY',cw.cat],['ITEM DESCRIPTION',cw.desc],['UNIT',cw.uom],['QTY',cw.qty],
-    ['UNIT PRICE',cw.price],['AMOUNT',cw.amt]];
+    ['UNIT PRICE',cw.price],['AMOUNT',cw.amt],['NOTE TO VENDOR',cw.note]];
   const tblX=c1;
   const colX=[];{let x=tblX;cols.forEach(c=>{colX.push(x);x+=c[1];});}
   const tblW=colX[colX.length-1]+cols[cols.length-1][1]-tblX;
@@ -8615,22 +8640,20 @@ function poPdf(id,mode){
     const qty=+l.qty||0,price=+l.price||0;
     const sub=qty*price;
     sumSub+=sub;
-    const noteBits=l.note||'';
-    const noteLines=noteBits?doc.wrap(noteBits,tblW-10,7,false):[];
-    const rowH=15+(noteLines.length?noteLines.length*9+3:0);
+    const descLines=doc.wrap(l.item||'',cw.desc-6,7.5,true);
+    const noteLines=l.note?doc.wrap(l.note,cw.note-6,7,false):[];
+    const lineCount=Math.max(1,descLines.length,noteLines.length);
+    const rowH=Math.max(15,lineCount*9+6);
     if(t+rowH>doc.h-doc.mB-60){
       doc.rule(tblX,TY(t),tblX+tblW,TY(t),0.9);
       doc.newPage();t=doc.mT;drawWatermark();drawHead();
     }
-    const vals=[String(i+1),l.cat||'',l.item||'',l.uom||'',qty?fmt(qty):'',price?fmt(price):'',sub?fmt(sub):''];
+    const vals=[String(i+1),l.cat||'',null,l.uom||'',qty?fmt(qty):'',price?fmt(price):'',sub?fmt(sub):'',null];
     cols.forEach((c,ci)=>{
-      doc.text(colX[ci]+3,TY(t+11),doc.fit(vals[ci],c[1]-6,7.5),7.5,ci===2);
+      if(ci===2)descLines.forEach((dl,li)=>doc.text(colX[ci]+3,TY(t+11+li*9),dl,7.5,true));
+      else if(ci===7)noteLines.forEach((nl,li)=>doc.text(colX[ci]+3,TY(t+11+li*9),nl,7,false,'0.4 0.42 0.48'));
+      else doc.text(colX[ci]+3,TY(t+11),doc.fit(vals[ci],c[1]-6,7.5),7.5,false);
     });
-    let ny=t+11;
-    if(noteLines.length){
-      ny+=10;
-      noteLines.forEach(nl=>{doc.text(tblX+6,TY(ny),nl,7,false,'0.4 0.42 0.48');ny+=9;});
-    }
     doc.rule(tblX,TY(t+rowH-2),tblX+tblW,TY(t+rowH-2),0.6,'0.75 0.76 0.8');
     t+=rowH;
   });
