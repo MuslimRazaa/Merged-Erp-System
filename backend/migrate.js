@@ -774,6 +774,14 @@ async function migrate() {
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_deductions JSON NULL AFTER other_allowances'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Contractual employees are paid per day actually worked instead of a
+  // fixed monthly salary — gross_salary and per_day_rate are mutually
+  // exclusive (the HR form only ever lets one be filled), but Payroll
+  // (routes/payroll.js) treats whichever one is set exactly the same way:
+  // both ultimately resolve to a per-day rate that gets multiplied by paid
+  // days and added into Gross Payable.
+  try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN per_day_rate DECIMAL(14,2) NULL AFTER gross_salary'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
   console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }

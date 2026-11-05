@@ -48,7 +48,7 @@ const PROFILE_COLUMNS = [
   'appraisal_date', 'confirmation_date', 'rejoin_date', 'rejoin_reason',
   'ref_name', 'ref_contact', 'ref_email', 'ref_office',
   'kin_name', 'kin_relation', 'kin_contact', 'kin_nic', 'kin_email',
-  'salary', 'gross_salary', 'utility_allowance', 'hra', 'field_allowance', 'currency',
+  'salary', 'gross_salary', 'per_day_rate', 'utility_allowance', 'hra', 'field_allowance', 'currency',
   'other_allowances', 'other_deductions',
 ];
 // These two PROFILE_COLUMNS hold a JSON array, not a plain scalar — written

@@ -241,7 +241,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
   const profileById = new Map();
   if (empIds.length) {
     const [profiles] = await pool.query(
-      `SELECT employee_id, gross_salary, field_allowance, currency, other_allowances, other_deductions FROM erp_employee_profile WHERE employee_id IN (${empIds.map(() => '?').join(',')})`,
+      `SELECT employee_id, gross_salary, per_day_rate, field_allowance, currency, other_allowances, other_deductions FROM erp_employee_profile WHERE employee_id IN (${empIds.map(() => '?').join(',')})`,
       empIds
     );
     for (const p of profiles) profileById.set(p.employee_id, p);
@@ -341,12 +341,28 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
 
     const profile = profileById.get(meta.employeeId);
     const grossSalary = profile && profile.gross_salary != null ? Number(profile.gross_salary) : null;
-    const salaryMissing = grossSalary == null;
+    // A contractual employee has no Gross Salary on file at all — instead
+    // the Compensation tab's "Daily Rate" field holds a per_day_rate
+    // directly (the two are mutually exclusive, enforced on save). Either
+    // way everything from here down (perDayRate, incomeTax, netSalary,
+    // grossPayable) treats them identically — see the header note on
+    // perDayRate just below for why dividing grossSalary by the range still
+    // comes out equivalent to a flat daily rate.
+    const perDayInput = profile && profile.per_day_rate != null ? Number(profile.per_day_rate) : null;
+    const salaryMissing = grossSalary == null && perDayInput == null;
     // Per-Day Rate = Gross Salary ÷ however many days are in the SELECTED
     // range (From..To), not a fixed calendar-month length — a 27-day
     // custom range divides by 27, a 30-day 26th-to-25th cycle divides by
-    // 30, whatever the user actually picked.
-    const perDayRate = grossSalary != null ? grossSalary / totalDaysInRange : null;
+    // 30, whatever the user actually picked. A contractual employee's
+    // per_day_rate is already a flat daily figure, so it's used as-is, with
+    // no division.
+    const perDayRate = perDayInput != null ? perDayInput : (grossSalary != null ? grossSalary / totalDaysInRange : null);
+    // Income tax needs a MONTHLY gross to look up the right FBR slab — a
+    // contractual employee has no such figure on file, so this is the
+    // monthly-equivalent of their daily rate (per_day_rate × the calendar
+    // month's own day count), exactly what a salaried employee's
+    // grossSalary already represents directly.
+    const taxBaseGross = grossSalary != null ? grossSalary : (perDayInput != null ? perDayInput * daysInMonth : null);
 
     const loanInfo = loanByEmployee.get(meta.employeeId) || null;
     const loanId = loanInfo ? loanInfo.loanId : null;
@@ -356,7 +372,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
     // rules in the header comment above.
     const otherDeductionAmount = perDayRate != null ? perDayRate * (absentDays + unpaidLeaveDays) : null;
     const lateDeductionAmount = perDayRate != null ? perDayRate * latePenaltyDays : null;
-    const incomeTax = grossSalary != null ? computeMonthlyIncomeTax(grossSalary, tax.table.slabs) : null;
+    const incomeTax = taxBaseGross != null ? computeMonthlyIncomeTax(taxBaseGross, tax.table.slabs) : null;
     // Other Allowances/Deductions entered on the Compensation tab — kept
     // OUT of the tax calculation entirely (incomeTax above is worked out
     // from grossSalary alone) and out of netSalary's own tax-affected base:
@@ -388,7 +404,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
     report.push({
       employeeId: meta.employeeId, employeeCode: meta.employeeCode, employeeName: meta.name, department: meta.department,
       currency: (profile && profile.currency) || 'AED',
-      grossSalary, salaryMissing, daysInMonth, totalDaysInRange, perDayRate,
+      grossSalary, perDayInput, salaryMissing, daysInMonth, totalDaysInRange, perDayRate,
       presentDays, fieldDays, officeDays: presentDays - fieldDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
       lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal,
       paidDays, netPaidDays, baseDays,
@@ -605,12 +621,17 @@ async function buildPayslipData(row, monthLabel, fromDate, toDate) {
   const profile = p || {};
   let basic = +profile.salary || 0, hra = +profile.hra || 0, utility = +profile.utility_allowance || 0;
   let standardTotal = basic + hra + utility;
-  if (standardTotal <= 0 && row.grossSalary) {
+  if (standardTotal <= 0 && (row.grossSalary || row.perDayInput)) {
     // No detailed Basic/HRA/Utility split on file for this employee — fall
     // back to the single Gross Salary figure payroll itself already relies
     // on, as "Basic Salary" alone, rather than printing a broken 0/0/0 split
     // while still charging the already-correct tax/late deductions below.
-    basic = +row.grossSalary; hra = 0; utility = 0; standardTotal = basic;
+    // A contractual employee has no Gross Salary at all — perDayInput ×
+    // this run's own day count (totalDaysInRange, the same basis perDayRate
+    // itself is built on) stands in for it instead, so proration below still
+    // works out to perDayRate × netPaidDays, same as a salaried employee.
+    basic = row.grossSalary ? +row.grossSalary : (+row.perDayInput * row.totalDaysInRange);
+    hra = 0; utility = 0; standardTotal = basic;
   }
   // Only the ABSENCE/unpaid-leave portion of the deduction shrinks the
   // allowance columns (Standard -> Payable) — tax and late deduction are

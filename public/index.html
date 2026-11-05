@@ -2438,7 +2438,7 @@ function prBuildRowsTableHtml(rows,runId){
      '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Manual Deductions</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Other Allowances</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
     rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags&&r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
-     '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':fmt(r.grossSalary))+'</td>'+
+     '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':(r.grossSalary!=null?fmt(r.grossSalary):'<span class="pill b" title="Paid per day — see Per Day Rate">Daily rate</span>'))+'</td>'+
      '<td class="num">'+r.daysInMonth+'</td>'+
      '<td class="num">'+r.totalDaysInRange+'</td>'+
      '<td class="num">'+(r.perDayRate!=null?fmt(r.perDayRate):'—')+'</td>'+
@@ -3821,22 +3821,31 @@ function empSectionHtml(k){
    '</div><div class="hint" style="margin-top:6px">Employment Type decides the Saturday weekly-off rule on the Attendance Report — Permanent gets 2 free Saturdays/month, others have none. See Holidays &amp; Weekly Off.</div>';
   if(k==='comp'){
    const fsDays=EMP_FIELD_SHIFT_DAYS||0;
-   return '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-bottom:16px">'+
+   return '<div class="card" style="padding:18px 20px;margin-bottom:16px">'+
+    '<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">Pay Type</div>'+
+    '<div class="hint" style="margin-bottom:14px">Choose how this employee is paid — fill in only one of the two rates below. Payroll adds either one into Gross Payable exactly the same way.</div>'+
+    '<div class="att-tabs" id="ef-paytype-tabs" style="display:inline-flex;margin-bottom:16px">'+
+     '<button type="button" class="att-tab" data-v="monthly" onclick="empPickPayType(this)">Monthly Salary</button>'+
+     '<button type="button" class="att-tab" data-v="daily" onclick="empPickPayType(this)">Daily Rate (Contractual)</button>'+
+    '</div>'+
+    '<input type="hidden" id="ef-paytype" value="monthly">'+
     '<div class="fgrid">'+
-     efField('ef-gross','Gross Salary','number',{step:'0.01',req:1})+
+     '<div id="ef-paytype-monthly-zone">'+efField('ef-gross','Gross Salary','number',{step:'0.01'})+'</div>'+
+     '<div id="ef-paytype-daily-zone" style="display:none">'+efField('ef-perday','Per Day Rate','number',{step:'0.01'})+'</div>'+
      efField('ef-currency','Currency','select',{options:['PKR','AED','USD','SAR','GBP','EUR','QAR','OMR']})+
     '</div>'+
-    '<div class="hint" style="margin-top:4px">Enter only the total Gross Salary — Basic, House Rent and Utility Allowance below are worked out automatically using the standard split ('+Math.round(EMP_SALARY_SPLIT.basic*100)+'% / '+Math.round(EMP_SALARY_SPLIT.hra*100)+'% / '+Math.round(EMP_SALARY_SPLIT.utility*100)+'%).</div>'+
-    '<div class="kpis" style="margin-top:12px">'+
+    '<div class="hint" id="ef-paytype-monthly-hint" style="margin-top:8px">Enter only the total Gross Salary — Basic, House Rent and Utility Allowance below are worked out automatically using the standard split ('+Math.round(EMP_SALARY_SPLIT.basic*100)+'% / '+Math.round(EMP_SALARY_SPLIT.hra*100)+'% / '+Math.round(EMP_SALARY_SPLIT.utility*100)+'%).</div>'+
+    '<div class="hint" id="ef-paytype-daily-hint" style="margin-top:8px;display:none">Paid per day actually worked instead of a fixed monthly salary — for contractual staff. Payroll multiplies this rate by the employee\'s paid days in the period, exactly as Gross Salary ÷ days does for a salaried employee.</div>'+
+    '<div class="kpis" id="ef-paytype-monthly-kpis" style="margin-top:12px">'+
      '<div class="kpi"><span>Basic Salary ('+Math.round(EMP_SALARY_SPLIT.basic*100)+'%)</span><b id="ef-salary-out">0.00</b></div>'+
      '<div class="kpi"><span>House Rent Allowance ('+Math.round(EMP_SALARY_SPLIT.hra*100)+'%)</span><b id="ef-hra-out">0.00</b></div>'+
      '<div class="kpi"><span>Utility Allowance ('+Math.round(EMP_SALARY_SPLIT.utility*100)+'%)</span><b id="ef-utility-out">0.00</b></div>'+
     '</div>'+
     '<input type="hidden" id="ef-salary"><input type="hidden" id="ef-hra"><input type="hidden" id="ef-utility">'+
    '</div>'+
-   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px">'+
-    '<b style="font-size:12.5px">Field Allowance — Per Day Rate</b>'+
-    '<div class="hint" style="margin:4px 0 10px">Separate from Gross Salary — varies per employee (e.g. Operations staff). Enter the rate this employee earns for each day JLR has them out on a field job; Payroll multiplies this rate by however many of those days fall in the payroll\'s own date range — the figure below is just this calendar month\'s count, for reference.</div>'+
+   '<div class="card" style="padding:18px 20px">'+
+    '<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">Field Allowance — Per Day Rate</div>'+
+    '<div class="hint" style="margin:4px 0 10px">Separate from the pay type above — varies per employee (e.g. Operations staff). Enter the rate this employee earns for each day JLR has them out on a field job; Payroll multiplies this rate by however many of those days fall in the payroll\'s own date range — the figure below is just this calendar month\'s count, for reference.</div>'+
     '<div class="fgrid">'+
      efField('ef-fieldallow','Field Allowance (Per Day)','number',{step:'0.01'})+
     '</div>'+
@@ -3845,10 +3854,10 @@ function empSectionHtml(k){
      '<div class="kpi"><span>Total Field Allowance</span><b id="ef-fieldallow-total">0.00</b></div>'+
     '</div>'+
    '</div>'+
-   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px" id="emp-allow-zone">'+empAllowGrid()+'</div>'+
-   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px" id="emp-deduct-zone">'+empDeductGrid()+'</div>'+
-   '<div class="card" style="background:var(--soft);border:1px solid var(--line);padding:14px 16px;margin-top:16px">'+
-    '<b style="font-size:12.5px">Loan</b>'+
+   '<div class="card" style="padding:18px 20px;margin-top:16px" id="emp-allow-zone">'+empAllowGrid()+'</div>'+
+   '<div class="card" style="padding:18px 20px;margin-top:16px" id="emp-deduct-zone">'+empDeductGrid()+'</div>'+
+   '<div class="card" style="padding:18px 20px;margin-top:16px">'+
+    '<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">Loan</div>'+
     '<div class="hint" style="margin:4px 0 10px">A loan HR has given this employee, with a fixed monthly deduction — kept separate from salary. Record a payment each time the monthly amount is deducted (or a one-off extra payment / waiver), and the remaining balance updates automatically.</div>'+
     '<div id="ef-loan-wrap">'+(EMP_EDIT?'<div class="empty">Loading…</div>':'<div class="hint">Save this employee first, then a loan can be added.</div>')+'</div>'+
    '</div>';
@@ -4011,6 +4020,29 @@ function empToggleAdmin(which){
   const wrap=document.getElementById('ef-erpmods');if(wrap)wrap.style.opacity=on?'0.4':'1';
   document.querySelectorAll('.ef-mod').forEach(cb=>cb.disabled=on);
 }
+// Pay Type toggle (Compensation tab) — Monthly Salary and Daily Rate
+// (Contractual) are mutually exclusive, enforced two ways: visually (only
+// the active one's field is shown) and on save (empSave() nulls out
+// whichever one isn't active, as a backstop). empPayTypeShow() only moves
+// the toggle's visual state (used on load, where an existing value must
+// stay put); empPickPayType() is the user actually clicking a tab, which
+// also clears the field that just got hidden so a stale value from before
+// never gets saved alongside the new one.
+function empPayTypeShow(v){
+  document.querySelectorAll('#ef-paytype-tabs .att-tab').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  const pt=document.getElementById('ef-paytype');if(pt)pt.value=v;
+  const show=(id,on)=>{const el=document.getElementById(id);if(el)el.style.display=on?'':'none';};
+  show('ef-paytype-monthly-zone',v==='monthly');show('ef-paytype-daily-zone',v==='daily');
+  show('ef-paytype-monthly-hint',v==='monthly');show('ef-paytype-daily-hint',v==='daily');
+  show('ef-paytype-monthly-kpis',v==='monthly');
+}
+function empPickPayType(btn){
+  const v=btn.dataset.v;
+  empPayTypeShow(v);
+  const clearEl=document.getElementById(v==='monthly'?'ef-perday':'ef-gross');
+  if(clearEl)clearEl.value='';
+  empRecalcGross();
+}
 function empRecalcGross(){
   const v=id=>+((document.getElementById(id)||{}).value)||0;
   const set=(id,val)=>{const el=document.getElementById(id);if(el)('value' in el)?(el.value=val):(el.textContent=val);};
@@ -4032,7 +4064,7 @@ const EMP_COMP_CURRENCIES=['PKR','AED','USD','SAR','GBP','EUR','QAR','OMR'];
    payroll time, AFTER tax/deductions are worked out — never taxed, kept
    separate from Gross Salary (see routes/payroll.js's sumActiveCompItems). */
 function empAllowGrid(){
-  return '<b style="font-size:12.5px">Other Allowances</b> <button class="btn ghost small" style="margin-left:8px" onclick="EMP_ALLOW.push({cur:\'PKR\'});empAllowRefresh()">+ Add allowance</button>'+
+  return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-weight:700;font-size:13.5px">Other Allowances</span><button class="btn ghost small" onclick="EMP_ALLOW.push({cur:\'PKR\'});empAllowRefresh()">+ Add allowance</button></div>'+
    '<div class="hint" style="margin:4px 0 10px">Paid on top of Net Salary each payroll run, while still within its Valid Till — never taxed, separate from Gross Salary.</div>'+
    (EMP_ALLOW.length?'<div class="tblwrap"><table><thead><tr><th>Title</th><th style="width:130px">Amount</th><th style="width:100px">Currency</th><th style="width:150px">Valid Till</th><th style="width:30px"></th></tr></thead><tbody>'+
     EMP_ALLOW.map((a,i)=>'<tr><td><input value="'+esc(a.title||'')+'" oninput="EMP_ALLOW['+i+'].title=this.value" placeholder="e.g. Transport"></td>'+
@@ -4048,7 +4080,7 @@ function empAllowRefresh(){const z=document.getElementById('emp-allow-zone');if(
    payroll run while still within its Valid Till — same currency as the
    employee's own salary, no separate currency field needed. */
 function empDeductGrid(){
-  return '<b style="font-size:12.5px">Other Deductions</b> <button class="btn ghost small" style="margin-left:8px" onclick="EMP_DEDUCT.push({});empDeductRefresh()">+ Add deduction</button>'+
+  return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-weight:700;font-size:13.5px">Other Deductions</span><button class="btn ghost small" onclick="EMP_DEDUCT.push({});empDeductRefresh()">+ Add deduction</button></div>'+
    '<div class="hint" style="margin:4px 0 10px">Deducted from Net Salary each payroll run while still within its Valid Till.</div>'+
    (EMP_DEDUCT.length?'<div class="tblwrap"><table><thead><tr><th>Title</th><th style="width:130px">Amount</th><th style="width:150px">Valid Till</th><th style="width:30px"></th></tr></thead><tbody>'+
     EMP_DEDUCT.map((d,i)=>'<tr><td><input value="'+esc(d.title||'')+'" oninput="EMP_DEDUCT['+i+'].title=this.value" placeholder="e.g. Advance recovery"></td>'+
@@ -4248,6 +4280,7 @@ function empFillFormInner(){
     empToggleNA('spouse');empToggleNA('mother');
     const newAccessEl=document.getElementById('ef-erpaccess');
     if(newAccessEl){newAccessEl.checked=true;empToggleErpAccessOn();}
+    empPayTypeShow('monthly');
     empRecalcGross();empRecalcAge();
     return;
   }
@@ -4288,6 +4321,8 @@ function empFillFormInner(){
   // nothing silently regresses to zero.
   const legacyGross=(+p.salary||0)+(+p.hra||0)+(+p.utilityAllowance||0);
   set('ef-gross',p.grossSalary!=null?p.grossSalary:(legacyGross||''));
+  set('ef-perday',p.perDayRate);
+  empPayTypeShow(p.perDayRate!=null?'daily':'monthly');
   set('ef-fieldallow',p.fieldAllowance);set('ef-currency',p.currency||'PKR');
   set('ef-homeaddr',p.homeAddress);set('ef-mailaddr',p.mailingAddress);
   set('ef-bankname',p.bankName);set('ef-iban',p.iban);set('ef-accno',p.accountNo);
@@ -4320,6 +4355,9 @@ async function empSave(){
   const empId=v('ef-empid'),first=v('ef-first'),last=v('ef-last'),dept=v('ef-dept'),desig=v('ef-desig'),loc=v('ef-loc');
   if(!empId||!first||!last||!dept||!desig||!loc)return showErr('Employee ID, First/Last name, Department, Designation and Location are required.','basic');
   if(!v('ef-emptype'))return showErr('Employment Type (Permanent/Probation/Contractual/Part-time) is required — it drives the Saturday weekly-off rule.','employment');
+  const payType=v('ef-paytype')||'monthly';
+  if(payType==='monthly'&&!v('ef-gross'))return showErr('Gross Salary is required (or switch Pay Type to Daily Rate).','comp');
+  if(payType==='daily'&&!v('ef-perday'))return showErr('Per Day Rate is required (or switch Pay Type to Monthly Salary).','comp');
   const pw=v('ef-pw'),pw2=v('ef-pw2');
   if(!EMP_EDIT&&(!pw||!pw2))return showErr('Password and Confirm Password are required for a new employee.','access');
   if((pw||pw2)&&pw!==pw2)return showErr('Password and Confirm Password do not match.','access');
@@ -4358,8 +4396,9 @@ async function empSave(){
       appraisalDate:v('ef-appraisal')||null,confirmationDate:v('ef-confirmation')||null,rejoinDate:v('ef-rejoindate')||null,rejoinReason:v('ef-rejoinreason'),
       refName:v('ef-refname'),refContact:v('ef-refcontact'),refEmail:v('ef-refemail'),refOffice:v('ef-refoffice'),
       kinName:v('ef-kinname'),kinRelation:v('ef-kinrelation'),kinContact:v('ef-kincontact'),kinNic:v('ef-kinnic'),kinEmail:v('ef-kinemail'),
-      grossSalary:v('ef-gross')||null,
-      salary:v('ef-salary')||null,utilityAllowance:v('ef-utility')||null,hra:v('ef-hra')||null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'PKR',
+      grossSalary:payType==='monthly'?(v('ef-gross')||null):null,
+      perDayRate:payType==='daily'?(v('ef-perday')||null):null,
+      salary:payType==='monthly'?(v('ef-salary')||null):null,utilityAllowance:payType==='monthly'?(v('ef-utility')||null):null,hra:payType==='monthly'?(v('ef-hra')||null):null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'PKR',
       otherAllowances:EMP_ALLOW.filter(a=>a.title||a.amount).map(a=>({title:a.title||'',amount:+a.amount||0,cur:a.cur||'PKR',validTill:a.validTill||null})),
       otherDeductions:EMP_DEDUCT.filter(d=>d.title||d.amount).map(d=>({title:d.title||'',amount:+d.amount||0,validTill:d.validTill||null}))
     })});
@@ -4585,7 +4624,7 @@ async function renderEmpView(){
          evField('Contact',p.refContact)+evField('Email',p.refEmail))+
        '</div>'+
        evCard('Compensation & Benefits',
-        evField('Currency',p.currency)+evField('Gross Salary',p.grossSalary)+
+        evField('Currency',p.currency)+(p.perDayRate!=null?evField('Per Day Rate',p.perDayRate):evField('Gross Salary',p.grossSalary))+
         evField('Bank Name',p.bankName)+evField('Account No.',p.accountNo)+
         evField('IBAN',p.iban)+evField('Account Title',p.accountTitle));
     }else if(EMP_VIEW_TAB==='payroll'){
