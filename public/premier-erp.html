@@ -1137,7 +1137,7 @@ insplocs:{g:'Inspection',ic:'◉',name:'Add Location',cols:2,
   fields:[{...T('loc','Location','Karachi'),req:1},
           {...T('subloc','Sub Location','Site A'),req:1}],
   list:['loc','subloc']},
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),T('cur','Currency','AED'),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
    (see woPdf() — every field below prints, and nothing prints that isn't
    entered here). `contract`/`status` are the only two ERP-only extras:
    they drive the contract map + KPIs and stay off the printed sheet. */
@@ -7316,7 +7316,7 @@ function renderModule(){
     (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     (m.grnlines?'<div id="grn-zone">'+grnGrid(rec)+'</div>':'')+
     (m.vblines?'<div id="vb-zone">'+vbGrid(rec)+'</div>':'')+
-    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\'grnmodal\');render()">Cancel</button>':'<button class="btn ghost" onclick="render()">Clear</button>')+
+    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\'grnmodal\');render()">Cancel</button>':'<button class="btn ghost" onclick="renderModule._lk=false;render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
     '</div></div></div>'+
@@ -7891,24 +7891,13 @@ let PL=[{}];
 // one-off wording tweaks. A line saved before this existed (plain typed
 // desc, no catalog ids) still shows that text via the "Other / type
 // manually" fallback, so nothing already on a contract gets blanked out.
-function plEquipOptions(selId){
-  return '<option value="">\u2014 choose \u2014</option>'+CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name))
-   .map(e=>'<option value="'+e.id+'"'+(String(selId)===String(e.id)?' selected':'')+'>'+esc(e.name)+'</option>').join('');
-}
-function plStdOptions(equipId,selId){
-  if(!equipId)return '<option value="">\u2014</option>';
-  return '<option value="">\u2014 choose \u2014</option>'+CRM_STANDARDS.filter(s=>String(s.equipmentId)===String(equipId)).slice().sort((a,b)=>a.name.localeCompare(b.name))
-   .map(s=>'<option value="'+s.id+'"'+(String(selId)===String(s.id)?' selected':'')+'>'+esc(s.name)+'</option>').join('');
-}
-function plItemOptions(stdId,selId){
-  const items=stdId?CRM_ITEMDESCS.filter(it=>String(it.standardId)===String(stdId)).slice().sort((a,b)=>a.description.localeCompare(b.description)):[];
-  return '<option value="">\u2014 choose \u2014</option>'+items.map(it=>'<option value="'+it.id+'"'+(String(selId)===String(it.id)?' selected':'')+'>'+(it.code?esc(it.code)+' \u2014 ':'')+esc(it.description)+'</option>').join('')+
-   '<option value="__custom__"'+(selId==='__custom__'?' selected':'')+'>Other \u2014 type manually\u2026</option>';
-}
+function plEquipItems(){return CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e=>({id:e.id,label:e.name}));}
+function plStdItems(equipId){return CRM_STANDARDS.filter(s=>String(s.equipmentId)===String(equipId)).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(s=>({id:s.id,label:s.name}));}
+function plItemItems(stdId){return CRM_ITEMDESCS.filter(it=>String(it.standardId)===String(stdId)).slice().sort((a,b)=>a.description.localeCompare(b.description)).map(it=>({id:it.id,label:(it.code?it.code+' — ':'')+it.description}));}
+function plLockedCell(msg){return '<div class="selx-btn" style="opacity:.55;cursor:not-allowed;pointer-events:none">'+esc(msg)+'</div>';}
 function plEquipPick(i,val){PL[i].equipId=val||null;PL[i].stdId=null;PL[i].itemDescId=null;plRefresh();}
 function plStdPick(i,val){PL[i].stdId=val||null;PL[i].itemDescId=null;plRefresh();}
 function plItemPick(i,val){
-  if(val==='__custom__'){PL[i].itemDescId='__custom__';plRefresh();return;}
   PL[i].itemDescId=val||null;
   const it=CRM_ITEMDESCS.find(x=>String(x.id)===String(val));
   PL[i].desc=it?it.description:'';
@@ -7916,26 +7905,23 @@ function plItemPick(i,val){
   plRefresh();
 }
 function plGrid(rec){
-  const cur=((document.getElementById('f-cur')&&document.getElementById('f-cur').value)||(rec&&rec.cur)||'AED');
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Contract price list <button class="btn ghost small" style="margin-left:8px" onclick="PL.push({});plRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick Equipment \u2192 Standard \u2192 Item Description from the Service Catalogue \u2014 rate stays editable</span></div>'+
-  '<div class="tblwrap"><table><thead><tr><th style="width:26px">#</th><th style="width:90px">Item code</th><th style="width:190px">Equipment</th><th style="width:190px">Standard</th><th style="width:260px">Item Description</th><th style="width:80px">Unit</th><th style="width:110px" class="num">Rate ('+esc(cur)+')</th><th style="width:110px">Discount / terms</th><th style="width:130px">Remarks</th><th style="width:30px"></th></tr></thead><tbody>'+
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Contract price list <button class="btn ghost small" style="margin-left:8px" onclick="PL.push({});plRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick Equipment → Standard → Item Description from the Service Catalogue — rate stays editable</span></div>'+
+  '<div class="tblwrap pl-lines-wrap pogrid"><table style="min-width:1330px;table-layout:fixed"><thead><tr><th style="width:26px">#</th><th style="width:150px">Item code</th><th style="width:190px">Equipment</th><th style="width:190px">Standard</th><th style="width:250px">Item Description</th><th style="width:90px">Unit</th><th style="width:100px" class="num">Rate</th><th style="width:130px">Discount / terms</th><th style="width:150px">Remarks</th><th style="width:40px"></th></tr></thead><tbody>'+
   PL.map((l,i)=>{
-    const isCustom=l.itemDescId==='__custom__'||(!l.itemDescId&&!l.equipId&&!l.stdId&&l.desc);
+    const equipId=l.equipId||'',stdId=l.stdId||'',itemDescId=(l.itemDescId&&l.itemDescId!=='__custom__')?l.itemDescId:'';
     return '<tr><td class="num">'+(i+1)+'</td>'+
      '<td><input value="'+esc(l.code||'')+'" readonly title="Auto-filled from the Service Catalogue when an Item Description is picked" style="background:var(--card2,#f3f4f6);cursor:default" placeholder="—"></td>'+
-     '<td><select style="width:100%;min-width:190px" onchange="plEquipPick('+i+',this.value)">'+plEquipOptions(l.equipId)+'</select></td>'+
-     '<td><select style="width:100%;min-width:210px" onchange="plStdPick('+i+',this.value)"'+(!l.equipId?' disabled':'')+'>'+plStdOptions(l.equipId,l.stdId)+'</select></td>'+
-     '<td><select style="width:100%;min-width:230px" onchange="plItemPick('+i+',this.value)">'+plItemOptions(l.stdId,isCustom?'__custom__':l.itemDescId)+'</select>'+
-      (isCustom?'<input style="width:100%;min-width:230px;margin-top:4px" value="'+esc(l.desc||'')+'" oninput="PL['+i+'].desc=this.value" placeholder="Type description">':'')+
-     '</td>'+
+     '<td>'+selxId('pl-eq-'+i,equipId,plEquipItems(),(v)=>plEquipPick(i,v),'— choose equipment —')+'</td>'+
+     '<td>'+(equipId?selxId('pl-std-'+i,stdId,plStdItems(equipId),(v)=>plStdPick(i,v),'— choose standard —'):plLockedCell('Choose Equipment first'))+'</td>'+
+     '<td>'+((equipId&&stdId)?selxId('pl-item-'+i,itemDescId,plItemItems(stdId),(v)=>plItemPick(i,v),'— choose item description —'):plLockedCell(equipId?'Choose Standard first':'Choose Equipment & Standard first'))+'</td>'+
      '<td><input value="'+esc(l.unit||'')+'" oninput="PL['+i+'].unit=this.value" placeholder="per joint"></td>'+
      '<td><input type="number" step="0.01" class="num" value="'+esc(l.rate||'')+'" oninput="PL['+i+'].rate=this.value"></td>'+
      '<td><input value="'+esc(l.disc||'')+'" oninput="PL['+i+'].disc=this.value" placeholder="e.g. 5% >500 jts"></td>'+
      '<td><input value="'+esc(l.rem||'')+'" oninput="PL['+i+'].rem=this.value"></td>'+
-     '<td><button class="del" onclick="PL.splice('+i+',1);plRefresh()">\u2715</button></td></tr>';
+     '<td><button class="del" onclick="PL.splice('+i+',1);plRefresh()">✕</button></td></tr>';
   }).join('')+
   '</tbody></table></div>'+
-  '<div class="hint" style="margin-top:6px">'+PL.filter(l=>l.desc||l.rate).length+' rate line(s). Saved with the contract \u2014 use "Update record" to store changes.</div>';
+  '<div class="hint" style="margin-top:6px">'+PL.filter(l=>l.desc||l.rate).length+' rate line(s). Saved with the contract — use "Update record" to store changes.</div>';
 }
 function plRefresh(){renderModule._lk=true;const z=document.getElementById('pl-zone');if(z)z.innerHTML=plGrid(null);}
 /* ============ work order line grid ============================
