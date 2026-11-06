@@ -1111,7 +1111,37 @@ maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','
    its ISO system, and a Sub Location is ERP's own - that table has no
    room for one. Work Orders pick from these, and a report picks a Work
    Order, so a site is spelled the same way everywhere it appears. */
-insplocs:{g:'Inspection',ic:'◉',name:'Add Location',cols:2,
+/* Which work order numbers are whose.
+
+   One row is one inspector and one run of numbers. An administrator
+   writes it; everybody reads it, because an inspector has to be able to
+   see the numbers that are theirs. The writing is held back on the
+   server too (ADMIN_MODS in records.js), since hiding a screen does not
+   close a route. */
+woalloc:{g:'Inspection',ic:'⊞',name:'Allocation Of Work Order',admin:1,cols:2,
+  fields:[
+    /* Only Operations staff, the same rule that decides who may sign a
+       certificate - see irOpsStaff. */
+    {...REF('insp','Inspector Name','employees','name',
+            e=>String(e.dept||'').trim().toLowerCase()==='operations'),req:1},
+    {...N('from','From Work Order No'),req:1},
+    /* Left blank, the range is the one number in From. */
+    N('to','To Work Order No')],
+  /* A range that cannot be read as a range is refused here rather than
+     flagged on the table afterwards, so every row in the register is one
+     woAllocRange can read. */
+  rule:v=>{
+    const from=parseInt(v.from,10),to=parseInt(v.to,10);
+    const toTyped=String(v.to==null?'':v.to).trim()!=='';
+    if(!(from>0))return 'From Work Order No has to be a number.';
+    if(toTyped&&!(to>0))return 'To Work Order No has to be a number, or left blank for a single number.';
+    if(toTyped&&to<from)return 'To Work Order No ('+to+') is below From Work Order No ('+from+').';
+    if(toTyped&&to-from+1>WO_ALLOC_MAX)
+      return 'That is '+(to-from+1)+' numbers. Allocate '+WO_ALLOC_MAX+' or fewer at a time.';
+    return null;
+  },
+  list:['insp','from','to']},
+insplocs:{g:'Inspection',ic:'◉',name:'Add Location',admin:1,cols:2,
   /* Typed, not picked. This screen is where a place gets its name; the
      register of names belongs on the work order, which is where one is
      chosen. Putting nine hundred names in front of somebody who came
@@ -1128,7 +1158,20 @@ contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fiel
    they drive the contract map + KPIs and stay off the printed sheet. */
 /* nolist: the saved-records table lives on its own screen (View Work
    Orders — renderWoView), so this one only shows the entry form. */
-workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),LOCF('loc','Location'),REF('client','Bill To Customer','customers','name'),REFIN('subloc','Sub Location','insplocs','subloc','loc','loc'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),S('approval','Approval',APPROVALS),T('no','User wise Work Order No.','8921'),A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status','approval'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}]},
+workorders:{g:'Inspection',ic:'✎',name:'Work Orders',att:1,wlist:true,cols:2,nolist:true,fields:[D('date','Work Order Date'),LOCF('loc','Location'),REF('client','Bill To Customer','customers','name'),REFIN('subloc','Sub Location','insplocs','subloc','loc','loc'),REF('contract','Contract No','contracts','no'),T('attntype','Attention Type','Accounts Payable'),S('status','Current Status',['Draft','InProcess','Completed','Invoiced','Closed','Cancelled','On Hold']),S('approval','Approval',APPROVALS),{...T('no','User wise Work Order No.','8921'),t:'woalloc',req:1},A2('remarks','Remarks'),D('from','From Date'),D('to','To Date'),RECNO('workorders')],list:['recno','no','date','client','loc','from','to','status','approval'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='InProcess').length,l:'In process'},{n:d.filter(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date()).length,l:'Past To Date, still open',warn:d.some(r=>!['Closed','Cancelled','Invoiced','Completed'].includes(r.status)&&r.to&&new Date(r.to)<new Date())}],
+  /* The number has to be one allocated to whoever is filling this in.
+
+     A work order that already exists is the exception, and has to be: its
+     number is on paper and it may have been filed long before any of this
+     existed, so opening one to fix a date must not be refused. Only a
+     number being set or changed is checked. */
+  rule:(v,existing)=>{
+    const no=String(v.no==null?'':v.no).trim();
+    if(existing&&String(existing.no==null?'':existing.no).trim()===no)return null;
+    if(!no)return 'User wise Work Order No. is required. '+woAllocWhy();
+    if(woAllocNumbers().indexOf(no)>=0)return null;
+    return 'Work order number '+no+' is not allocated to you. '+woAllocWhy();
+  }},
 trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',cols:2,att:1,list_presorted:true,
   fields:[REF('emp','Employee','employees','name'),T('course','Course / qualification'),T('provider','Provider'),D('date','Date completed'),D('expiry','Expiry date (leave blank if it never expires)'),T('certno','Certificate no.'),
     C('status','Status',trainingStatus)],
@@ -1215,7 +1258,7 @@ function bootGoTake(){
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
   'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
-  'Inspection':['insp_report','insp_list','insplocs','contracts','workorders','insp_wo_view','insp_map'],
+  'Inspection':['insp_report','insp_list','woalloc','insplocs','contracts','workorders','insp_wo_view','insp_map'],
 };
 let NAV_EXPANDED=new Set();
 function navExtraItemHtml(x){
@@ -1238,7 +1281,17 @@ function navToggleExpand(id){
   if(NAV_EXPANDED.has(id))NAV_EXPANDED.delete(id);else NAV_EXPANDED.add(id);
   nav();
 }
+/* A screen only an administrator keeps. What it writes is read by
+   everybody - an inspector needs the numbers allocated to them, and every
+   form needs the location names - so only the writing is held back, and
+   the server is where that is done (ADMIN_MODS in records.js). This just
+   keeps the screen out of the way of people who cannot use it. */
+function modAdminOnly(k){
+  const m=MODULES[k];
+  return !!(m&&m.admin)&&!isAdmin();
+}
 function navModuleItemHtml(k,m){
+  if(modAdminOnly(k))return '';
   return '<button class="nitem'+(route==='m_'+k?' on':'')+'" onclick="go(\'m_'+k+'\')"><span class="ic">'+m.ic+'</span>'+m.name+'</button>';
 }
 function nav(){
@@ -1261,7 +1314,7 @@ function nav(){
   }).join('')+
   (isAdmin()?'<div class="ngrp"><h5>Administration</h5><button class="nitem'+(route==='users'?' on':'')+'" onclick="go(\'users\')"><span class="ic">\u26bf</span>Users &amp; Roles</button></div>':'');
 }
-function go(r){if(r!=='users'&&!canSee(routeGroup(r))){alert('Your role ('+(SESSION?SESSION.role:'none')+') does not have access to this section.');return;}if(r==='users'&&!isAdmin()){alert('Administrator access required.');return;}route=r;lsSet('ui_route',r);editId=null;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
+function go(r){if(r!=='users'&&!canSee(routeGroup(r))){alert('Your role ('+(SESSION?SESSION.role:'none')+') does not have access to this section.');return;}if(r.startsWith('m_')&&modAdminOnly(r.slice(2))){alert('Administrator access required.');return;}if(r==='users'&&!isAdmin()){alert('Administrator access required.');return;}route=r;lsSet('ui_route',r);editId=null;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
 
 /* ============ generic module screens ============ */
 let editId=null,filterQ='';
@@ -6668,7 +6721,7 @@ async function grnSyncPoStatus(poNo){
    the source of truth: a save only counts once the server confirmed it.
    Compliance first; Inventory / Procurement / Fixed Assets are enabled the
    same way by adding their keys here. */
-const SERVER_MODS=new Set(['docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings','workorders','items','stockmoves','purchaseorders','grns','vendorbills','payments','leads','activities','contracts','insplocs']);
+const SERVER_MODS=new Set(['woalloc','docs','audits','ncrs','risks','hse','mgtreviews','calibrations','apiq2','invoices','receipts','salesorders','assets','maintenance','trainings','workorders','items','stockmoves','purchaseorders','grns','vendorbills','payments','leads','activities','contracts','insplocs']);
 function isSrv(k){return SERVER_MODS.has(k);}
 const REC_AT={},REC_BUSY={};
 /* One-time rescue per browser: records (and attached files) that only ever
@@ -7024,6 +7077,23 @@ function fieldInput(f,v,idPrefix,onSelectChange){
     return selx(idPrefix+f.k,v,opts,onSelectChange||null,'\u2014 choose \u2014',
                 f.k==='approval');
   }
+  /* The work order number, out of what an administrator allocated, and
+     out of nothing else - a number nobody allocated is a number two
+     inspectors can reach for.
+
+     With nothing left to pick the box is dead and says why. It is never
+     a box to type in: the rule on the module refuses the save as well
+     (MODULES.workorders.rule), so this is the plain statement of it
+     rather than the enforcement. A work order that already exists keeps
+     its own number in the list - see woAllocFree - so this only ever
+     goes dead on a new one. */
+  if(f.t==='woalloc'){
+    const opts=woAllocFree(v);
+    if(!opts.length)
+      return '<input id=\"'+idPrefix+f.k+'\" value=\"'+esc(v)+'\" disabled>'+
+        '<div class=\"hint\" style=\"margin-top:4px\">'+esc(woAllocWhy())+'</div>';
+    return selx(idPrefix+f.k,String(v),opts,onSelectChange||null,'\\u2014 choose \\u2014',true);
+  }
   if(f.t==='locref'){
     /* The register, plus anything the shared master knows, plus any
        location already put down here - a name typed in once has to be
@@ -7091,6 +7161,21 @@ function reqFieldMissingLabel(m,idPrefix){
     if(el&&!String(el.value||'').trim())return f.l;
   }
   return null;
+}
+/* What a module makes of its own form, past \"this box is filled in\".
+   Returns what is wrong, in words, or nothing.
+
+   Both saves come through here - the full-page form and the edit modal -
+   because a rule that holds on one and not the other is not a rule, and
+   the modal is the easier of the two to forget. */
+function recRuleBroken(m,idPrefix,existing){
+  if(!m.rule)return null;
+  const vals={};
+  m.fields.forEach(f=>{
+    const el=document.getElementById(idPrefix+f.k);
+    if(el)vals[f.k]=el.value;
+  });
+  return m.rule(vals,existing||null);
 }
 function applyConditionalFields(m,idPrefix){
   /* A narrowed list is drawn from the parent's value, so it has to be
@@ -7294,6 +7379,8 @@ async function recEditSave(){
   const err=document.getElementById('recedit-err');
   const missingReq=reqFieldMissingLabel(m,'mf-');
   if(missingReq){err.textContent=missingReq+' is required.';err.style.display='block';return;}
+  const broken=recRuleBroken(m,'mf-',rec);
+  if(broken){err.textContent=broken;err.style.display='block';return;}
   err.style.display='none';
   /* This edits the cached record in place, so what it was has to be
      kept before the form is read over it. */
@@ -7349,6 +7436,8 @@ async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
   const missingReq=reqFieldMissingLabel(m,'f-');
   if(missingReq)return toast(missingReq+' is required.','err');
+  const broken=recRuleBroken(m,'f-',editId?data.find(r=>r.id===editId):null);
+  if(broken)return toast(broken,'err');
   // GRN's own items grid isn't one of m.fields (it's the GRL array, kept
   // outside the generic field system), so reqFieldMissingLabel() above
   // never sees it — nothing stops a blank Receive Qty / Rejected Qty from
@@ -9911,6 +10000,11 @@ function irEmpCode(){
 function irStampEmp(){
   const c=irEmpCode();
   if(c&&!IR.fields.empCode)IR.fields.empCode=c;
+  /* The name that prints as the inspector, stamped the same way and for
+     the same reason: it is who wrote this, recorded at the time rather
+     than worked out later. Into a blank box only, so reopening somebody
+     else's report never signs it over to the reader. */
+  if(!IR.fields.insp)IR.fields.insp=irInspName();
 }
 /* ---- report id ----------------------------------------------------------
    <work order>-<short form code>-<report no>-<employee code>, e.g.
@@ -9970,19 +10064,39 @@ function irNextReportNo(type){
   while(used[n])n++;
   return n;
 }
-/* Inspector / Reviewed by are picked from HR, and only from the Operations
-   department — nobody else signs an inspection certificate. */
+/* Reviewed by is picked from HR, and only from the Operations department
+   — nobody else countersigns an inspection certificate. Inspector is
+   not picked at all; see irStaffField. */
 function irOpsStaff(){
   return [...new Set(coll('employees')
     .filter(e=>String(e.dept||'').trim().toLowerCase()==='operations')
     .map(e=>String(e.name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 }
+/* The name that goes on the certificate as the inspector: whoever is
+   signed in. Shown rather than offered, because the person filling a
+   report in is the person who did the inspection, and the one thing a
+   picker there could do that typing cannot is put somebody else's name
+   on your own work. */
+function irInspName(){
+  return (typeof SESSION!=='undefined'&&SESSION&&SESSION.name)?String(SESSION.name).trim():'';
+}
 function irStaffField(f){
-  const k=f[0],cur=IR.fields[k]||'',opts=irOpsStaff();
+  const k=f[0];
+  if(k==='insp'){
+    /* What the report already says, if it says anything: a report filed
+       by somebody else keeps their name when an administrator opens it.
+       Only a blank box falls back to this session, and irStampEmp is
+       what writes it down. */
+    const v=IR.fields.insp||irInspName();
+    return '<div class="field'+(v?' autofill':'')+'"><label>'+f[1]+'</label>'+
+      '<input id="ir-insp" value="'+esc(v)+'" readonly title="The id you signed in with">'+
+      (v?'':'<div class="hint" style="margin-top:4px">This session has no name on it \u2014 sign in again.</div>')+
+    '</div>';
+  }
+  const cur=IR.fields[k]||'',opts=irOpsStaff();
   return '<div class="field"><label>'+f[1]+'</label>'+
     selx('ir-'+k,cur,opts,v=>{IR.fields[k]=v;irSave();},'\u2014 choose \u2014')+
     (opts.length?'':'<div class="hint">No Operations employees yet \u2014 add them under Human Resources.</div>')+
-    (opts.length?'':'<div class="hint">No Operations employees yet — add them under Human Resources.</div>')+
   '</div>';
 }
 /* The shared header carries only what every report type needs. Customer,
@@ -10030,17 +10144,11 @@ function dpCertNo(){
 }
 function dpField(label,key){
   const d=dpF(),v=d[key]||'';
-  /* The four a work order already knows are picked, not typed. */
+  /* The work order is the one box here that is picked; the four it
+     answers are shown. */
   if(WOF_KEYS.wo.indexOf(key)>=0)
     return '<div class="field"><label>'+label+'</label>'+wofPickHtml(v,'dp-'+key)+'</div>';
-  if(WOF_KEYS.client.indexOf(key)>=0)return wofCustHtml(label,v,'dp-'+key);
-  if(WOF_KEYS.loc.indexOf(key)>=0)
-    return '<div class="field'+(wofAuto('loc',v)?' autofill':'')+'"><label>'+label+'</label>'+
-      wofPickSite('dp-'+key,v,wofLocOpts(),x=>{dpF()[key]=x;irSave();render();})+'</div>';
-  if(WOF_KEYS.rigwell.indexOf(key)>=0)
-    return '<div class="field'+(wofAuto('rigwell',v)?' autofill':'')+'"><label>'+label+'</label>'+
-      wofPickSite('dp-'+key,v,wofRigOpts(d.location||''),
-        x=>{dpF()[key]=x;irSave();render();})+'</div>';
+  if(wofOwns(key))return wofWoBox(label,v,'dp-'+key);
   return '<div class="field"><label>'+label+'</label><input value="'+esc(v)+'" oninput="dpF().'+key+'=this.value;irSave()"></div>';
 }
 function dpSelect2(label,key,optA,optB){ const v=dpF()[key]||''; return '<div class="field"><label>'+label+'</label><select onchange="dpF().'+key+'=this.value;irSave()"><option value=""'+(v===''?' selected':'')+'></option><option'+(v===optA?' selected':'')+'>'+optA+'</option><option'+(v===optB?' selected':'')+'>'+optB+'</option></select></div>'; }
@@ -10427,7 +10535,7 @@ const MPI_PAGE=[792,1188];
 const MPI_LINES_H=[[22.9,775.8,9.95],[22.9,775.8,1075.25],[24.05,209.25,1086.35],[24.05,209.25,1101.5],[35.8,764.05,377.55],[35.8,764.05,580.8],[124.8,476.55,1025.25],[124.8,476.55,1003.5],[125.55,475.8,979.5],[597.3,769.05,1024.5],[596.55,769.8,1002.75],[596.55,768.3,981.75],[24.05,776.05,976.25],[160.55,402.05,927.75],[541.55,764.55,927.0],[543.3,766.3,903.0],[544.05,767.05,886.25],[144.3,403.8,885.25],[145.05,404.55,904.5],[22.65,774.65,880.35],[23.55,774.8,873.75],[23.55,774.8,830.5],[22.15,774.55,806.0],[384.55,774.8,786.75],[384.55,775.3,764.5],[23.0,774.55,743.25],[24.05,774.55,722.75],[24.05,774.8,696.25],[23.05,775.05,630.75],[24.05,775.05,607.0],[23.3,775.3,673.25],[24.3,775.05,669.0],[23.55,774.8,586.25],[35.3,764.3,480.55],[26.8,769.8,345.55],[26.8,769.8,326.8],[28.3,772.3,300.8],[26.55,774.3,367.55],[113.9,264.95,275.05],[488.55,639.6,276.25],[272.85,535.6,1054.9],[272.85,535.6,1069.4]];
 const MPI_LINES_V=[[22.9,9.95,1075.25],[775.8,9.95,1075.25],[24.05,1086.35,1101.5],[209.25,1086.35,1101.5],[35.8,377.55,580.8],[764.05,377.55,580.8],[124.05,831.25,876.25],[193.55,806.0,830.0],[292.05,744.75,805.75],[543.3,744.25,830.0],[115.05,672.5,743.75],[265.8,674.5,722.5],[385.05,673.5,830.0],[631.05,673.75,723.25],[198.55,587.0,652.75],[359.05,587.25,653.0],[554.05,587.25,653.0],[92.6,742.0,805.5],[199.8,742.0,806.5],[493.3,672.25,722.5],[98.2,1086.3,1101.0],[216.55,377.55,581.55],[398.3,377.05,581.05],[580.55,376.8,580.8],[272.85,1054.9,1069.4],[535.6,1054.9,1069.4]];
 const MPI_STATIC=[[28.8,1164.68,"Premier Tubular Inspection Services (Pvt.) Ltd",6.6,1],[30.3,1148.83,"69/E Block # 6, P.E.C.H.S., KARACHI PAKISTAN.",7.2,0],[97.05,1135.33,"+92-21-34533739-34559070",7.2,0],[96.8,1123.83,"+92-21-34312712",7.2,0],[97.3,1112.83,"karachi@premiertubular.com",7.2,0],[30.3,1111.88,"Email :",6.6,0],[30.3,1121.88,"Fax Number :",6.6,0],[30.3,1132.63,"Phone Number :",6.6,0],[291.65,1058.48,"MAGNETIC PARTICLE INSPECTION REPORT",10.5,1],[28.05,1030.5,"CUSTOMER :",9.9,1],[494.8,1030.5,"Date of Work:",9.9,1],[28.8,1007.75,"Rig & Well No.",9.9,1],[495.3,1007.5,"W.O. No.",9.9,1],[495.3,984.0,"Cert. No.",9.9,1],[28.3,984.0,"Location",9.9,1],[30.3,954.75,"Material / Item Type and Description",9.9,0],[30.3,931.0,"Material / Item serial No.",9.9,0],[460.5,934.4,"Part No.",9.9,0],[30.3,908.0,"Type of Inspection",9.9,0],[415.55,909.25,"Standard / Specification",9.9,0],[30.3,887.5,"Date of Inspection.",9.9,0],[416.3,888.75,"Validity of Inspection:",9.9,0],[37.05,855.5,"Surface",9.9,0],[36.3,836.0,"Preparation",9.9,0],[160.05,855.5,"Buffing",9.9,0],[160.05,836.0,"As Blasted",9.9,0],[288.55,855.5,"Grinding",9.9,0],[288.55,836.0,"Removed Paint",9.9,0],[417.3,855.5,"Wire Brush",9.9,0],[417.3,836.0,"Part Dismantled",9.9,0],[545.05,855.5,"Machining",9.9,0],[544.55,836.0,"Part Not Dismantled",9.9,0],[686.55,855.5,"Wipe Clean",9.9,0],[59.3,811.0,"MAGNETIZATION UNIT :",9.9,1],[344.65,655.17,"Consumable Traceability",11.4,1],[31.55,770.83,"Technique",9.0,1],[390.8,770.08,"Calibiration Date:",9.0,0],[390.8,748.08,"Calibiration Due Date:",9.0,0],[539.45,704.03,"Application :",9.0,0],[390.8,790.58,"Calibiration Certificate No",9.0,0],[135.3,770.58,"Yoke",9.0,0],[311.55,704.03,"Colour :",9.0,0],[39.05,680.08,"Contrast Medium",9.0,0],[390.8,811.83,"Serial No.",9.0,0],[206.05,788.83,"Lifting Capacity",9.0,0],[206.05,769.58,"Pole Spacing",9.0,0],[206.05,749.08,"Method",9.0,0],[41.45,727.58,"Testing Medium",9.0,0],[47.5,704.03,"Particle Type",9.0,0],[140.55,727.58,"Dry ( Iron Powd",9.0,0],[293.55,727.58,"Wet",9.0,0],[481.8,727.58,"Fluorescent",9.0,0],[310.3,680.08,"Colour :",9.0,0],[538.15,680.08,"Drying Time :",9.0,0],[60.05,634.25,"Inspection Consumable",9.9,1],[251.9,634.25,"Manufacturer",9.9,1],[440.35,634.25,"Batch No.",9.9,1],[640.15,634.25,"Expiry Date",9.9,1],[26.05,1090.0,"Certificate No:",8.8,1],[82.05,349.8,"Area of inspection:",9.9,1],[104.2,329.8,"Results :",9.9,1],[57.9,306.3,"Recommendation/ Comments:",9.9,1],[44.35,277.78,"INSPECTED BY",9.0,1],[31.75,251.43,"This Field report is issued subject to the condition that it is understood and agreed upon that nothing herein shall be deemed to relieve any designer, manufacturer,",8.3,0],[31.75,239.43,"repairer or operator of any warranty, express or implied and Premier Tubular Inspection Services Pte Ltd Liability shall be limited to the acts and commission of its",8.3,0],[31.75,227.43,"employees and subcontractors. Under no Circumstances shall Premier Tubular inspection Services (Pvt.) Ltd. be liable for any injury or damage to any person or",8.3,0],[31.75,215.43,"property occurring by any reason of negligent Operation , misuse, of any defect in material , machinery, equipment or other items other than by defects in items",8.3,0],[31.75,203.43,"actually inspected by Premier Tubular inspection Services (Pvt.) Ltd. and ascertainable by normally accepted testing standards, or defects reflected in documents",8.3,0],[31.75,191.43,"reviewed by Premier Tubular inspection Services (Pvt..) Ltd. and which are covered by this report. This field report and the recommendation contained with it are",8.3,0],[31.75,179.43,"based upon the conditions and practices observed and information available to Premier Tubular Inspection Services (Pvt.) Ltd. personnel. The report does not purport",8.3,0],[31.75,167.43,"to list all hazards or faulty conditions not to indicate that the other hazards or faulty conditions exist. Severity ratings on the criteria shown in this report are intended",8.3,0],[31.75,155.43,"as guideline only. Premier Tubular Inspection Services (Pvt.) Ltd. Does not accept responsibility for the control or correction of conditions.",8.3,0],[31.75,143.43,"FM-IR-12",8.3,1],[422.25,277.78,"REVIEWED BY",9.0,1]];
-const MPI_PHOTOS=[[39.0,484.8,173.2,92.2],[403.0,484.8,173.2,92.2],[221.8,484.0,173.2,92.2],[585.3,484.0,173.2,92.2],[585.1,385.2,173.2,92.2],[39.2,383.5,173.2,92.2],[403.0,383.5,173.2,92.2],[219.7,382.8,173.3,92.2]];
+const MPI_PHOTOS=[[39.0,484.8,173.2,92.2],[221.8,484.0,173.2,92.2],[403.0,484.8,173.2,92.2],[585.3,484.0,173.2,92.2],[39.2,383.5,173.2,92.2],[219.7,382.8,173.3,92.2],[403.0,383.5,173.2,92.2],[585.1,385.2,173.2,92.2]];
 // key, label, x (left edge of the value), y from the page bottom, size, bold
 const MPI_FIELDS=[
  ['client','Customer',180.1,1032.4,9.9,1,'customer'],
@@ -10537,14 +10645,7 @@ function mpiCardHtml(){
     const t=f[6]||'text',k=f[0];
     if(WOF_KEYS.wo.indexOf(k)>=0)
       return '<div class="field"><label>'+f[1]+'</label>'+wofPickHtml(m[k]||'','mpi-'+k)+'</div>';
-    if(WOF_KEYS.loc.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('loc',m[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
-        wofPickSite('mpi-'+k,m[k]||'',wofLocOpts(),v=>{mpiSet(k,v);render();})+'</div>';
-    if(WOF_KEYS.rigwell.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('rigwell',m[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
-        wofPickSite('mpi-'+k,m[k]||'',wofRigOpts(m.location||''),
-          v=>{mpiSet(k,v);render();})+'</div>';
-    if(t==='customer'||WOF_KEYS.client.indexOf(k)>=0)return wofCustHtml(f[1],m[k],'mpi-'+k);
+    if(wofOwns(k)||t==='customer')return wofWoBox(f[1],m[k],'mpi-'+k);
     return '<div class="field"><label>'+f[1]+'</label><input'+(t==='date'?' type="date"':'')+
       ' value="'+esc(m[f[0]]||'')+'" oninput="mpiSet(\'' +f[0]+ '\',this.value)"></div>';
   };
@@ -10680,7 +10781,7 @@ const UT_PAGE=[792,1224];
 const UT_LINES_H=[[25.8,771.3,65.0],[25.8,771.3,1119.5],[33.8,762.05,385.5],[33.8,762.05,588.75],[137.8,486.55,1095.75],[137.05,486.55,1074.0],[135.55,485.8,1052.0],[597.3,769.05,1095.0],[596.55,769.8,1073.25],[596.55,768.3,1052.25],[25.05,772.05,998.75],[201.05,762.8,976.5],[26.55,770.8,879.75],[596.55,768.3,1028.25],[135.55,485.8,1029.0],[26.05,770.3,855.25],[597.3,770.55,1002.5],[193.8,385.8,952.5],[194.3,765.05,929.25],[568.3,760.3,951.75],[26.55,770.55,924.5],[27.3,771.3,902.0],[26.3,771.05,833.75],[26.05,688.3,811.25],[26.05,771.3,788.5],[26.05,772.8,765.5],[27.3,770.55,742.75],[26.3,769.55,717.25],[26.3,770.55,692.75],[26.55,771.3,666.0],[27.3,772.05,640.5],[26.55,771.3,618.0],[25.8,769.8,593.75],[33.3,762.3,488.5],[26.55,770.55,378.0],[155.05,766.8,360.0],[154.3,766.05,342.0],[192.05,765.3,323.75],[143.05,262.8,298.25],[25.8,771.3,293.5],[498.4,622.15,299.45],[27.8,770.8,1124.75],[27.8,770.8,1139.25]];
 const UT_LINES_V=[[25.8,65.0,1119.5],[771.3,65.0,1119.5],[33.8,385.5,588.75],[762.05,385.5,588.75],[647.3,855.75,901.5],[532.05,855.0,900.75],[410.55,855.75,901.5],[290.55,855.0,900.75],[158.55,855.75,901.5],[125.3,594.5,833.0],[688.55,594.5,833.0],[266.05,595.25,833.75],[413.05,595.25,833.75],[558.05,595.25,833.75],[157.8,594.5,809.75],[192.05,594.5,810.25],[227.55,595.25,810.5],[300.8,594.25,809.5],[336.05,595.0,810.25],[372.55,595.0,810.25],[449.3,595.25,810.5],[485.05,594.75,810.0],[520.3,594.75,810.0],[591.8,594.75,810.0],[623.55,594.75,810.0],[654.05,594.75,810.0],[214.55,385.5,589.5],[396.3,385.0,589.0],[578.55,384.75,588.75],[27.8,1124.75,1139.25],[770.8,1124.75,1139.25]];
 const UT_STATIC=[[28.8,1199.49,"Premier Tubular Inspection Services (Pvt.) Ltd",7.4,1],[30.3,1183.64,"69/E Block # 6, P.E.C.H.S., KARACHI PAKISTAN.",8.1,0],[97.05,1170.14,"+92-21-34533739-34559070",8.1,0],[96.8,1158.64,"+92-21-34312712",8.1,0],[97.3,1147.64,"karachi@premiertubular.com",8.1,0],[30.3,1148.16,"Email :",7.4,0],[30.3,1158.16,"Fax Number :",7.4,0],[30.3,1168.91,"Phone Number :",7.4,0],[263.05,1124.6,"ULTRASONIC WALL THICKNESS MEASURMENT RECORD SHEET",10.6,1],[28.05,1101.71,"Customer :",9.9,1],[492.8,1100.71,"Rig / Well No:",9.9,1],[28.8,1078.96,"Location:",9.9,1],[493.3,1054.21,"Work Order No:",9.9,1],[28.3,1054.21,"Inspection Standard:",9.9,1],[31.3,979.19,"Material /Item type & Description:",9.9,0],[493.05,1030.21,"Due Date:",9.9,1],[28.05,1029.46,"Inspection Date:",9.9,1],[493.05,1077.96,"Sub Location:",9.9,1],[493.8,1007.21,"Cert. No :",9.9,1],[31.05,955.19,"Material /Item Type serial No:",9.9,0],[31.55,931.94,"Type Of Inspection:",9.9,0],[405.55,954.44,"Item Location:",9.9,0],[323.4,907.96,"TRACEABILITY OF EQUIPMENT USED",9.9,1],[82.6,886.21,"S.No",9.9,1],[203.3,886.21,"Equipment",9.9,1],[329.3,885.96,"Model No",9.9,1],[452.7,886.21,"Serial No",9.9,1],[556.5,885.46,"Calibration Date",9.9,1],[357.2,838.96,"THICKNESS RECORD",9.9,1],[59.65,817.96,"Section:",9.9,1],[47.35,795.71,"Spot Location:",9.9,1],[706.65,817.21,"Min. Thick.",9.9,1],[176.34,817.75,"A Point's",9.9,0],[321.1,817.5,"B Point's",9.9,0],[466.7,817.75,"C Point's",9.9,0],[603.95,817.0,"D Point's",9.9,0],[131.15,798.1,"Input 1",7.3,1],[164.15,798.85,"Input 2",7.3,1],[199.05,798.85,"Input 3",7.3,1],[236.15,798.1,"Input 4",7.3,1],[272.9,798.1,"Input 1",7.3,1],[308.15,798.1,"Input 2",7.3,1],[344.15,798.85,"Input 3",7.3,1],[381.65,798.1,"Input 4",7.3,1],[420.3,798.1,"Input 1",7.3,1],[457.4,798.1,"Input 2",7.3,1],[493.05,799.6,"Input 3",7.3,1],[529.05,799.6,"Input 4",7.3,1],[565.05,798.85,"Input 1",7.3,1],[596.9,800.35,"Input 2",7.3,1],[628.4,799.6,"Input 3",7.3,1],[662.15,799.6,"Input 4",7.3,1],[667.52,885.46,"Calibration Due Date",9.9,1],[74.9,281.4,"This Field report is issued subject to the condition that it is understood and agreed upon that nothing herein shall be deemed to relieve any designer, manufacturer,",8.9,0],[77.3,270.0,"repairer or operator of any warranty, express or implied and Premier Tubular Inspection Services Pte Ltd Liability shall be limited to the acts and commission of its",8.9,0],[79.3,258.6,"employees and subcontractors. Under no Circumstances shall Premier Tubular inspection Services (Pvt.) Ltd. be liable for any injury or damage to any person or",8.9,0],[65.95,247.2,"property occurring by any reason of negligent Operation , misuse, of any defect in material , machinery, equipment or other items other than by defects in items actually",8.9,0],[69.25,235.8,"inspected by Premier Tubular inspection Services (Pvt.) Ltd. and ascertainable by normally accepted testing standards, or defects reflected in documents reviewed by",8.9,0],[72.8,224.4,"Premier Tubular inspection Services (Pvt..) Ltd. and which are covered by this report. This field report and the recommendation contained with it are based upon the",8.9,0],[66.95,213.0,"conditions and practices observed and information available to Premier Tubular Inspection Services (Pvt.) Ltd. personnel. The report does not purport to list all hazards",8.9,0],[73.1,201.6,"or faulty conditions not to indicate that the other hazards or faulty conditions exist. Severity ratings on the criteria shown in this report are intended as guideline only.",8.9,0],[161.7,190.2,"Premier Tubular Inspection Services (Pvt.) Ltd. Does not accept responsibility for the control or correction of conditions.",8.9,0],[33.2,362.26,"Area of Inspection:",9.9,1],[33.8,342.71,"Results:",9.9,1],[34.3,326.21,"Recommendation / Comments:",9.9,1],[33.3,298.96,"Inspected By:",9.9,1],[31.6,170.94,"FM-IR-15",9.6,1],[420.65,298.96,"Reviewed By:",9.9,1]];
-const UT_PHOTOS=[[37.0,492.8,173.2,92.2],[401.1,492.8,173.3,92.2],[219.8,492.0,173.2,92.2],[583.3,492.0,173.2,92.2],[37.2,391.5,173.2,92.2],[401.1,391.5,173.3,92.2],[583.3,391.5,173.2,92.2],[217.7,390.8,173.3,92.2]];
+const UT_PHOTOS=[[37.0,492.8,173.2,92.2],[219.8,492.0,173.2,92.2],[401.1,492.8,173.3,92.2],[583.3,492.0,173.2,92.2],[37.2,391.5,173.2,92.2],[217.7,390.8,173.3,92.2],[401.1,391.5,173.3,92.2],[583.3,391.5,173.2,92.2]];
 // key, label, x (left edge of the value), y from the page bottom, size, type
 const UT_FIELDS=[
  ['client','Customer',138.1,1099.5,9.9,'customer'],
@@ -10798,17 +10899,7 @@ function utCardHtml(){
     const k=f[0];
     if(WOF_KEYS.wo.indexOf(k)>=0)
       return '<div class="field"><label>'+f[1]+'</label>'+wofPickHtml(u[k]||'','ut-'+k)+'</div>';
-    if(WOF_KEYS.loc.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('loc',u[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
-        wofPickSite('ut-'+k,u[k]||'',wofLocOpts(),v=>{utSet(k,v);render();})+'</div>';
-    if(WOF_KEYS.subloc.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('subloc',u[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
-        wofPickSite('ut-'+k,u[k]||'',wofSubOpts(u.location||''),v=>{utSet(k,v);render();})+'</div>';
-    if(WOF_KEYS.rigwell.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('rigwell',u[k])?' autofill':'')+'"><label>'+f[1]+'</label>'+
-        wofPickSite('ut-'+k,u[k]||'',wofRigOpts(u.location||''),
-          v=>{utSet(k,v);render();})+'</div>';
-    if(f[5]==='customer'||WOF_KEYS.client.indexOf(k)>=0)return wofCustHtml(f[1],u[k],'ut-'+k);
+    if(wofOwns(k)||f[5]==='customer')return wofWoBox(f[1],u[k],'ut-'+k);
     return '<div class="field"><label>'+f[1]+'</label><input'+(f[5]==='date'?' type="date"':'')+
       ' value="'+esc(u[f[0]]||'')+'" oninput="utSet(\''+f[0]+'\',this.value)"></div>';
   };
@@ -12068,39 +12159,20 @@ function irtAttachHtml(t){
 }
 /* Which location and sub location this sheet currently names, whichever
    of its keys it happens to use for them. */
-function irtSiteLoc(t,b){
-  for(const k of WOF_KEYS.loc)if(b.f[k])return b.f[k];
-  return '';
-}
-function irtSiteSub(t,b){
-  for(const k of WOF_KEYS.subloc)if(b.f[k])return b.f[k];
-  return '';
-}
 function irtCardHtml(){
   const t=irtFor();
   if(!t)return '';
   const b=irtF(t);
   const fld=f=>{
     const k=f[0];
-    /* The four the work order already knows. Driven by the key rather
-       than by a role on each field, because there are sixty-eight
-       descriptors and tagging them one at a time is how one gets
-       missed. irRecHeader reads these same keys. */
+    /* The work order, and the four boxes it answers - see wofOwns. The
+       work order is picked and the rest are shown, whichever of the
+       sixty-eight descriptors rules them. irRecHeader reads the same
+       keys. */
     if(WOF_KEYS.wo.indexOf(k)>=0)
       return '<div class="field"><label>'+esc(f[1])+'</label>'+
         wofPickHtml(b.f[k]||'','irt-'+k)+'</div>';
-    if(WOF_KEYS.loc.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('loc',b.f[k])?' autofill':'')+'"><label>'+esc(f[1])+'</label>'+
-        wofPickSite('irt-'+k,b.f[k]||'',wofLocOpts(),v=>{irtSet(k,v);render();})+'</div>';
-    if(WOF_KEYS.subloc.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('subloc',b.f[k])?' autofill':'')+'"><label>'+esc(f[1])+'</label>'+
-        wofPickSite('irt-'+k,b.f[k]||'',wofSubOpts(irtSiteLoc(t,b)),v=>{irtSet(k,v);render();})+'</div>';
-    if(WOF_KEYS.rigwell.indexOf(k)>=0)
-      return '<div class="field'+(wofAuto('rigwell',b.f[k])?' autofill':'')+'"><label>'+esc(f[1])+'</label>'+
-        wofPickSite('irt-'+k,b.f[k]||'',
-          wofRigOpts(irtSiteLoc(t,b)),v=>{irtSet(k,v);render();})+'</div>';
-    if(f[5]==='customer'||WOF_KEYS.client.indexOf(k)>=0)
-      return wofCustHtml(f[1],b.f[k],'irt-'+k);
+    if(wofOwns(k)||f[5]==='customer')return wofWoBox(f[1],b.f[k],'irt-'+k);
     /* A box the sheet rules a dozen lines deep is written in as a dozen
        lines, not squeezed into one. */
     if(f[5]==='wrap')
@@ -14361,54 +14433,101 @@ function wofApply(no){
   irSave();
   return n;
 }
-/* Where a job happened, offered rather than typed. The lists come
-   from Add Location, and each one narrows the next, so a pair that was
-   never set up cannot be reached. Typing is not allowed in any of the
-   three: a site spelled two ways is a site Saved Reports cannot find,
-   which is the whole reason this exists. */
-function wofLocOpts(){
-  return [...new Set(coll('insplocs').map(r=>String(r.loc||'').trim()).filter(Boolean))];
-}
-function wofSubOpts(loc){
-  const want=String(loc==null?'':loc).trim().toLowerCase();
-  return [...new Set(coll('insplocs')
-    .filter(r=>!want||String(r.loc||'').trim().toLowerCase()===want)
-    .map(r=>String(r.subloc||'').trim()).filter(Boolean))];
-}
-/* Rig / Well No. and Sub Location are the same question asked twice, so
-   they are offered the same answers. */
-function wofRigOpts(loc){return wofSubOpts(loc);}
-/* A value already on the report that the lists no longer offer is kept
-   as a choice of its own, or opening an older report would silently show
-   its site as blank. */
-function wofPickSite(id,cur,opts,onpick){
-  const v=String(cur==null?'':cur);
-  const list=opts.slice();
-  if(v&&list.indexOf(v)<0)list.unshift(v);
-  return selx(id,v,list,onpick,'\u2014 choose \u2014',true);
-}
-/* Was this box filled in by the work order rather than typed?
+/* ================================================================
+   ALLOCATION OF WORK ORDER
 
-   Worked out from what the report says now, not remembered from when
-   it happened: the report names a work order, and this value is what
-   that work order says. Nothing has to be stored, and a value somebody
-   has since changed stops being marked, which is the honest answer. */
-function wofAuto(concept,val){
-  const v=String(val==null?'':val).trim();
-  if(!v)return false;
-  const h=irRecHeader(IR);
-  const w=wofValues(h.wo);
-  return !!w&&String(w[concept]||'').trim()===v;
+   An administrator allocates a run of work order numbers to an
+   inspector; the inspector's Work Orders form then offers those
+   numbers instead of an empty box to type one into.
+   ================================================================ */
+/* A range wide enough to be a mistake is not expanded into a list.
+   Somebody who means 9000 to 9005 and types 9000 to 90050 should get
+   told, not handed ninety thousand options. */
+const WO_ALLOC_MAX=2000;
+
+/* The numbers one row covers. A row that cannot be read as a range gives
+   none: a To below its From is a typo, and guessing which of the two was
+   meant would hand somebody numbers nobody allocated.
+
+   MODULES.woalloc.rule refuses such a row at the save, so this should not
+   meet one written here. It still guards, because a row can arrive from
+   another machine, or from before that rule existed. */
+function woAllocRange(r){
+  const from=parseInt(r&&r.from,10),to=parseInt(r&&r.to,10);
+  if(!(from>0))return [];
+  if(to>0&&to<from)return [];
+  const last=to>0?to:from;
+  if(last-from+1>WO_ALLOC_MAX)return [];
+  const out=[];
+  for(let n=from;n<=last;n++)out.push(String(n));
+  return out;
 }
-/* Customer is not asked for any more. It is whoever the work order is
-   for, so it is shown rather than offered - a report naming one customer
-   and a work order naming another is worth nobody's time to reconcile. */
-function wofCustHtml(label,val,id){
+/* The rows addressed to whoever is signed in. An allocation names its
+   inspector by name, the way every other form on here names a person,
+   so that is what is matched - against the name this session signed in
+   with. */
+function woAllocMine(){
+  const me=String((typeof SESSION!=='undefined'&&SESSION&&SESSION.name)||'')
+    .trim().toLowerCase();
+  if(!me)return [];
+  return coll('woalloc').filter(r=>String(r.insp||'').trim().toLowerCase()===me);
+}
+/* Every number allocated to this person, in order and without repeats -
+   two overlapping allocations are one number, not two. */
+function woAllocNumbers(){
+  const seen=new Set();
+  woAllocMine().forEach(r=>woAllocRange(r).forEach(n=>seen.add(n)));
+  return [...seen].sort((a,b)=>(+a)-(+b));
+}
+/* Why the number cannot just be typed, in words that say whose job it is
+   to fix it. An inspector cannot allocate to themselves, so telling them
+   to would be no help at all. */
+function woAllocWhy(){
+  return woAllocNumbers().length
+    ?'Pick one of the numbers allocated to you.'
+    :'No work order numbers are allocated to you \\u2014 an administrator sets '+
+     'these under Inspection \\u203a Allocation Of Work Order.';
+}
+/* What is left to use, plus whatever this record is already filed under.
+
+   A number already on a work order is not offered again, or the list
+   would quietly invite two work orders with the same number. The record
+   being edited is the exception: without it, opening an old work order
+   to correct a date would show its number as blank and save it away. */
+function woAllocFree(cur){
+  const used=new Set(coll('workorders').map(w=>String(w.no||'').trim()).filter(Boolean));
+  const mine=String(cur==null?'':cur).trim();
+  const opts=woAllocNumbers().filter(n=>n===mine||!used.has(n));
+  if(mine&&opts.indexOf(mine)<0)opts.unshift(mine);
+  return opts;
+}
+
+/* Which boxes the work order answers. Customer, Location, Sub Location
+   and Rig / Well No. are one case, not four: the work order says who the
+   job was for and where it was, so the report shows that rather than
+   asking again. A report naming one site and a work order naming another
+   is worth nobody's time to reconcile, and a site spelled two ways is a
+   site Saved Reports cannot find.
+
+   Asked by key rather than by a role on each field, because there are
+   sixty-eight descriptors and tagging them one at a time is how one
+   gets missed. */
+function wofOwns(k){
+  return WOF_KEYS.client.indexOf(k)>=0||WOF_KEYS.loc.indexOf(k)>=0||
+         WOF_KEYS.subloc.indexOf(k)>=0||WOF_KEYS.rigwell.indexOf(k)>=0;
+}
+/* One of those boxes, shown rather than offered. The work order above is
+   the only place it can be changed, so a blank one has to say which of
+   the two things is missing: the work order, or this box on it. */
+function wofWoBox(label,val,id){
   const v=String(val==null?'':val).trim();
+  const wo=v?'':irRecHeader(IR).wo;
   return '<div class="field'+(v?' autofill':'')+'"><label>'+esc(label)+'</label>'+
     '<input'+(id?' id="'+id+'"':'')+' value="'+esc(v)+'" readonly '+
       'title="Comes from the work order">'+
-    (v?'':'<div class="hint" style="margin-top:4px">Pick the work order above.</div>')+
+    (v?'':'<div class="hint" style="margin-top:4px">'+(wo
+      ?'Blank on work order '+esc(wo)+' \u2014 fill it in there, then pick the work order again.'
+      :'Pick the work order above.')+'</div>')+
   '</div>';
 }
 /* The control every format uses for its Work Order box. Picking one is
@@ -15015,7 +15134,7 @@ function render(){
   let crumb,title;
   if(!SESSION){return;}
   if(FORM_GUARD)return; // a form with unsaved input is open — see FORM_GUARD above; a foreground Save/Cancel will re-render explicitly
-  if(route.startsWith('m_')&&(!canSee(routeGroup(route))||!MODULES[modKey()])){route='dashboard';} // !MODULES[...] guards a stale saved route to a module that's since been removed
+  if(route.startsWith('m_')&&(!canSee(routeGroup(route))||!MODULES[modKey()]||modAdminOnly(modKey()))){route='dashboard';} // !MODULES[...] guards a stale saved route to a module that's since been removed
   // Accounting (gl_*) isn't built on the generic MODULES/recEnsure system
   // above — it's its own hand-built screens over 3 server-backed modules
   // (glcompanies/glcurrencies/gljournals), so it needs its own sync hook.
