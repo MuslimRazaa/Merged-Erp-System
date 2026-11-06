@@ -2285,7 +2285,7 @@ async function renderPayroll(){
    '</div>'+
    '<div class="hint" style="margin:6px 0 14px">Company cycle: 25th of one month to 25th of the next — e.g. 25-Aug to 25-Sep is <b>September</b>\'s payroll. The Payroll Month above always follows the "To" date.</div>'+
    '<div class="fgrid">'+
-    '<div class="field"><label>Payroll For</label><select id="pr-mode" onchange="prModeChanged(this.value)"><option value="">— choose —</option><option value="department">Department-wise</option><option value="employee">Employee-wise</option></select></div>'+
+    '<div class="field"><label>Payroll For</label><select id="pr-mode" onchange="prModeChanged(this.value)"><option value="">— choose —</option><option value="all">All-PTIS (whole company)</option><option value="department">Department-wise</option><option value="employee">Employee-wise</option></select></div>'+
    '</div>'+
    '<div id="pr-selector" style="margin-top:6px"></div>'+
    '<div class="actions" style="margin-top:14px"><button class="btn" onclick="prGenerate()">▸ Generate Payroll</button></div>'+
@@ -2307,6 +2307,7 @@ function prDateChanged(){
   window.__prTo=document.getElementById('pr-to').value||today();
   const m=document.getElementById('pr-month');if(m)m.value=prMonthLabel(window.__prTo);
 }
+function prModeLabel(mode){return mode==='department'?'Department-wise':mode==='all'?'All-PTIS':mode==='employee'?'Employee-wise':'—';}
 async function prModeChanged(mode){
   PR_MODE=mode;
   const wrap=document.getElementById('pr-selector');
@@ -2332,6 +2333,8 @@ async function prModeChanged(mode){
      '</div>'+
      '<div class="fgrid" id="pr-emp-list" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));max-height:260px;overflow:auto">'+prEmpListHtml('')+
      '</div>';
+  }else if(mode==='all'){
+    wrap.innerHTML='<div class="hint">Every active employee, company-wide — no further selection needed.</div>';
   }else{
     wrap.innerHTML='';
   }
@@ -2359,7 +2362,7 @@ function prSelNoneEmps(){PR_EMPS.clear();document.querySelectorAll('.pr-emp-cb')
 async function prGenerate(){
   const err=document.getElementById('pr-err');err.style.display='none';
   document.getElementById('pr-lock-banner').innerHTML='';
-  if(!PR_MODE)return showErrEl(err,'Choose Department-wise or Employee-wise first.');
+  if(!PR_MODE)return showErrEl(err,'Choose All-PTIS, Department-wise or Employee-wise first.');
   if(PR_MODE==='department'&&!PR_DEPTS.size)return showErrEl(err,'Select at least one department.');
   if(PR_MODE==='employee'&&!PR_EMPS.size)return showErrEl(err,'Select at least one employee.');
   document.getElementById('pr-result').style.display='block';
@@ -2370,7 +2373,7 @@ async function prGenerate(){
   try{
     const body={from:window.__prFrom,to:window.__prTo,mode:PR_MODE};
     if(PR_MODE==='department')body.departments=[...PR_DEPTS];
-    else body.employees=[...PR_EMPS];
+    else if(PR_MODE==='employee')body.employees=[...PR_EMPS];
     PR_REPORT=await api('/api/payroll/generate',{method:'POST',body:JSON.stringify(body)});
     prRenderReport();
     toast('Payroll generated for '+PR_REPORT.rows.length+' employee(s).','ok');
@@ -2397,7 +2400,7 @@ async function prSavePayroll(){
   try{
     const body={from:window.__prFrom,to:window.__prTo,mode:PR_MODE};
     if(PR_MODE==='department')body.departments=[...PR_DEPTS];
-    else body.employees=[...PR_EMPS];
+    else if(PR_MODE==='employee')body.employees=[...PR_EMPS];
     const res=await api('/api/payroll/save',{method:'POST',body:JSON.stringify(body)});
     PR_SAVED=true;
     btn.textContent='✓ Saved';
@@ -2501,14 +2504,17 @@ function prReportGrid(rep){
   const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateArrivals,r.lateForgivenByLateSitting,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
-// PDF — one page, landscape, every employee's full payroll row — same
-// PdfDoc helper the Attendance Report uses, so the look is consistent.
+// PDF — one page (per page break), A3 landscape — a payroll run's 31
+// columns (Emp Code through Gross Payable) never fit legibly on A4
+// landscape; A3 landscape gives roughly 40% more width, and table()'s own
+// header-wrapping (see PdfDoc.table above) takes care of any column whose
+// full name still doesn't fit on one line even at this size.
 function prBuildPdfDoc(rep){
   rep=rep||PR_REPORT;
   if(!rep||!rep.rows.length)return null;
   const {headers,rows}=prReportGrid(rep);
   const fmtRows=rows.map(r=>r.map(c=>typeof c==='number'?fmt(c):(c==null?'':c)));
-  const doc=new PdfDoc({landscape:true});
+  const doc=new PdfDoc({landscape:true,w:1191,h:842});
   doc.header('PAYROLL — '+prMonthLabel(rep.to).toUpperCase(),rep.from+' to '+rep.to);
   doc.table(headers,fmtRows);
   return doc;
@@ -2532,8 +2538,13 @@ function prRenderPdfPreview(){
 function prExportCsv(){
   if(!PR_REPORT||!PR_REPORT.rows.length)return alert('Generate a payroll first.');
   const {headers,rows}=prReportGrid();
-  const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const lines=[headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+  // A real number is written UNQUOTED, to exactly 2 decimals, so Excel
+  // parses it as a number (sortable, summable) instead of text — a string
+  // is always quoted, which is what protects something like an employee
+  // code from Excel "helpfully" reinterpreting it as a number and dropping
+  // a leading zero.
+  const cell=v=>typeof v==='number'&&Number.isFinite(v)?(Math.round(v*100)/100).toFixed(2):'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(',')].concat(rows.map(r=>r.map(cell).join(',')));
   dlBlob('﻿'+lines.join('\r\n'),'text/csv;charset=utf-8','payroll-'+PR_REPORT.from+'_to_'+PR_REPORT.to+'.csv');
 }
 function prExportXlsx(){
@@ -2586,7 +2597,7 @@ function prsRenderPayrollsList(){
    '</div>'+
    (PRS_RUNS.length
     ?'<div class="tblwrap"><table><thead><tr><th>Month</th><th>From</th><th>To</th><th>Mode</th><th class="num">Employees</th><th class="num">Total Gross Payable</th><th>Saved By</th><th>Saved At</th><th class="no-print"></th></tr></thead><tbody>'+
-      PRS_RUNS.map(r=>'<tr><td><b>'+esc(r.month_label)+'</b></td><td>'+rptFmtDate(r.from_date)+'</td><td>'+rptFmtDate(r.to_date)+'</td><td>'+esc(r.mode?(r.mode==='department'?'Department-wise':'Employee-wise'):'—')+'</td>'+
+      PRS_RUNS.map(r=>'<tr><td><b>'+esc(r.month_label)+'</b></td><td>'+rptFmtDate(r.from_date)+'</td><td>'+rptFmtDate(r.to_date)+'</td><td>'+esc(prModeLabel(r.mode))+'</td>'+
        '<td class="num">'+r.employee_count+'</td><td class="num">'+fmt(r.total_gross_payable)+'</td><td>'+esc(r.saved_by_name||'')+'</td><td>'+esc(String(r.saved_at||'').slice(0,16).replace('T',' '))+'</td>'+
        '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View every employee\'s full payroll for this month" onclick="prsViewPayroll('+r.id+')">👁 View</button> '+
        '<button class="btn ghost small" title="Email every employee their payslip for this month" onclick="prsSendPayslips('+r.id+',\''+esc(r.month_label).replace(/'/g,"\\'")+'\','+r.employee_count+')">✉ Send Payslips</button> '+
@@ -2730,7 +2741,7 @@ async function prsViewPayroll(id){
     const rep=run.report;
     const missing=rep.rows.filter(r=>r.salaryMissing).length;
     detail.innerHTML='<div class="card"><div class="card-h">'+esc(run.monthLabel)+' — full payroll'+
-      '<span class="hint" style="font-weight:400"> — '+esc(run.fromDate)+' to '+esc(run.toDate)+' · '+esc(run.mode?(run.mode==='department'?'Department-wise':'Employee-wise'):'—')+' · saved by '+esc(run.savedByName||'')+' on '+esc(String(run.savedAt||'').slice(0,16).replace('T',' '))+'</span>'+
+      '<span class="hint" style="font-weight:400"> — '+esc(run.fromDate)+' to '+esc(run.toDate)+' · '+esc(prModeLabel(run.mode))+' · saved by '+esc(run.savedByName||'')+' on '+esc(String(run.savedAt||'').slice(0,16).replace('T',' '))+'</span>'+
       '<span class="sp"></span>'+
       '<button class="btn ghost small" title="HBL to HBL transfer format (coming soon)" onclick="prsExportHblHbl('+id+')">HBL→HBL</button> '+
       '<button class="btn ghost small" title="HBL to IBFT transfer format (coming soon)" onclick="prsExportHblIbft('+id+')">HBL→IBFT</button> '+
@@ -8895,37 +8906,94 @@ PdfDoc.prototype={
  table(heads,rows,widths){
    const avail=this.w-this.mL-this.mR;
    let ws=widths;
+   let fs=8; // the font size this call ends up using — shrinks below 8 only when there are too many columns for even their widest single word to fit at 8pt (see below); an explicit `widths` array never shrinks it.
    if(!ws){ // auto width by content
-     const max=heads.map((h,i)=>Math.max(this.tw(h,8),...rows.slice(0,80).map(r=>this.tw(r[i],8)),20));
-     const tot=max.reduce((a,b)=>a+b,0);
-     ws=max.map(m2=>Math.max(28,m2/tot*avail));
-     const s2=ws.reduce((a,b)=>a+b,0);ws=ws.map(x=>x*avail/s2);
+     // A header sizes its column by its WIDEST WORD, not the whole phrase —
+     // since the header now wraps at word boundaries (see drawHead below),
+     // a long multi-word header like "Salary Divisor (Selected Days)" only
+     // needs room for its longest single word, wrapping onto more lines
+     // instead of forcing its column (and therefore every data row's cell
+     // in it) wide enough for the full phrase on one line. Data cells still
+     // need their own full single-line width, since those are never
+     // wrapped — a report with many columns (e.g. payroll) would otherwise
+     // starve short numeric columns of the width their own values need,
+     // just to make room for header phrases that no longer require it.
+     // Both measured with twx() (real glyph widths), not tw()'s crude
+     // per-char guess, and at whatever font size this table ends up using —
+     // widths scale exactly linearly with size, so natural widths computed
+     // at a smaller size are just the 8pt ones scaled down, nothing is
+     // re-measured from scratch.
+     const naturalWidths=(size)=>{
+       const maxWordW=(h)=>Math.max(...String(h).split(/\s+/).filter(Boolean).map((w)=>this.twx(w,size,true)),0);
+       // +6 matches the cell padding fit()/the header loop below actually
+       // render with (ws[i]-6) — sizing off the bare content width alone
+       // would then immediately truncate/overwrap content that's exactly as
+       // wide as its own column.
+       return heads.map((h,i)=>Math.max(maxWordW(h),...rows.slice(0,80).map(r=>this.twx(r[i],size,false)),20*size/8)+6);
+     };
+     let max=naturalWidths(fs);
+     let tot=max.reduce((a,b)=>a+b,0);
+     if(tot>avail){
+       // Too many columns for their own content to fit side by side at
+       // 8pt, even generously wrapping every header — shrink the font
+       // instead of just squeezing every column name/value down to
+       // whatever's left (which is what used to truncate both headers and
+       // data on a wide report like payroll). Floored at 5.5pt: below that
+       // nothing printed is legible regardless of how it's laid out, so
+       // further shrinking would not actually make more content fit.
+       fs=Math.max(5.5,fs*avail/tot);
+       max=naturalWidths(fs);
+       tot=max.reduce((a,b)=>a+b,0);
+     }
+     ws=max;
+     if(tot<avail){ // room to spare (e.g. the 5.5pt floor left slack) — stretch columns to use all of it, same as before
+       ws=ws.map((x)=>x*avail/tot);
+     } // else: already at the hard floor and still tight — leave as computed, nothing more to gain
    }
    // Row pitch vs. divider-line placement: the line is drawn a fixed 4pt below
    // each row's own text BASELINE (clears an 8pt font's descenders) with the
    // next row starting a further 9pt below that (clears its ascenders/caps) —
    // previously the line was placed relative to the post-decrement cursor,
    // which put it only ~3pt above the NEXT row's text and cut through the
-   // bottom of those glyphs instead of sitting cleanly between rows.
+   // bottom of those glyphs instead of sitting cleanly between rows. Both
+   // pitches scale with fs so a shrunk-font table doesn't waste the vertical
+   // room it no longer needs horizontally.
+   const lineH=fs*1.125,rowPitch=fs*1.625;
+   const headLines=heads.map((h,i)=>this.wrap(h,ws[i]-6,fs,true));
+   const headLineCount=Math.max(1,...headLines.map((l)=>l.length));
+   const headBoxH=fs*0.75+headLineCount*lineH; // = 15 at fs=8, 1 line — identical to the old fixed height
    const drawHead=()=>{
-     this.need(20);
-     this.rect(this.mL,this.y-4,avail,15,'0.92 0.93 0.95');
+     this.need(headBoxH+5);
+     this.rect(this.mL,this.y-4,avail,headBoxH,'0.92 0.93 0.95');
      let x=this.mL+3;const rowY=this.y;
-     heads.forEach((h2,i)=>{this.text(x,rowY,this.fit(h2,ws[i]-6,8),8,true);x+=ws[i];});
-     this.line(this.mL,rowY-5,this.mL+avail,rowY-5);
-     this.y=rowY-16;
+     heads.forEach((h2,i)=>{headLines[i].forEach((ln,li)=>this.text(x,rowY-li*lineH,ln,fs,true));x+=ws[i];});
+     this.line(this.mL,rowY-(headBoxH-10*fs/8),this.mL+avail,rowY-(headBoxH-10*fs/8));
+     this.y=rowY-(headBoxH+1);
    };
    drawHead();
    rows.forEach(r=>{
-     if(this.need(13))drawHead();
+     if(this.need(rowPitch))drawHead();
      let x=this.mL+3;const rowY=this.y;
-     r.forEach((c,i)=>{this.text(x,rowY,this.fit(c,ws[i]-6,8),8);x+=ws[i];});
-     this.line(this.mL,rowY-4,this.mL+avail,rowY-4);
-     this.y=rowY-13;
+     r.forEach((c,i)=>{this.text(x,rowY,this.fit(c,ws[i]-6,fs),fs);x+=ws[i];});
+     this.line(this.mL,rowY-4*fs/8,this.mL+avail,rowY-4*fs/8);
+     this.y=rowY-rowPitch;
    });
    this.y-=8;
  },
- fit(s,wpt,size){s=String(s==null?'':s);const maxc=Math.max(3,Math.floor(wpt/(size*0.5)));return s.length>maxc?s.slice(0,maxc-1)+'\u2026':s;},
+ // Real glyph widths (twx), not the crude size*0.5-per-char guess tw() uses
+ // \u2014 that guess is wrong in both directions (under for capitals, over for
+ // narrow glyphs like digits/'i'/'l'), so a numeric cell could get truncated
+ // well before it actually needed to be.
+ fit(s,wpt,size,bold){
+   s=String(s==null?'':s);
+   if(this.twx(s,size,bold)<=wpt)return s;
+   let lo=0,hi=s.length;
+   while(lo<hi){
+     const mid=Math.ceil((lo+hi)/2);
+     if(this.twx(s.slice(0,mid)+'\u2026',size,bold)<=wpt)lo=mid;else hi=mid-1;
+   }
+   return lo>0?s.slice(0,lo)+'\u2026':'\u2026';
+ },
  // Word-wrap into as many lines as the text needs (fit() truncates instead) \u2014
  // used by the printed work-order form, where a long scope line must carry
  // over rather than lose its tail to an ellipsis.
@@ -9168,26 +9236,51 @@ function _zipStore(files){ // files: [{name, data:Uint8Array}] -> Blob (applicat
 }
 function _xmlEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function _colLetter(n){let s='';n++;while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;}
+// A cell written as a real JS number becomes a genuine Excel NUMBER cell
+// (t="n", style s="1" -> the "0.00" numFmt below) instead of inline text —
+// so SUM()/sort/number-alignment all work, and every numeric column reads
+// as exactly 2 decimal places regardless of how many the value actually
+// carries. A string stays exactly that: plain text, no reformatting,
+// no risk of Excel "helpfully" stripping a leading zero from something
+// like an employee code or account number that was deliberately kept as
+// a string by the caller.
 function buildXlsxBlob(rows2D){
   let sheetXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
   rows2D.forEach((row,ri)=>{
     sheetXml+='<row r="'+(ri+1)+'">';
     row.forEach((cell,ci)=>{
-      sheetXml+='<c r="'+_colLetter(ci)+(ri+1)+'" t="inlineStr"><is><t xml:space="preserve">'+_xmlEsc(cell)+'</t></is></c>';
+      const ref=_colLetter(ci)+(ri+1);
+      if(typeof cell==='number'&&Number.isFinite(cell)){
+        sheetXml+='<c r="'+ref+'" s="1"><v>'+(Math.round(cell*100)/100)+'</v></c>';
+      }else{
+        sheetXml+='<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+_xmlEsc(cell)+'</t></is></c>';
+      }
     });
     sheetXml+='</row>';
   });
   sheetXml+='</sheetData></worksheet>';
-  const contentTypes='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>';
+  const stylesXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+   '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.00"/></numFmts>'+
+   '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'+
+   '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'+
+   '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'+
+   '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+   '<cellXfs count="2">'+
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'+
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+   '</cellXfs>'+
+  '</styleSheet>';
+  const contentTypes='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
   const rootRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
   const workbookXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>';
-  const workbookRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>';
+  const workbookRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
   const enc=s=>new TextEncoder().encode(s);
   return _zipStore([
     {name:'[Content_Types].xml',data:enc(contentTypes)},
     {name:'_rels/.rels',data:enc(rootRels)},
     {name:'xl/workbook.xml',data:enc(workbookXml)},
     {name:'xl/_rels/workbook.xml.rels',data:enc(workbookRels)},
+    {name:'xl/styles.xml',data:enc(stylesXml)},
     {name:'xl/worksheets/sheet1.xml',data:enc(sheetXml)},
   ]);
 }
