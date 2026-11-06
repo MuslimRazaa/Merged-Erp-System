@@ -6533,6 +6533,18 @@ function crmSvcSearchInput(v){CRM_SVC_Q=(v||'').trim().toLowerCase();crmRenderCa
 function crmSvcToggleEq(id){if(CRM_SVC_EXP_EQ.has(id))CRM_SVC_EXP_EQ.delete(id);else CRM_SVC_EXP_EQ.add(id);crmRenderCatalogBrowse();}
 function crmSvcToggleStd(id){if(CRM_SVC_EXP_STD.has(id))CRM_SVC_EXP_STD.delete(id);else CRM_SVC_EXP_STD.add(id);crmRenderCatalogBrowse();}
 function crmSvcChev(open){return '<span style="display:inline-block;width:14px;transition:transform .15s'+(open?';transform:rotate(90deg)':'')+'">▸</span>';}
+// "SER-CAT-2026/0001"+"SER-CAT-2026/0138" -> "SER-CAT-2026/0001–0138" (or
+// just the one code if there's only one / they all collapse to one number)
+// — a quick-glance range so an Equipment row gives some Service Item Code
+// identification without needing to expand every Standard under it.
+function crmSvcCodeRangeLabel(codes){
+  const nums=codes.map(c=>{const m=/\/(\d+)$/.exec(c);return m?{n:+m[1],prefix:c.slice(0,c.length-m[1].length)}:null;}).filter(Boolean);
+  if(!nums.length)return '';
+  nums.sort((a,b)=>a.n-b.n);
+  const lo=nums[0],hi=nums[nums.length-1];
+  const pad=n=>String(n).padStart(4,'0');
+  return lo.n===hi.n?(lo.prefix+pad(lo.n)):(lo.prefix+pad(lo.n)+'–'+pad(hi.n));
+}
 function crmRenderCatalogBrowse(){
   const el=document.getElementById('crmsvc-list');if(!el)return;
   if(!CRM_EQUIPMENT.length){el.innerHTML='<div class="empty">No equipment catalog yet — import the CSV or add entries manually.</div>';return;}
@@ -6551,8 +6563,13 @@ function crmRenderCatalogBrowse(){
     if(!eqMatch&&!stdInfo.length)return;
     const itemTotal=stds.reduce((n,s)=>n+CRM_ITEMDESCS.filter(it=>it.standardId===s.id).length,0);
     const eqOpen=CRM_SVC_EXP_EQ.has(e.id)||stdInfo.some(x=>x.forceOpen);
+    // A quick-glance Service Item Code range for everything under this
+    // Equipment (across all its Standards), so there's some identification
+    // visible right on the Equipment row without having to expand it.
+    const eqCodes=stds.flatMap(s=>CRM_ITEMDESCS.filter(it=>it.standardId===s.id).map(it=>it.code)).filter(Boolean);
+    const eqCodeLabel=crmSvcCodeRangeLabel(eqCodes);
     rows.push('<tr style="cursor:pointer" onclick="crmSvcToggleEq('+e.id+')">'+
-      '<td colspan="2">'+crmSvcChev(eqOpen)+' <b>'+esc(e.name)+'</b></td>'+
+      '<td colspan="2">'+crmSvcChev(eqOpen)+' <b>'+esc(e.name)+'</b>'+(eqCodeLabel?' <span class="hint" style="font-family:monospace;font-weight:400">'+esc(eqCodeLabel)+'</span>':'')+'</td>'+
       '<td class="num">'+stds.length+'</td><td class="num">'+itemTotal+'</td>'+
       '<td class="no-print" style="white-space:nowrap" onclick="event.stopPropagation()">'+
        '<button class="btn ghost small" title="Rename Equipment" onclick="crmSvcRename(\'equipment\','+e.id+',\''+esc(e.name).replace(/'/g,"\\'")+'\')">✎</button> '+
@@ -7905,7 +7922,7 @@ function plGrid(rec){
   PL.map((l,i)=>{
     const isCustom=l.itemDescId==='__custom__'||(!l.itemDescId&&!l.equipId&&!l.stdId&&l.desc);
     return '<tr><td class="num">'+(i+1)+'</td>'+
-     '<td><input value="'+esc(l.code||'')+'" oninput="PL['+i+'].code=this.value" placeholder="SVC-01"></td>'+
+     '<td><input value="'+esc(l.code||'')+'" readonly title="Auto-filled from the Service Catalogue when an Item Description is picked" style="background:var(--card2,#f3f4f6);cursor:default" placeholder="—"></td>'+
      '<td><select style="width:100%;min-width:190px" onchange="plEquipPick('+i+',this.value)">'+plEquipOptions(l.equipId)+'</select></td>'+
      '<td><select style="width:100%;min-width:210px" onchange="plStdPick('+i+',this.value)"'+(!l.equipId?' disabled':'')+'>'+plStdOptions(l.equipId,l.stdId)+'</select></td>'+
      '<td><select style="width:100%;min-width:230px" onchange="plItemPick('+i+',this.value)">'+plItemOptions(l.stdId,isCustom?'__custom__':l.itemDescId)+'</select>'+
