@@ -35,6 +35,9 @@ const MODULE_GROUP = {
   workorders: 'Inspection', contracts: 'Inspection', ir_library: 'Inspection',
   // where a job happened: Location (from the shared master) + Sub Location
   insplocs: 'Inspection',
+  // which work order numbers are whose: one row is an inspector and a run
+  // of numbers. Allocated on the live system, read on the inspector's.
+  woalloc: 'Inspection',
   // Accounting (multi-company double-entry GL) — companies (each with its
   // own embedded chart of accounts), currencies and journal entries used to
   // live ONLY in the browser that entered them (a single JSON blob in
@@ -63,8 +66,22 @@ router.param('module', (req, res, next, mod) => {
   next();
 });
 
+/* Registers that only an administrator writes, though everybody reads
+   them: which work order numbers are allocated to whom, and what the
+   sites are called. The browser keeps both screens out of other people's
+   sidebars, but a screen nobody can see is still a route anybody can
+   post to, so the rule lives here too. Reads are untouched - an
+   inspector who could not read these would not know their own numbers. */
+const ADMIN_MODS = {
+  woalloc: 'work order allocations',
+  insplocs: 'the location register',
+};
 function requireWrite(req, res, next) {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const adminOnly = ADMIN_MODS[req.params.module];
+  if (adminOnly && !isAdminTier(req.erpUser.role)) {
+    return res.status(403).json({ error: `Only an administrator can change ${adminOnly}.` });
+  }
   next();
 }
 
