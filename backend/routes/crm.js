@@ -618,6 +618,70 @@ router.post('/item-descriptions', async (req, res) => {
   res.status(201).json({ id: r.insertId, standardId, description });
 });
 
+// Rename / delete for the three catalog levels. Equipment/Standard deletes
+// cascade onto their own children (FK ON DELETE CASCADE in migrate.js), but
+// a level still referenced by an actual priced Service (erp_crm_services)
+// is protected by that table's plain FK (no cascade there) — caught below
+// and turned into a readable message instead of a raw SQL error.
+function isFkInUseError(e) { return e && (e.code === 'ER_ROW_IS_REFERENCED_2' || e.code === 'ER_ROW_IS_REFERENCED'); }
+router.put('/equipment/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const name = normCell(req.body.name);
+  if (!name) return res.status(400).json({ error: 'Equipment name is required.' });
+  const [result] = await pool.query('UPDATE erp_crm_equipment SET name = ? WHERE id = ?', [name, req.params.id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Equipment not found.' });
+  res.json({ id: +req.params.id, name });
+});
+router.delete('/equipment/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  try {
+    const [result] = await pool.query('DELETE FROM erp_crm_equipment WHERE id = ?', [req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Equipment not found.' });
+    res.json({ ok: true });
+  } catch (e) {
+    if (isFkInUseError(e)) return res.status(409).json({ error: 'This Equipment is used by a priced Service in the Service Catalogue and cannot be deleted.' });
+    throw e;
+  }
+});
+router.put('/standards/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const name = normCell(req.body.name);
+  if (!name) return res.status(400).json({ error: 'Standard name is required.' });
+  const [result] = await pool.query('UPDATE erp_crm_standards SET name = ? WHERE id = ?', [name, req.params.id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Standard not found.' });
+  res.json({ ok: true });
+});
+router.delete('/standards/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  try {
+    const [result] = await pool.query('DELETE FROM erp_crm_standards WHERE id = ?', [req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Standard not found.' });
+    res.json({ ok: true });
+  } catch (e) {
+    if (isFkInUseError(e)) return res.status(409).json({ error: 'This Standard is used by a priced Service in the Service Catalogue and cannot be deleted.' });
+    throw e;
+  }
+});
+router.put('/item-descriptions/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const description = normCell(req.body.description);
+  if (!description) return res.status(400).json({ error: 'Item description is required.' });
+  const [result] = await pool.query('UPDATE erp_crm_item_descriptions SET description = ? WHERE id = ?', [description, req.params.id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Item description not found.' });
+  res.json({ ok: true });
+});
+router.delete('/item-descriptions/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  try {
+    const [result] = await pool.query('DELETE FROM erp_crm_item_descriptions WHERE id = ?', [req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Item description not found.' });
+    res.json({ ok: true });
+  } catch (e) {
+    if (isFkInUseError(e)) return res.status(409).json({ error: 'This Item Description is used by a priced Service in the Service Catalogue and cannot be deleted.' });
+    throw e;
+  }
+});
+
 /* ---------------- Service Catalogue ---------------- */
 const SVC_SELECT = `
   SELECT sv.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description

@@ -539,7 +539,12 @@ body.locked #app{display:none}
      <input type="hidden" id="sv-equipment">
      <div id="sv-equipment-list" class="crm-dd-list" style="display:none"></div>
     </div>
-    <button type="button" class="btn ghost small" onclick="crmSvcAddEquipment()">+ New</button></div></div>
+    <button type="button" class="btn ghost small" onclick="crmSvcShowAddNew('equipment')">+ New</button></div>
+   <div id="sv-equipment-newbox" style="display:none;gap:8px;margin-top:6px">
+    <input type="text" id="sv-equipment-new-input" placeholder="New equipment name" autocomplete="off" style="flex:1" onkeydown="crmSvcNewKeydown(event,'equipment')">
+    <button type="button" class="btn small" onclick="crmSvcConfirmAddNew('equipment')">Add</button>
+    <button type="button" class="btn ghost small" onclick="crmSvcCancelAddNew('equipment')">Cancel</button>
+   </div></div>
   <div class="field" style="margin-top:9px"><label>Standard *</label>
    <div style="display:flex;gap:8px">
     <div style="position:relative;flex:1">
@@ -547,7 +552,12 @@ body.locked #app{display:none}
      <input type="hidden" id="sv-standard">
      <div id="sv-standard-list" class="crm-dd-list" style="display:none"></div>
     </div>
-    <button type="button" class="btn ghost small" onclick="crmSvcAddStandard()">+ New</button></div></div>
+    <button type="button" class="btn ghost small" onclick="crmSvcShowAddNew('standard')">+ New</button></div>
+   <div id="sv-standard-newbox" style="display:none;gap:8px;margin-top:6px">
+    <input type="text" id="sv-standard-new-input" placeholder="New standard name (under this Equipment)" autocomplete="off" style="flex:1" onkeydown="crmSvcNewKeydown(event,'standard')">
+    <button type="button" class="btn small" onclick="crmSvcConfirmAddNew('standard')">Add</button>
+    <button type="button" class="btn ghost small" onclick="crmSvcCancelAddNew('standard')">Cancel</button>
+   </div></div>
   <div class="field" style="margin-top:9px"><label>Item Description *</label>
    <div style="display:flex;gap:8px">
     <div style="position:relative;flex:1">
@@ -555,7 +565,12 @@ body.locked #app{display:none}
      <input type="hidden" id="sv-itemdesc">
      <div id="sv-itemdesc-list" class="crm-dd-list" style="display:none"></div>
     </div>
-    <button type="button" class="btn ghost small" onclick="crmSvcAddItemDesc()">+ New</button></div></div>
+    <button type="button" class="btn ghost small" onclick="crmSvcShowAddNew('itemdesc')">+ New</button></div>
+   <div id="sv-itemdesc-newbox" style="display:none;gap:8px;margin-top:6px">
+    <input type="text" id="sv-itemdesc-new-input" placeholder="New item description (under this Standard)" autocomplete="off" style="flex:1" onkeydown="crmSvcNewKeydown(event,'itemdesc')">
+    <button type="button" class="btn small" onclick="crmSvcConfirmAddNew('itemdesc')">Add</button>
+    <button type="button" class="btn ghost small" onclick="crmSvcCancelAddNew('itemdesc')">Cancel</button>
+   </div></div>
   <div class="actions" style="justify-content:flex-end">
     <button class="btn" onclick="crmSvcModalDone()">Done</button>
   </div>
@@ -6484,23 +6499,107 @@ async function renderCrmServices(){
    '<span style="margin-left:auto;display:flex;gap:8px">'+
    '<button class="btn ghost" onclick="crmOpenServiceImport()">⇪ Import Equipment Catalog</button>'+
    '<button class="btn" onclick="crmOpenServiceForm()">+ Add Equipment / Standard / Item</button></span></div>'+
-   '<div class="card-b"><div id="crmsvc-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
+   '<div class="card-b">'+
+    '<div class="field" style="max-width:420px;margin-bottom:12px">'+
+     '<input type="text" id="crmsvc-search" placeholder="Search Equipment, Standard or Item Description…" autocomplete="off" style="width:100%" oninput="crmSvcSearchInput(this.value)">'+
+    '</div>'+
+    '<div id="crmsvc-list" class="tblwrap"><div class="empty">Loading…</div></div>'+
+   '</div></div>';
   try{
     await crmLoadCatalogRef();
     crmRenderCatalogBrowse();
   }catch(e){const el=document.getElementById('crmsvc-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
+// Browse view: a 3-level expandable tree (Equipment -> Standard -> Item
+// Description), not just the old flat "name + two counts" row — the point
+// is to actually be able to drill into what's under an Equipment/Standard
+// without leaving this page. Typing in the search box auto-expands and
+// filters down to whatever level matched (an Item Description match pulls
+// its Standard and Equipment into view too, so the hit is never orphaned).
+let CRM_SVC_EXP_EQ=new Set(),CRM_SVC_EXP_STD=new Set(),CRM_SVC_Q='';
+function crmSvcSearchInput(v){CRM_SVC_Q=(v||'').trim().toLowerCase();crmRenderCatalogBrowse();}
+function crmSvcToggleEq(id){if(CRM_SVC_EXP_EQ.has(id))CRM_SVC_EXP_EQ.delete(id);else CRM_SVC_EXP_EQ.add(id);crmRenderCatalogBrowse();}
+function crmSvcToggleStd(id){if(CRM_SVC_EXP_STD.has(id))CRM_SVC_EXP_STD.delete(id);else CRM_SVC_EXP_STD.add(id);crmRenderCatalogBrowse();}
+function crmSvcChev(open){return '<span style="display:inline-block;width:14px;transition:transform .15s'+(open?';transform:rotate(90deg)':'')+'">▸</span>';}
 function crmRenderCatalogBrowse(){
   const el=document.getElementById('crmsvc-list');if(!el)return;
   if(!CRM_EQUIPMENT.length){el.innerHTML='<div class="empty">No equipment catalog yet — import the CSV or add entries manually.</div>';return;}
-  const body='<table><thead><tr><th>Equipment</th><th class="num">Standards</th><th class="num">Item Descriptions</th></tr></thead><tbody>'+
-   CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e=>{
-    const stds=CRM_STANDARDS.filter(s=>s.equipmentId===e.id);
-    const itemCount=stds.reduce((n,s)=>n+CRM_ITEMDESCS.filter(it=>it.standardId===s.id).length,0);
-    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+stds.length+'</td><td class="num">'+itemCount+'</td></tr>';
-   }).join('')+
-   '</tbody></table>';
-  el.innerHTML=body;
+  const q=CRM_SVC_Q;
+  const rows=[];
+  CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(e=>{
+    const eqMatch=!q||e.name.toLowerCase().includes(q);
+    const stds=CRM_STANDARDS.filter(s=>s.equipmentId===e.id).slice().sort((a,b)=>a.name.localeCompare(b.name));
+    const stdInfo=stds.map(s=>{
+      const items=CRM_ITEMDESCS.filter(it=>it.standardId===s.id).slice().sort((a,b)=>a.description.localeCompare(b.description));
+      const stdMatch=eqMatch||!q||s.name.toLowerCase().includes(q);
+      const matchingItems=(q&&!eqMatch&&!stdMatch)?items.filter(it=>it.description.toLowerCase().includes(q)):items;
+      const itemHit=!!q&&!eqMatch&&!stdMatch&&matchingItems.length>0;
+      return {s,items,matchingItems,visible:eqMatch||stdMatch||itemHit,forceOpen:!!q&&(stdMatch&&!eqMatch||itemHit)};
+    }).filter(x=>x.visible);
+    if(!eqMatch&&!stdInfo.length)return;
+    const itemTotal=stds.reduce((n,s)=>n+CRM_ITEMDESCS.filter(it=>it.standardId===s.id).length,0);
+    const eqOpen=CRM_SVC_EXP_EQ.has(e.id)||stdInfo.some(x=>x.forceOpen);
+    rows.push('<tr style="cursor:pointer" onclick="crmSvcToggleEq('+e.id+')">'+
+      '<td colspan="2">'+crmSvcChev(eqOpen)+' <b>'+esc(e.name)+'</b></td>'+
+      '<td class="num">'+stds.length+'</td><td class="num">'+itemTotal+'</td>'+
+      '<td class="no-print" style="white-space:nowrap" onclick="event.stopPropagation()">'+
+       '<button class="btn ghost small" title="Rename Equipment" onclick="crmSvcRename(\'equipment\','+e.id+',\''+esc(e.name).replace(/'/g,"\\'")+'\')">✎</button> '+
+       '<button class="del" title="Delete Equipment" onclick="crmSvcDelete(\'equipment\','+e.id+',\''+esc(e.name).replace(/'/g,"\\'")+'\')">🗑</button>'+
+      '</td></tr>');
+    if(!eqOpen)return;
+    if(!stdInfo.length){rows.push('<tr><td colspan="5" class="hint" style="padding-left:34px">No Standards under this Equipment yet.</td></tr>');return;}
+    stdInfo.forEach(({s,items,matchingItems,forceOpen})=>{
+      const stdOpen=CRM_SVC_EXP_STD.has(s.id)||forceOpen;
+      rows.push('<tr style="cursor:pointer;background:var(--card2,#f8f9fb)" onclick="crmSvcToggleStd('+s.id+')">'+
+        '<td style="padding-left:28px"></td><td>'+crmSvcChev(stdOpen)+' '+esc(s.name)+'</td>'+
+        '<td class="num">—</td><td class="num">'+items.length+'</td>'+
+        '<td class="no-print" style="white-space:nowrap" onclick="event.stopPropagation()">'+
+         '<button class="btn ghost small" title="Rename Standard" onclick="crmSvcRename(\'standard\','+s.id+',\''+esc(s.name).replace(/'/g,"\\'")+'\')">✎</button> '+
+         '<button class="del" title="Delete Standard" onclick="crmSvcDelete(\'standard\','+s.id+',\''+esc(s.name).replace(/'/g,"\\'")+'\')">🗑</button>'+
+        '</td></tr>');
+      if(!stdOpen)return;
+      const list=(q&&!CRM_SVC_EXP_STD.has(s.id))?matchingItems:items;
+      if(!list.length){rows.push('<tr><td colspan="5" class="hint" style="padding-left:56px">No Item Descriptions under this Standard yet.</td></tr>');return;}
+      list.forEach(it=>{
+        rows.push('<tr>'+
+          '<td colspan="2" style="padding-left:56px;color:var(--faint,#667085)">'+esc(it.description)+'</td>'+
+          '<td></td><td></td>'+
+          '<td class="no-print" style="white-space:nowrap">'+
+           '<button class="btn ghost small" title="Rename Item Description" onclick="crmSvcRename(\'itemdesc\','+it.id+',\''+esc(it.description).replace(/'/g,"\\'")+'\')">✎</button> '+
+           '<button class="del" title="Delete Item Description" onclick="crmSvcDelete(\'itemdesc\','+it.id+',\''+esc(it.description).replace(/'/g,"\\'")+'\')">🗑</button>'+
+          '</td></tr>');
+      });
+    });
+  });
+  if(!rows.length){el.innerHTML='<div class="empty">No matches for "'+esc(CRM_SVC_Q)+'".</div>';return;}
+  el.innerHTML='<table><thead><tr><th colspan="2">Equipment / Standard / Item Description</th><th class="num">Standards</th><th class="num">Item Descriptions</th><th class="no-print"></th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
+}
+async function crmSvcRename(kind,id,current){
+  const label=kind==='equipment'?'Equipment':kind==='standard'?'Standard':'Item Description';
+  const val=prompt('Rename '+label+':',current);
+  if(val==null)return;
+  const trimmed=val.trim();
+  if(!trimmed||trimmed===current)return;
+  const path=kind==='equipment'?'/api/crm/equipment/'+id:kind==='standard'?'/api/crm/standards/'+id:'/api/crm/item-descriptions/'+id;
+  const body=kind==='itemdesc'?{description:trimmed}:{name:trimmed};
+  try{
+    await api(path,{method:'PUT',body:JSON.stringify(body)});
+    await crmLoadCatalogRef();
+    crmRenderCatalogBrowse();
+    toast(label+' renamed.','ok');
+  }catch(err){toast(err.message,'err');}
+}
+async function crmSvcDelete(kind,id,label){
+  const kindLabel=kind==='equipment'?'Equipment':kind==='standard'?'Standard':'Item Description';
+  const warn=kind==='equipment'?' This also removes all its Standards and Item Descriptions.':kind==='standard'?' This also removes all its Item Descriptions.':'';
+  if(!confirm('Delete '+kindLabel+' "'+label+'"?'+warn+' This cannot be undone.'))return;
+  const path=kind==='equipment'?'/api/crm/equipment/'+id:kind==='standard'?'/api/crm/standards/'+id:'/api/crm/item-descriptions/'+id;
+  try{
+    await api(path,{method:'DELETE'});
+    await crmLoadCatalogRef();
+    crmRenderCatalogBrowse();
+    toast(kindLabel+' deleted.','ok');
+  }catch(err){toast(err.message,'err');}
 }
 
 //hello change
@@ -6544,42 +6643,52 @@ function crmSvcPick(kind,id,label){
     document.getElementById('sv-itemdesc').value='';document.getElementById('sv-itemdesc-q').value='';
   }
 }
-async function crmSvcAddEquipment(){
-  const name=prompt('New Equipment name:');
-  if(!name||!name.trim())return;
-  try{
-    const e=await api('/api/crm/equipment',{method:'POST',body:JSON.stringify({name:name.trim()})});
-    if(!CRM_EQUIPMENT.some(x=>x.id===e.id))CRM_EQUIPMENT.push(e);
-    crmSvcPick('equipment',e.id,e.name);
-  }catch(err){toast(err.message,'err');}
+// "+ New" at each level used to pop a native browser prompt() — jarring
+// and inconsistent with the rest of the UI. Instead it now reveals a small
+// inline text box right under that level's search field; Enter or the
+// "Add" button saves it immediately (same behavior as before: it saves
+// right away and becomes the selection), Escape/Cancel just hides it again.
+function crmSvcShowAddNew(kind){
+  if(kind==='standard'&&!(+document.getElementById('sv-equipment').value))return toast('Choose an Equipment first.','err');
+  if(kind==='itemdesc'&&!(+document.getElementById('sv-standard').value))return toast('Choose a Standard first.','err');
+  const box=document.getElementById('sv-'+kind+'-newbox');box.style.display='flex';
+  const inp=document.getElementById('sv-'+kind+'-new-input');inp.value='';inp.focus();
 }
-async function crmSvcAddStandard(){
-  const equipmentId=+document.getElementById('sv-equipment').value;
-  if(!equipmentId)return toast('Choose an Equipment first.','err');
-  const name=prompt('New Standard name (under this Equipment):');
-  if(!name||!name.trim())return;
-  try{
-    const s=await api('/api/crm/standards',{method:'POST',body:JSON.stringify({equipmentId,name:name.trim()})});
-    if(!CRM_STANDARDS.some(x=>x.id===s.id))CRM_STANDARDS.push(s);
-    crmSvcPick('standard',s.id,s.name);
-  }catch(err){toast(err.message,'err');}
+function crmSvcCancelAddNew(kind){document.getElementById('sv-'+kind+'-newbox').style.display='none';}
+function crmSvcNewKeydown(ev,kind){
+  if(ev.key==='Enter'){ev.preventDefault();crmSvcConfirmAddNew(kind);}
+  else if(ev.key==='Escape'){ev.preventDefault();crmSvcCancelAddNew(kind);}
 }
-async function crmSvcAddItemDesc(){
-  const standardId=+document.getElementById('sv-standard').value;
-  if(!standardId)return toast('Choose a Standard first.','err');
-  const description=prompt('New Item Description (under this Standard):');
-  if(!description||!description.trim())return;
+async function crmSvcConfirmAddNew(kind){
+  const inp=document.getElementById('sv-'+kind+'-new-input');
+  const val=(inp.value||'').trim();
+  const label=kind==='equipment'?'Equipment name':kind==='standard'?'Standard name':'Item description';
+  if(!val)return toast(label+' is required.','err');
   try{
-    const it=await api('/api/crm/item-descriptions',{method:'POST',body:JSON.stringify({standardId,description:description.trim()})});
-    if(!CRM_ITEMDESCS.some(x=>x.id===it.id))CRM_ITEMDESCS.push(it);
-    crmSvcPick('itemdesc',it.id,it.description);
+    if(kind==='equipment'){
+      const e=await api('/api/crm/equipment',{method:'POST',body:JSON.stringify({name:val})});
+      if(!CRM_EQUIPMENT.some(x=>x.id===e.id))CRM_EQUIPMENT.push(e);
+      crmSvcPick('equipment',e.id,e.name);
+    }else if(kind==='standard'){
+      const equipmentId=+document.getElementById('sv-equipment').value;
+      const s=await api('/api/crm/standards',{method:'POST',body:JSON.stringify({equipmentId,name:val})});
+      if(!CRM_STANDARDS.some(x=>x.id===s.id))CRM_STANDARDS.push(s);
+      crmSvcPick('standard',s.id,s.name);
+    }else{
+      const standardId=+document.getElementById('sv-standard').value;
+      const it=await api('/api/crm/item-descriptions',{method:'POST',body:JSON.stringify({standardId,description:val})});
+      if(!CRM_ITEMDESCS.some(x=>x.id===it.id))CRM_ITEMDESCS.push(it);
+      crmSvcPick('itemdesc',it.id,it.description);
+    }
+    document.getElementById('sv-'+kind+'-newbox').style.display='none';
+    toast('Added.','ok');
   }catch(err){toast(err.message,'err');}
 }
 function crmOpenServiceForm(){
   document.getElementById('sv-equipment').value='';document.getElementById('sv-equipment-q').value='';
   document.getElementById('sv-standard').value='';document.getElementById('sv-standard-q').value='';
   document.getElementById('sv-itemdesc').value='';document.getElementById('sv-itemdesc-q').value='';
-  ['equipment','standard','itemdesc'].forEach(k=>document.getElementById('sv-'+k+'-list').style.display='none');
+  ['equipment','standard','itemdesc'].forEach(k=>{document.getElementById('sv-'+k+'-list').style.display='none';document.getElementById('sv-'+k+'-newbox').style.display='none';});
   openModal('crmsvcmodal');
 }
 function crmSvcModalDone(){
