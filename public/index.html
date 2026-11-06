@@ -6544,7 +6544,7 @@ function crmRenderCatalogBrowse(){
     const stdInfo=stds.map(s=>{
       const items=CRM_ITEMDESCS.filter(it=>it.standardId===s.id).slice().sort((a,b)=>a.description.localeCompare(b.description));
       const stdMatch=eqMatch||!q||s.name.toLowerCase().includes(q);
-      const matchingItems=(q&&!eqMatch&&!stdMatch)?items.filter(it=>it.description.toLowerCase().includes(q)):items;
+      const matchingItems=(q&&!eqMatch&&!stdMatch)?items.filter(it=>it.description.toLowerCase().includes(q)||(it.code&&it.code.toLowerCase().includes(q))):items;
       const itemHit=!!q&&!eqMatch&&!stdMatch&&matchingItems.length>0;
       return {s,items,matchingItems,visible:eqMatch||stdMatch||itemHit,forceOpen:!!q&&(stdMatch&&!eqMatch||itemHit)};
     }).filter(x=>x.visible);
@@ -6574,7 +6574,7 @@ function crmRenderCatalogBrowse(){
       if(!list.length){rows.push('<tr><td colspan="5" class="hint" style="padding-left:56px">No Item Descriptions under this Standard yet.</td></tr>');return;}
       list.forEach(it=>{
         rows.push('<tr>'+
-          '<td colspan="2" style="padding-left:56px;color:var(--faint,#667085)">'+esc(it.description)+'</td>'+
+          '<td colspan="2" style="padding-left:56px;color:var(--faint,#667085)">'+(it.code?'<span class="pill b" style="margin-right:8px;font-family:monospace">'+esc(it.code)+'</span>':'')+esc(it.description)+'</td>'+
           '<td></td><td></td>'+
           '<td class="no-print" style="white-space:nowrap">'+
            '<button class="btn ghost small" title="Rename Item Description" onclick="crmSvcRename(\'itemdesc\','+it.id+',\''+esc(it.description).replace(/'/g,"\\'")+'\')">✎</button> '+
@@ -6677,6 +6677,7 @@ async function crmSvcConfirmAddNew(kind){
   const label=kind==='equipment'?'Equipment name':kind==='standard'?'Standard name':'Item description';
   if(!val)return toast(label+' is required.','err');
   try{
+    let newCode=null;
     if(kind==='equipment'){
       const e=await api('/api/crm/equipment',{method:'POST',body:JSON.stringify({name:val})});
       if(!CRM_EQUIPMENT.some(x=>x.id===e.id))CRM_EQUIPMENT.push(e);
@@ -6691,9 +6692,10 @@ async function crmSvcConfirmAddNew(kind){
       const it=await api('/api/crm/item-descriptions',{method:'POST',body:JSON.stringify({standardId,description:val})});
       if(!CRM_ITEMDESCS.some(x=>x.id===it.id))CRM_ITEMDESCS.push(it);
       crmSvcPick('itemdesc',it.id,it.description);
+      newCode=it.code;
     }
     document.getElementById('sv-'+kind+'-newbox').style.display='none';
-    toast('Added.','ok');
+    toast(newCode?('Added — Service Item Code '+newCode):'Added.','ok');
   }catch(err){toast(err.message,'err');}
 }
 function crmOpenServiceForm(){
@@ -7883,7 +7885,7 @@ function plStdOptions(equipId,selId){
 }
 function plItemOptions(stdId,selId){
   const items=stdId?CRM_ITEMDESCS.filter(it=>String(it.standardId)===String(stdId)).slice().sort((a,b)=>a.description.localeCompare(b.description)):[];
-  return '<option value="">\u2014 choose \u2014</option>'+items.map(it=>'<option value="'+it.id+'"'+(String(selId)===String(it.id)?' selected':'')+'>'+esc(it.description)+'</option>').join('')+
+  return '<option value="">\u2014 choose \u2014</option>'+items.map(it=>'<option value="'+it.id+'"'+(String(selId)===String(it.id)?' selected':'')+'>'+(it.code?esc(it.code)+' \u2014 ':'')+esc(it.description)+'</option>').join('')+
    '<option value="__custom__"'+(selId==='__custom__'?' selected':'')+'>Other \u2014 type manually\u2026</option>';
 }
 function plEquipPick(i,val){PL[i].equipId=val||null;PL[i].stdId=null;PL[i].itemDescId=null;plRefresh();}
@@ -7893,6 +7895,7 @@ function plItemPick(i,val){
   PL[i].itemDescId=val||null;
   const it=CRM_ITEMDESCS.find(x=>String(x.id)===String(val));
   PL[i].desc=it?it.description:'';
+  if(it&&it.code)PL[i].code=it.code; // Item code column auto-fills from the Service Catalogue's own SER-CAT code
   plRefresh();
 }
 function plGrid(rec){

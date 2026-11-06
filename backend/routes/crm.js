@@ -528,6 +528,29 @@ function parseEquipmentCatalog(rows) {
   return equipment;
 }
 
+// Every Item Description is also a sellable "Service Item" and gets its
+// own permanent code the moment it's created: SER-CAT-<year>/0001, /0002,
+// ... Scoped to the current calendar year (a fresh prefix each year), and
+// never reused/renumbered once assigned — Contract price list auto-fills
+// its "Item code" column from this when a line picks an Item Description.
+// makeCodeAllocator() hands out a batch of these without a round-trip per
+// code (the CSV import can add hundreds of items in one call).
+function makeCodeAllocator(startN) {
+  const year = new Date().getFullYear();
+  const prefix = `SER-CAT-${year}/`;
+  let n = startN;
+  return () => { n++; return `${prefix}${String(n).padStart(4, '0')}`; };
+}
+async function currentItemDescCodeN() {
+  const year = new Date().getFullYear();
+  const prefix = `SER-CAT-${year}/`;
+  const [[row]] = await pool.query(
+    'SELECT MAX(CAST(SUBSTRING(code, ?) AS UNSIGNED)) AS mx FROM erp_crm_item_descriptions WHERE code LIKE ?',
+    [prefix.length + 1, `${prefix}%`]
+  );
+  return row.mx || 0;
+}
+
 // Imports the CSV, merging into the reference tables — existing
 // Equipment/Standard names are reused (not duplicated), and an Item
 // Description already on file for a Standard is skipped, so re-uploading
@@ -544,6 +567,7 @@ router.post('/equipment-catalog/import', upload.single('file'), handleUploadErro
   const stdByKey = new Map(existingStd.map((s) => [s.equipment_id + '|' + s.name.toLowerCase(), s.id]));
   const [existingItems] = await pool.query('SELECT standard_id, description FROM erp_crm_item_descriptions');
   const itemSeen = new Set(existingItems.map((it) => it.standard_id + '|' + it.description));
+  const nextCode = makeCodeAllocator(await currentItemDescCodeN());
 
   let equipmentAdded = 0, standardsAdded = 0, itemsAdded = 0;
   for (const e of catalog) {
@@ -562,7 +586,7 @@ router.post('/equipment-catalog/import', upload.single('file'), handleUploadErro
       for (const desc of s.items) {
         const itemKey = stdId + '|' + desc;
         if (itemSeen.has(itemKey)) continue;
-        await pool.query('INSERT INTO erp_crm_item_descriptions (standard_id, description) VALUES (?,?)', [stdId, desc]);
+        await pool.query('INSERT INTO erp_crm_item_descriptions (standard_id, description, code) VALUES (?,?,?)', [stdId, desc, nextCode()]);
         itemSeen.add(itemKey); itemsAdded++;
       }
     }
@@ -577,11 +601,11 @@ router.post('/equipment-catalog/import', upload.single('file'), handleUploadErro
 router.get('/equipment-catalog', async (req, res) => {
   const [equipment] = await pool.query('SELECT id, name FROM erp_crm_equipment ORDER BY name');
   const [standards] = await pool.query('SELECT id, equipment_id, name FROM erp_crm_standards ORDER BY name');
-  const [items] = await pool.query('SELECT id, standard_id, description FROM erp_crm_item_descriptions ORDER BY description');
+  const [items] = await pool.query('SELECT id, standard_id, code, description FROM erp_crm_item_descriptions ORDER BY description');
   res.json({
     equipment: equipment.map((e) => ({ id: e.id, name: e.name })),
     standards: standards.map((s) => ({ id: s.id, equipmentId: s.equipment_id, name: s.name })),
-    itemDescriptions: items.map((it) => ({ id: it.id, standardId: it.standard_id, description: it.description })),
+    itemDescriptions: items.map((it) => ({ id: it.id, standardId: it.standard_id, code: it.code, description: it.description })),
   });
 });
 
@@ -614,8 +638,9 @@ router.post('/item-descriptions', async (req, res) => {
   const description = normCell(req.body.description);
   if (!standardId) return res.status(400).json({ error: 'Standard is required.' });
   if (!description) return res.status(400).json({ error: 'Item description is required.' });
-  const [r] = await pool.query('INSERT INTO erp_crm_item_descriptions (standard_id, description) VALUES (?,?)', [standardId, description]);
-  res.status(201).json({ id: r.insertId, standardId, description });
+  const code = makeCodeAllocator(await currentItemDescCodeN())();
+  const [r] = await pool.query('INSERT INTO erp_crm_item_descriptions (standard_id, description, code) VALUES (?,?,?)', [standardId, description, code]);
+  res.status(201).json({ id: r.insertId, standardId, description, code });
 });
 
 // Rename / delete for the three catalog levels. Equipment/Standard deletes

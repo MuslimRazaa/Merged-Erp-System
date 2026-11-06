@@ -783,6 +783,31 @@ async function migrate() {
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN per_day_rate DECIMAL(14,2) NULL AFTER gross_salary'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
+  // Service Catalogue — every Item Description is also a sellable "Service
+  // Item", so it gets its own permanent code the moment it's created:
+  // SER-CAT-<year>/0001, /0002, ... (see nextItemDescCode() in routes/crm.js,
+  // used by both the manual "+ New" add and the CSV import). This backfills
+  // any item descriptions that pre-date the column (imported/added before
+  // this existed) with codes in their original id order, continuing
+  // whatever sequence is already in use for the current year — runs once;
+  // after the first pass every row has a code and the SELECT below is empty.
+  try { await pool.query('ALTER TABLE erp_crm_item_descriptions ADD COLUMN code VARCHAR(40) NULL UNIQUE AFTER standard_id'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  const [uncodedItems] = await pool.query('SELECT id FROM erp_crm_item_descriptions WHERE code IS NULL ORDER BY id ASC');
+  if (uncodedItems.length) {
+    const year = new Date().getFullYear();
+    const prefix = `SER-CAT-${year}/`;
+    const [[maxRow]] = await pool.query(
+      "SELECT MAX(CAST(SUBSTRING(code, ?) AS UNSIGNED)) AS mx FROM erp_crm_item_descriptions WHERE code LIKE ?",
+      [prefix.length + 1, `${prefix}%`]
+    );
+    let n = maxRow.mx || 0;
+    for (const row of uncodedItems) {
+      n++;
+      await pool.query('UPDATE erp_crm_item_descriptions SET code = ? WHERE id = ?', [`${prefix}${String(n).padStart(4, '0')}`, row.id]);
+    }
+  }
+
   console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 
