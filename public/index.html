@@ -6489,6 +6489,18 @@ async function crmLoadCatalogRef(){
   const ref=await api('/api/crm/equipment-catalog');
   CRM_EQUIPMENT=ref.equipment;CRM_STANDARDS=ref.standards;CRM_ITEMDESCS=ref.itemDescriptions;
 }
+// Other screens (Contract price list grid) need this same reference data
+// but aren't the Service Catalogue page itself, so they can't rely on
+// crmLoadCatalogRef() already having run. This lazily kicks off the fetch
+// (throttled to once per 15s) and, once it lands, re-renders the price
+// list grid so the Equipment/Standard/Item Description dropdowns populate
+// without the user having to do anything.
+let CRM_EQUIP_REF_AT=0;
+function crmEquipRefEnsure(){
+  if(Date.now()-CRM_EQUIP_REF_AT<15000&&CRM_EQUIPMENT.length)return;
+  CRM_EQUIP_REF_AT=Date.now();
+  crmLoadCatalogRef().then(()=>{if(document.getElementById('pl-zone'))plRefresh();}).catch(()=>{});
+}
 // This screen is purely reference data — there's no priced "Service"
 // record to save. The modal's job is just letting someone add a missing
 // Equipment/Standard/Item Description (each "+ New" saves immediately);
@@ -7258,6 +7270,7 @@ function renderModule(){
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
   if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
+  if(m.plist)crmEquipRefEnsure(); // Equipment/Standard/Item Description dropdowns in the price list grid
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
   if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
@@ -7851,31 +7864,60 @@ function qlPickItem(i,name){
   if(it.unit&&!QL[i].unit)QL[i].unit=it.unit;if(it.cost&&!QL[i].price)QL[i].price=it.cost;qlRefresh();qlRefreshTotals();}
 /* ============ contract price list (rate sheet grid) ============ */
 let PL=[{}];
+// Equipment -> Standard -> Item Description cascade, same reference data
+// as the Service Catalogue (CRM_EQUIPMENT/CRM_STANDARDS/CRM_ITEMDESCS,
+// loaded via crmEquipRefEnsure() in renderModule()). Picking an Item
+// Description fills the line's `desc` (what actually prints on the
+// Contract Rate Sheet PDF) -- that field stays editable afterwards for
+// one-off wording tweaks. A line saved before this existed (plain typed
+// desc, no catalog ids) still shows that text via the "Other / type
+// manually" fallback, so nothing already on a contract gets blanked out.
+function plEquipOptions(selId){
+  return '<option value="">\u2014 choose \u2014</option>'+CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name))
+   .map(e=>'<option value="'+e.id+'"'+(String(selId)===String(e.id)?' selected':'')+'>'+esc(e.name)+'</option>').join('');
+}
+function plStdOptions(equipId,selId){
+  if(!equipId)return '<option value="">\u2014</option>';
+  return '<option value="">\u2014 choose \u2014</option>'+CRM_STANDARDS.filter(s=>String(s.equipmentId)===String(equipId)).slice().sort((a,b)=>a.name.localeCompare(b.name))
+   .map(s=>'<option value="'+s.id+'"'+(String(selId)===String(s.id)?' selected':'')+'>'+esc(s.name)+'</option>').join('');
+}
+function plItemOptions(stdId,selId){
+  const items=stdId?CRM_ITEMDESCS.filter(it=>String(it.standardId)===String(stdId)).slice().sort((a,b)=>a.description.localeCompare(b.description)):[];
+  return '<option value="">\u2014 choose \u2014</option>'+items.map(it=>'<option value="'+it.id+'"'+(String(selId)===String(it.id)?' selected':'')+'>'+esc(it.description)+'</option>').join('')+
+   '<option value="__custom__"'+(selId==='__custom__'?' selected':'')+'>Other \u2014 type manually\u2026</option>';
+}
+function plEquipPick(i,val){PL[i].equipId=val||null;PL[i].stdId=null;PL[i].itemDescId=null;plRefresh();}
+function plStdPick(i,val){PL[i].stdId=val||null;PL[i].itemDescId=null;plRefresh();}
+function plItemPick(i,val){
+  if(val==='__custom__'){PL[i].itemDescId='__custom__';plRefresh();return;}
+  PL[i].itemDescId=val||null;
+  const it=CRM_ITEMDESCS.find(x=>String(x.id)===String(val));
+  PL[i].desc=it?it.description:'';
+  plRefresh();
+}
 function plGrid(rec){
-  const svc=coll('services');
-  const opts=svc.map(x=>'<option value="'+esc(x.name)+'">'+esc((x.code?x.code+' \u00b7 ':'')+(x.cat||'Service')+(x.price?' \u2014 '+x.price+' '+(x.cur||'')+'/'+(x.unit||''):''))+'</option>').join('');
   const cur=((document.getElementById('f-cur')&&document.getElementById('f-cur').value)||(rec&&rec.cur)||'AED');
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Contract price list <button class="btn ghost small" style="margin-left:8px" onclick="PL.push({});plRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Agreed rates \u2014 type to search the Service Catalogue, rates auto-fill</span></div>'+
-  '<div class="tblwrap"><table><thead><tr><th style="width:26px">#</th><th style="width:90px">Item code</th><th>Service / item description</th><th style="width:80px">Unit</th><th style="width:110px" class="num">Rate ('+esc(cur)+')</th><th style="width:110px">Discount / terms</th><th style="width:140px">Remarks</th><th style="width:30px"></th></tr></thead><tbody>'+
-  PL.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
-   '<td><input value="'+esc(l.code||'')+'" oninput="PL['+i+'].code=this.value" placeholder="SVC-01"></td>'+
-   '<td><input list="dl-plsvc" style="width:100%" value="'+esc(l.desc||'')+'" oninput="PL['+i+'].desc=this.value" onchange="plPick('+i+',this.value)"></td>'+
-   '<td><input value="'+esc(l.unit||'')+'" oninput="PL['+i+'].unit=this.value" placeholder="per joint"></td>'+
-   '<td><input type="number" step="0.01" class="num" value="'+esc(l.rate||'')+'" oninput="PL['+i+'].rate=this.value"></td>'+
-   '<td><input value="'+esc(l.disc||'')+'" oninput="PL['+i+'].disc=this.value" placeholder="e.g. 5% >500 jts"></td>'+
-   '<td><input value="'+esc(l.rem||'')+'" oninput="PL['+i+'].rem=this.value"></td>'+
-   '<td><button class="del" onclick="PL.splice('+i+',1);plRefresh()">\u2715</button></td></tr>').join('')+
-  '</tbody></table></div><datalist id="dl-plsvc">'+opts+'</datalist>'+
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Contract price list <button class="btn ghost small" style="margin-left:8px" onclick="PL.push({});plRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick Equipment \u2192 Standard \u2192 Item Description from the Service Catalogue \u2014 rate stays editable</span></div>'+
+  '<div class="tblwrap"><table><thead><tr><th style="width:26px">#</th><th style="width:90px">Item code</th><th style="width:190px">Equipment</th><th style="width:190px">Standard</th><th style="width:260px">Item Description</th><th style="width:80px">Unit</th><th style="width:110px" class="num">Rate ('+esc(cur)+')</th><th style="width:110px">Discount / terms</th><th style="width:130px">Remarks</th><th style="width:30px"></th></tr></thead><tbody>'+
+  PL.map((l,i)=>{
+    const isCustom=l.itemDescId==='__custom__'||(!l.itemDescId&&!l.equipId&&!l.stdId&&l.desc);
+    return '<tr><td class="num">'+(i+1)+'</td>'+
+     '<td><input value="'+esc(l.code||'')+'" oninput="PL['+i+'].code=this.value" placeholder="SVC-01"></td>'+
+     '<td><select style="width:100%;min-width:190px" onchange="plEquipPick('+i+',this.value)">'+plEquipOptions(l.equipId)+'</select></td>'+
+     '<td><select style="width:100%;min-width:210px" onchange="plStdPick('+i+',this.value)"'+(!l.equipId?' disabled':'')+'>'+plStdOptions(l.equipId,l.stdId)+'</select></td>'+
+     '<td><select style="width:100%;min-width:230px" onchange="plItemPick('+i+',this.value)">'+plItemOptions(l.stdId,isCustom?'__custom__':l.itemDescId)+'</select>'+
+      (isCustom?'<input style="width:100%;min-width:230px;margin-top:4px" value="'+esc(l.desc||'')+'" oninput="PL['+i+'].desc=this.value" placeholder="Type description">':'')+
+     '</td>'+
+     '<td><input value="'+esc(l.unit||'')+'" oninput="PL['+i+'].unit=this.value" placeholder="per joint"></td>'+
+     '<td><input type="number" step="0.01" class="num" value="'+esc(l.rate||'')+'" oninput="PL['+i+'].rate=this.value"></td>'+
+     '<td><input value="'+esc(l.disc||'')+'" oninput="PL['+i+'].disc=this.value" placeholder="e.g. 5% >500 jts"></td>'+
+     '<td><input value="'+esc(l.rem||'')+'" oninput="PL['+i+'].rem=this.value"></td>'+
+     '<td><button class="del" onclick="PL.splice('+i+',1);plRefresh()">\u2715</button></td></tr>';
+  }).join('')+
+  '</tbody></table></div>'+
   '<div class="hint" style="margin-top:6px">'+PL.filter(l=>l.desc||l.rate).length+' rate line(s). Saved with the contract \u2014 use "Update record" to store changes.</div>';
 }
 function plRefresh(){renderModule._lk=true;const z=document.getElementById('pl-zone');if(z)z.innerHTML=plGrid(null);}
-function plPick(i,name){
-  const sv=coll('services').find(x=>x.name===name);if(!sv)return;
-  if(sv.code&&!PL[i].code)PL[i].code=sv.code;
-  if(sv.unit&&!PL[i].unit)PL[i].unit='per '+sv.unit;
-  if(sv.price&&!PL[i].rate)PL[i].rate=sv.price;
-  plRefresh();
-}
 /* ============ work order line grid ============================
    Same columns as the work-order entry screen:
      SNo | Line No | Customer Line.No | Equipment | Equipment
