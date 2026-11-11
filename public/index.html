@@ -8167,14 +8167,37 @@ SELX_CB['f-item']=assetPickItem;
    without price/tax since this is an internal stock move, not a sale or
    purchase. */
 let SML=[{}];
+// Net stock on hand for an item, worked out from every saved Stock
+// Transaction line that names it: Receipt / Adjustment + add, Issue /
+// Adjustment - subtract, Transfer and PR (Purchase Request) don't change
+// the total (a transfer just moves it between locations; a PR isn't a
+// movement at all). null means the item has never appeared on any Stock
+// Transaction -- "N/A" rather than a misleading 0.
+function stockAvailable(itemName){
+  if(!itemName)return null;
+  let total=0,found=false;
+  coll('stockmoves').forEach(r=>{
+    const sign=(r.type==='Receipt'||r.type==='Adjustment +')?1:((r.type==='Issue'||r.type==='Adjustment -')?-1:0);
+    if(!sign)return;
+    (r.smlines||[]).forEach(l=>{if(l.item===itemName){found=true;total+=sign*(+l.qty||0);}});
+  });
+  return found?total:null;
+}
+function smAvailText(itemName){const v=stockAvailable(itemName);return v==null?'N/A':fmt(v);}
+function smPickItem(i,v){
+  SML[i].item=v;
+  const el=document.getElementById('sm-avail-'+i);
+  if(el)el.textContent=smAvailText(v);
+}
 function smGrid(rec){
   const itemNames=coll('items').map(x=>x.name).filter(Boolean);
   return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick items from Item Master, one line per item</span></div>'+
   '<div class="tblwrap sm-lines-wrap"><table><thead><tr>'+
-    '<th style="width:26px">#</th><th style="width:260px">Item</th><th style="width:100px">Quantity</th><th>Note</th><th style="width:30px"></th>'+
+    '<th style="width:26px">#</th><th style="width:260px">Item</th><th style="width:120px" class="num">Available Stock</th><th style="width:100px">Quantity</th><th>Note</th><th style="width:30px"></th>'+
   '</tr></thead><tbody>'+
   SML.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
-   '<td>'+selx('sm-item-'+i,l.item||'',itemNames,v=>{SML[i].item=v;},'Select item…')+'</td>'+
+   '<td>'+selx('sm-item-'+i,l.item||'',itemNames,(v)=>smPickItem(i,v),'Select item…')+'</td>'+
+   '<td class="num" id="sm-avail-'+i+'">'+smAvailText(l.item)+'</td>'+
    '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
    '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>').join('')+
