@@ -8246,8 +8246,9 @@ function smAvailStyle(itemName){
    side by side, so it's obvious at a glance which items need reordering.
    Not a saved/editable record of its own, so it isn't one of MODULES —
    just a plain computed view + a PDF export, wired into EXTRA_NAV. */
+const STOCK_REPORT_ASSET_CATS=['Tool','Equipment']; // these live in the Asset Register, not Stock Reports
 function stockReportRows(){
-  return coll('items').slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(it=>{
+  return coll('items').filter(it=>!STOCK_REPORT_ASSET_CATS.includes(it.cat)).slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(it=>{
     const current=stockAvailable(it.name);
     const reorder=(it.reorder!=null&&it.reorder!=='')?+it.reorder:null;
     return {
