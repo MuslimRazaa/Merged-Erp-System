@@ -241,7 +241,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
   const profileById = new Map();
   if (empIds.length) {
     const [profiles] = await pool.query(
-      `SELECT employee_id, gross_salary, per_day_rate, field_allowance, currency, other_allowances, other_deductions FROM erp_employee_profile WHERE employee_id IN (${empIds.map(() => '?').join(',')})`,
+      `SELECT employee_id, gross_salary, per_day_rate, field_allowance, currency, other_allowances, other_deductions, late_deduction_waived FROM erp_employee_profile WHERE employee_id IN (${empIds.map(() => '?').join(',')})`,
       empIds
     );
     for (const p of profiles) profileById.set(p.employee_id, p);
@@ -337,9 +337,18 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
     // to cap against anymore: a 20-day range pays out of 20 days, a 31-day
     // range pays out of 31, whatever was actually selected.
     const baseDays = totalDaysInRange;
-    const netPaidDays = Math.max(0, baseDays - absentDays - unpaidLeaveDays - latePenaltyDays);
 
     const profile = profileById.get(meta.employeeId);
+    // Late Deduction Waived (Employee form's Basic tab checkbox): lates are
+    // still counted, lateCount/latePenaltyDays/lateDeductionAmount below are
+    // all still the real, true numbers — this ONLY skips subtracting the
+    // late penalty days out of netPaidDays for this one employee, so their
+    // pay isn't actually docked for it while the report still shows exactly
+    // what would otherwise have been deducted.
+    const lateDeductionWaived = !!(profile && profile.late_deduction_waived === 1);
+    const appliedLatePenaltyDays = lateDeductionWaived ? 0 : latePenaltyDays;
+    const netPaidDays = Math.max(0, baseDays - absentDays - unpaidLeaveDays - appliedLatePenaltyDays);
+
     const grossSalary = profile && profile.gross_salary != null ? Number(profile.gross_salary) : null;
     // A contractual employee has no Gross Salary on file at all — instead
     // the Compensation tab's "Daily Rate" field holds a per_day_rate
@@ -406,7 +415,7 @@ async function buildPayrollReport({ from, to, mode, departments, employees }) {
       currency: (profile && profile.currency) || 'AED',
       grossSalary, perDayInput, salaryMissing, daysInMonth, totalDaysInRange, perDayRate,
       presentDays, fieldDays, officeDays: presentDays - fieldDays, absentDays, sundayDays, saturdayOffDays, weeklyOffDays, holidayDays, paidLeaveDays, unpaidLeaveDays,
-      lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal,
+      lateCount, lateArrivals, lateForgivenByLateSitting, latePenaltyDays, lateSittingsTotal, lateDeductionWaived,
       paidDays, netPaidDays, baseDays,
       otherDeductionAmount, lateDeductionAmount, incomeTax, loanId, loanDeduction, manualDeductionTotal, netSalary,
       fieldAllowancePerDay, fieldAllowanceTotal, manualAllowanceTotal,
@@ -679,7 +688,12 @@ async function buildPayslipData(row, monthLabel, fromDate, toDate) {
   // part of the taxed/deducted base.
   const manualDeductionTotal = +row.manualDeductionTotal || 0;
   const manualAllowanceTotal = +row.manualAllowanceTotal || 0;
-  const totalDeductions = (+row.incomeTax || 0) + (+row.lateDeductionAmount || 0) + loanDeductionAmount + manualDeductionTotal;
+  // Late Deduction Waived (see buildPayrollReport()): row.lateDeductionAmount
+  // is still the real, true figure (shown below as its own line, same as the
+  // on-screen payroll table) -- it's excluded here from what actually comes
+  // off Net Payable, same as it's excluded from netSalary/netPaidDays above.
+  const lateDeductionForPay = row.lateDeductionWaived ? 0 : (+row.lateDeductionAmount || 0);
+  const totalDeductions = (+row.incomeTax || 0) + lateDeductionForPay + loanDeductionAmount + manualDeductionTotal;
   const netPayable = grossPayable - totalDeductions + manualAllowanceTotal;
 
   return {
@@ -700,7 +714,7 @@ async function buildPayslipData(row, monthLabel, fromDate, toDate) {
     ].filter((a) => a.standard || a.payable),
     deductions: [
       ...(row.incomeTax ? [{ label: 'Income Tax', amount: row.incomeTax }] : []),
-      ...(row.lateDeductionAmount ? [{ label: 'Late Deduction', amount: row.lateDeductionAmount }] : []),
+      ...(row.lateDeductionAmount ? [{ label: 'Late Deduction' + (row.lateDeductionWaived ? ' (Waived)' : ''), amount: row.lateDeductionAmount }] : []),
       ...(loanDeductionAmount ? [{ label: 'Loan Installment', amount: loanDeductionAmount }] : []),
       ...(manualDeductionTotal ? [{ label: 'Other Deductions', amount: manualDeductionTotal }] : []),
     ],

@@ -2531,7 +2531,7 @@ function prBuildRowsTableHtml(rows,runId){
   return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Days in Calendar Month</th><th class="num">Salary Divisor (Selected Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
-     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Manual Deductions</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Other Allowances</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
+     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th>Late Deduction Waived</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Manual Deductions</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Other Allowances</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
     rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags&&r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
      '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':(r.grossSalary!=null?fmt(r.grossSalary):'<span class="pill b" title="Paid per day — see Per Day Rate">Daily rate</span>'))+'</td>'+
@@ -2543,6 +2543,7 @@ function prBuildRowsTableHtml(rows,runId){
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
+     '<td>'+(r.lateDeductionWaived?'<span class="pill g" title="Lates/Late Deduction still shown above, just not subtracted from this employee\'s pay">Waived</span>':'')+'</td>'+
      '<td class="num">'+(r.incomeTax!=null?fmt(r.incomeTax):'—')+'</td>'+
      '<td class="num">'+(r.loanDeduction?fmt(r.loanDeduction):'—')+'</td>'+
      '<td class="num">'+(r.manualDeductionTotal?fmt(r.manualDeductionTotal):'—')+'</td>'+
@@ -2593,8 +2594,8 @@ function pinTableHead(el){
 // locked in, not a live re-generation.
 function prReportGrid(rep){
   rep=rep||PR_REPORT;
-  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Original Lates','Late Sittings (cancelled)','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
-  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateArrivals,r.lateForgivenByLateSitting,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Original Lates','Late Sittings (cancelled)','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Late Deduction Waived','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
+  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateArrivals,r.lateForgivenByLateSitting,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.lateDeductionWaived?'Yes':'',r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page (per page break), A3 landscape — a payroll run's 31
@@ -3857,6 +3858,10 @@ function empSectionHtml(k){
    efField('ef-jobend','Job End Date','date')+
    efField('ef-bloodgroup','Blood Group','select',{options:['','A+','A-','B+','B-','AB+','AB-','O+','O-']})+
    '</div>'+
+   '<div class="card" style="margin-top:12px;padding:12px 14px;background:var(--card2,#f8f9fb)">'+
+    '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ef-latewaived"> <b style="font-size:12.5px">Waive Late Deduction (Payroll)</b></label>'+
+    '<div class="hint" style="margin-top:4px">Payroll keeps counting and showing this employee\'s lates and the late-penalty deduction amount exactly as normal — it just won\'t actually subtract that amount from their final payable salary.</div>'+
+   '</div>'+
    (EMP_EDIT?'<div class="hint" style="margin-top:6px">Changing Employee ID here fixes it in the ERP (login, payroll, records) immediately. If this ID is also registered on the physical attendance machine, update it there too, or future punches won\'t match this employee.</div>':'');
   if(k==='personal')return '<div class="fgrid">'+
    empPhoneRow('phone','Contact Number')+
@@ -4382,6 +4387,7 @@ function empFillFormInner(){
     empSyncPhoneCode('phone');empSyncPhoneCode('emergency');
     document.getElementById('ef-spousena').checked=false;document.getElementById('ef-motherna').checked=false;
     empToggleNA('spouse');empToggleNA('mother');
+    document.getElementById('ef-latewaived').checked=false;
     const newAccessEl=document.getElementById('ef-erpaccess');
     if(newAccessEl){newAccessEl.checked=true;empToggleErpAccessOn();}
     empPayTypeShow('monthly');
@@ -4443,6 +4449,7 @@ function empFillFormInner(){
   document.getElementById('ef-spousena').checked=!!p.spouseNa;
   document.getElementById('ef-motherna').checked=!!p.motherNa;
   empToggleNA('spouse');empToggleNA('mother');
+  document.getElementById('ef-latewaived').checked=!!p.lateDeductionWaived;
   set('ef-dob',(p.dateOfBirth||'').slice(0,10));
   empRecalcGross();empRecalcAge();
 }
@@ -4504,7 +4511,8 @@ async function empSave(){
       perDayRate:payType==='daily'?(v('ef-perday')||null):null,
       salary:payType==='monthly'?(v('ef-salary')||null):null,utilityAllowance:payType==='monthly'?(v('ef-utility')||null):null,hra:payType==='monthly'?(v('ef-hra')||null):null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'PKR',
       otherAllowances:EMP_ALLOW.filter(a=>a.title||a.amount).map(a=>({title:a.title||'',amount:+a.amount||0,cur:a.cur||'PKR',validTill:a.validTill||null})),
-      otherDeductions:EMP_DEDUCT.filter(d=>d.title||d.amount).map(d=>({title:d.title||'',amount:+d.amount||0,validTill:d.validTill||null}))
+      otherDeductions:EMP_DEDUCT.filter(d=>d.title||d.amount).map(d=>({title:d.title||'',amount:+d.amount||0,validTill:d.validTill||null})),
+      lateDeductionWaived:document.getElementById('ef-latewaived').checked
     })});
 
     if(v('ef-shiftstart')){
