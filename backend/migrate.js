@@ -808,6 +808,14 @@ async function migrate() {
     }
   }
 
+  // Employee form's Basic tab: "Late Deduction Waived" checkbox. When set,
+  // Payroll (routes/payroll.js's buildPayrollReport()) still counts and
+  // SHOWS this employee's lates and the late-penalty deduction amount
+  // exactly as normal, it just skips actually subtracting those penalty
+  // days out of their paid days / net salary.
+  try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN late_deduction_waived TINYINT(1) NULL DEFAULT 0 AFTER employment_type'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+
   console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 

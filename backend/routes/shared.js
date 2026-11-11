@@ -49,7 +49,7 @@ const PROFILE_COLUMNS = [
   'ref_name', 'ref_contact', 'ref_email', 'ref_office',
   'kin_name', 'kin_relation', 'kin_contact', 'kin_nic', 'kin_email',
   'salary', 'gross_salary', 'per_day_rate', 'utility_allowance', 'hra', 'field_allowance', 'currency',
-  'other_allowances', 'other_deductions',
+  'other_allowances', 'other_deductions', 'late_deduction_waived',
 ];
 // These two PROFILE_COLUMNS hold a JSON array, not a plain scalar — written
 // as a JSON string (mysql2 would otherwise mis-serialize a JS array/object
@@ -97,6 +97,7 @@ router.get('/employees', requireGroup('Human Resources'), async (req, res) => {
     }
     profile.spouseNa = r.spouse_na === 1;
     profile.motherNa = r.mother_na === 1;
+    profile.lateDeductionWaived = r.late_deduction_waived === 1;
     const isoAccess = {};
     for (const col of ISO_ACCESS_COLUMNS) isoAccess[col.replace(/_([a-z])/g, (m, l) => l.toUpperCase())] = r[col] === 1;
     return {

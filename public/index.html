@@ -94,7 +94,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
    certificate off a rig sheet, so they get full-strength ink, not the faint
    grey used for incidental forms. */
 .irform .field label{color:var(--ink);font-size:10.5px}
-/* Released, and so not open to editing. Everything in the form stops
+/* Released, and, so not open to editing. Everything in the form stops
    taking input; the approval picker itself does not, because setting it
    back to In Process is how an inspector unlocks it to make a correction.
    Buttons that only read the record - PDF, print, cancel - are left alone,
@@ -474,6 +474,27 @@ body.locked #app{display:none}
   <div id="grnmodal-body"></div>
 </div></div>
 
+<!-- Stock Transactions: "Edit" opens the exact same top-of-page form
+     (fields + Items grid), just rendered into this big modal instead of
+     inline (see renderModule()'s modalEditId branch, driven by
+     MODAL_EDIT_ID). "View" is a separate, read-only modal below
+     (smviewmodal) -- it never touches SML/editId at all. -->
+<div class="modal" id="smeditmodal"><div class="box" style="max-width:none;width:95vw;max-height:95vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h3 style="margin:0">Edit — Stock Transaction</h3>
+    <button class="btn ghost small" onclick="editId=null;closeModal('smeditmodal');render()">✕ Close</button>
+  </div>
+  <div id="smeditmodal-body"></div>
+</div></div>
+
+<div class="modal" id="smviewmodal"><div class="box" style="max-width:none;width:95vw;max-height:95vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h3 style="margin:0" id="smviewmodal-title">Stock Transaction</h3>
+    <button class="btn ghost small" onclick="closeModal('smviewmodal')">✕ Close</button>
+  </div>
+  <div id="smviewmodal-body"></div>
+</div></div>
+
 <div class="modal" id="mtepickmodal"><div class="box" style="max-width:1020px;width:96vw">
   <h3>Choose equipment from the M&amp;TE register</h3>
   <p>Tick the instruments this report was inspected with. Everything the
@@ -800,8 +821,12 @@ function uid(){return 'r'+Date.now().toString(36)+Math.random().toString(36).sli
 // window. Every date-only reading here uses local Y/M/D components instead.
 function today(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function fmt(n){n=+n||0;return (n<0?'-':'')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function openModal(id){document.getElementById(id).classList.add('open');}
-function closeModal(id){document.getElementById(id).classList.remove('open');}
+function openModal(id){const el=document.getElementById(id);if(el)el.classList.add('open');}
+function closeModal(id){const el=document.getElementById(id);if(el)el.classList.remove('open');}
+// Modules whose "editing an EXISTING record" form is shown inside a big
+// modal instead of inline at the top of the list (see renderModule()) --
+// keyed by module, value is that modal's element id.
+const MODAL_EDIT_ID={grns:'grnmodal',stockmoves:'smeditmodal'};
 
 /* ============ field helpers ============ */
 const T=(k,l,ph)=>({k,l,t:'text',ph});
@@ -1110,10 +1135,10 @@ invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
 items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
-stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,fields:[D('date','Date'),S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),T('who','By'),C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref'],badge:r=>r.type},
+stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,customView:'smViewOpen',customEdit:'smEditOpen',fields:[{...D('date','Date'),auto:1,fn:()=>today()},S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer','PR (Purchase Request)']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),{...T('who','By'),auto:1,fn:()=>(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:'',locked:true},C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref','who'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
-grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPdf',editModal:'grnEditOpen',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},{...D('date','Date'),req:1},{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),req:1},REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},{...T('who','Received by'),req:1}],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
+grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPdf',editModal:'grnEditOpen',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},{...D('date','Date'),req:1},{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),req:1},REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},{...T('who','Received by'),req:1,auto:1,fn:()=>(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:''}],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
@@ -1232,6 +1257,7 @@ const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets'
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Overtime'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
+  'Inventory':[{id:'inv_stock_report',ic:'📊',name:'Stock Reports'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
@@ -1277,6 +1303,7 @@ function bootGoTake(){
 const GROUP_NAV_ORDER={
   'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
   'Inspection':['insp_report','insp_list','woalloc','insplocs','contracts','workorders','insp_wo_view','insp_map'],
+  'Inventory':['items','stockmoves','inv_stock_report'],
 };
 let NAV_EXPANDED=new Set();
 function navExtraItemHtml(x){
@@ -1658,7 +1685,7 @@ function isAdmin(){return SESSION&&SESSION.role==='Administrator';}
 function canManageRoles(){return SESSION&&(SESSION.role==='Administrator'||SESSION.role==='Sub Admin');}
 function routeGroup(r){
   if(r&&r.startsWith('m_')){const m=MODULES[r.slice(2)];return m?m.g:'Home';}
-  const t=TITLES&&TITLES[r];if(t)return t[0]==='Accounting'?'Accounting':t[0]==='Inspection'?'Inspection':'Home';
+  const t=TITLES&&TITLES[r];if(t)return t[0]==='Accounting'?'Accounting':t[0]==='Inspection'?'Inspection':t[0]==='Inventory'?'Inventory':'Home';
   return 'Home';
 }
 function userChip(){
@@ -2515,7 +2542,7 @@ function prBuildRowsTableHtml(rows,runId){
   return '<table><thead><tr><th>Emp Code</th><th>Name</th><th>Department</th><th class="num">Gross Salary</th><th class="num">Days in Calendar Month</th><th class="num">Salary Divisor (Selected Days)</th><th class="num">Per Day Rate</th>'+
      '<th class="num">Present</th><th class="num">Office Days</th><th class="num">Field Days</th><th class="num">Absent</th><th class="num">Sunday (Gazetted Holiday)</th><th class="num">Weekly Off (Sat)</th><th class="num">Holiday</th><th class="num">Paid Leave</th><th class="num">Unpaid Leave</th>'+
      '<th class="num">Lates</th><th class="num">Late Penalty (days)</th><th class="num">Late Sittings</th><th class="num">Paid Days</th>'+
-     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Manual Deductions</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Other Allowances</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
+     '<th class="num">Other Deductions</th><th class="num">Late Deduction</th><th>Late Deduction Waived</th><th class="num">Income Tax (FBR)</th><th class="num">Loan Deduction</th><th class="num">Manual Deductions</th><th class="num">Net Salary</th><th class="num">Field Allowance</th><th class="num">Other Allowances</th><th class="num">Gross Payable</th>'+(runId?'<th class="no-print"></th>':'')+'</tr></thead><tbody>'+
     rows.map(r=>'<tr>'+
      '<td>'+esc(r.employeeCode)+'</td><td>'+esc(r.employeeName)+(r.reviewFlags&&r.reviewFlags.length?' <span class="pill a" title="'+esc(r.reviewFlags.join('; '))+'">review</span>':'')+'</td><td>'+esc(r.department||'')+'</td>'+
      '<td class="num">'+(r.salaryMissing?'<span class="pill r">Salary not added</span>':(r.grossSalary!=null?fmt(r.grossSalary):'<span class="pill b" title="Paid per day — see Per Day Rate">Daily rate</span>'))+'</td>'+
@@ -2527,6 +2554,7 @@ function prBuildRowsTableHtml(rows,runId){
      '<td class="num">'+r.paidDays+'</td>'+
      '<td class="num">'+(r.otherDeductionAmount!=null?fmt(r.otherDeductionAmount):'—')+'</td>'+
      '<td class="num">'+(r.lateDeductionAmount!=null?fmt(r.lateDeductionAmount):'—')+'</td>'+
+     '<td>'+(r.lateDeductionWaived?'<span class="pill g" title="Lates/Late Deduction still shown above, just not subtracted from this employee\'s pay">Waived</span>':'')+'</td>'+
      '<td class="num">'+(r.incomeTax!=null?fmt(r.incomeTax):'—')+'</td>'+
      '<td class="num">'+(r.loanDeduction?fmt(r.loanDeduction):'—')+'</td>'+
      '<td class="num">'+(r.manualDeductionTotal?fmt(r.manualDeductionTotal):'—')+'</td>'+
@@ -2577,8 +2605,8 @@ function pinTableHead(el){
 // locked in, not a live re-generation.
 function prReportGrid(rep){
   rep=rep||PR_REPORT;
-  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Original Lates','Late Sittings (cancelled)','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
-  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateArrivals,r.lateForgivenByLateSitting,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
+  const headers=['Emp Code','Name','Department','Gross Salary','Days in Calendar Month','Salary Divisor (Selected Days)','Per Day Rate','Present','Office Days','Field Days','Absent','Sunday (Gazetted Holiday)','Weekly Off (Sat)','Holiday','Paid Leave','Unpaid Leave','Original Lates','Late Sittings (cancelled)','Lates','Late Penalty (days)','Late Sittings','Paid Days','Other Deductions','Late Deduction','Late Deduction Waived','Income Tax (FBR)','Loan Deduction','Manual Deductions','Net Salary','Field Allowance','Other Allowances','Gross Payable'];
+  const rows=rep.rows.map(r=>[r.employeeCode,r.employeeName,r.department||'',r.salaryMissing?'Salary not added':r.grossSalary,r.daysInMonth,r.totalDaysInRange,r.perDayRate,r.presentDays,r.officeDays,r.fieldDays,r.absentDays,r.sundayDays,r.saturdayOffDays,r.holidayDays,r.paidLeaveDays,r.unpaidLeaveDays,r.lateArrivals,r.lateForgivenByLateSitting,r.lateCount,r.latePenaltyDays,r.lateSittingsTotal,r.paidDays,r.otherDeductionAmount,r.lateDeductionAmount,r.lateDeductionWaived?'Yes':'',r.incomeTax,r.loanDeduction,r.manualDeductionTotal,r.netSalary,r.fieldAllowanceTotal,r.manualAllowanceTotal,r.grossPayable]);
   return {headers,rows};
 }
 // PDF — one page (per page break), A3 landscape — a payroll run's 31
@@ -3841,6 +3869,10 @@ function empSectionHtml(k){
    efField('ef-jobend','Job End Date','date')+
    efField('ef-bloodgroup','Blood Group','select',{options:['','A+','A-','B+','B-','AB+','AB-','O+','O-']})+
    '</div>'+
+   '<div class="card" style="margin-top:12px;padding:12px 14px;background:var(--card2,#f8f9fb)">'+
+    '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ef-latewaived"> <b style="font-size:12.5px">Waive Late Deduction (Payroll)</b></label>'+
+    '<div class="hint" style="margin-top:4px">Payroll keeps counting and showing this employee\'s lates and the late-penalty deduction amount exactly as normal — it just won\'t actually subtract that amount from their final payable salary.</div>'+
+   '</div>'+
    (EMP_EDIT?'<div class="hint" style="margin-top:6px">Changing Employee ID here fixes it in the ERP (login, payroll, records) immediately. If this ID is also registered on the physical attendance machine, update it there too, or future punches won\'t match this employee.</div>':'');
   if(k==='personal')return '<div class="fgrid">'+
    empPhoneRow('phone','Contact Number')+
@@ -4366,6 +4398,7 @@ function empFillFormInner(){
     empSyncPhoneCode('phone');empSyncPhoneCode('emergency');
     document.getElementById('ef-spousena').checked=false;document.getElementById('ef-motherna').checked=false;
     empToggleNA('spouse');empToggleNA('mother');
+    document.getElementById('ef-latewaived').checked=false;
     const newAccessEl=document.getElementById('ef-erpaccess');
     if(newAccessEl){newAccessEl.checked=true;empToggleErpAccessOn();}
     empPayTypeShow('monthly');
@@ -4427,6 +4460,7 @@ function empFillFormInner(){
   document.getElementById('ef-spousena').checked=!!p.spouseNa;
   document.getElementById('ef-motherna').checked=!!p.motherNa;
   empToggleNA('spouse');empToggleNA('mother');
+  document.getElementById('ef-latewaived').checked=!!p.lateDeductionWaived;
   set('ef-dob',(p.dateOfBirth||'').slice(0,10));
   empRecalcGross();empRecalcAge();
 }
@@ -4488,7 +4522,8 @@ async function empSave(){
       perDayRate:payType==='daily'?(v('ef-perday')||null):null,
       salary:payType==='monthly'?(v('ef-salary')||null):null,utilityAllowance:payType==='monthly'?(v('ef-utility')||null):null,hra:payType==='monthly'?(v('ef-hra')||null):null,fieldAllowance:v('ef-fieldallow')||null,currency:v('ef-currency')||'PKR',
       otherAllowances:EMP_ALLOW.filter(a=>a.title||a.amount).map(a=>({title:a.title||'',amount:+a.amount||0,cur:a.cur||'PKR',validTill:a.validTill||null})),
-      otherDeductions:EMP_DEDUCT.filter(d=>d.title||d.amount).map(d=>({title:d.title||'',amount:+d.amount||0,validTill:d.validTill||null}))
+      otherDeductions:EMP_DEDUCT.filter(d=>d.title||d.amount).map(d=>({title:d.title||'',amount:+d.amount||0,validTill:d.validTill||null})),
+      lateDeductionWaived:document.getElementById('ef-latewaived').checked
     })});
 
     if(v('ef-shiftstart')){
@@ -7286,7 +7321,7 @@ function fieldInput(f,v,idPrefix,onSelectChange){
     return '<input type="file" id="'+idPrefix+f.k+'" accept="image/*,application/pdf" onchange="fileFieldPick(this,\''+idPrefix+f.k+'\')">'+
       '<div class="hint file-sel-note" id="file-hint-'+idPrefix+f.k+'" style="margin-top:4px"></div>';
   }
-  return '<input id="'+idPrefix+f.k+'" type="'+(f.t==='number'?'number':f.t==='date'?'date':'text')+'"'+(f.t==='number'?' step="0.01"':'')+(f.t==='number'&&f.nospin?' class="nospin-num"':'')+' value="'+esc(v)+'"'+(f.ph?' placeholder="'+esc(f.ph)+'"':'')+'>';
+  return '<input id="'+idPrefix+f.k+'" type="'+(f.t==='number'?'number':f.t==='date'?'date':'text')+'"'+(f.t==='number'?' step="0.01"':'')+(f.t==='number'&&f.nospin?' class="nospin-num"':'')+' value="'+esc(v)+'"'+(f.ph?' placeholder="'+esc(f.ph)+'"':'')+(f.locked?' disabled':'')+'>';
 }
 // Conditional fields — opt-in per field via showIf:{field,values}, e.g.
 // Item Master's Asset Tag Number only applies to Tool/Equipment and its
@@ -7410,7 +7445,7 @@ function renderModule(){
     (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     (m.grnlines?'<div id="grn-zone">'+grnGrid(rec)+'</div>':'')+
     (m.vblines?'<div id="vb-zone">'+vbGrid(rec)+'</div>':'')+
-    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\'grnmodal\');render()">Cancel</button>':'<button class="btn ghost" onclick="renderModule._lk=false;render()">Clear</button>')+
+    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\''+(MODAL_EDIT_ID[k]||'grnmodal')+'\');render()">Cancel</button>':'<button class="btn ghost" onclick="renderModule._lk=false;render()">Clear</button>')+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
     '</div></div></div>'+
@@ -7436,11 +7471,11 @@ function renderModule(){
   // for a brand-new GRN, or in the modal, for editing one — never both),
   // so every grnGrid()/grnPickPo()/saveRec() reference to `f-po` etc. still
   // resolves correctly with no change to any of that code.
-  const grnModalEdit=(k==='grns'&&editId);
-  document.getElementById('content').innerHTML=kpis+(grnModalEdit?'':form)+list;
-  if(grnModalEdit){
-    document.getElementById('grnmodal-body').innerHTML=form;
-    openModal('grnmodal');
+  const modalEditId=MODAL_EDIT_ID[k]&&editId?MODAL_EDIT_ID[k]:null;
+  document.getElementById('content').innerHTML=kpis+(modalEditId?'':form)+list;
+  if(modalEditId){
+    document.getElementById(modalEditId+'-body').innerHTML=form;
+    openModal(modalEditId);
   }
   if(watchedFields.size)applyConditionalFields(m,'f-');
   if(m.polines)poSyncAmountField();
@@ -7452,9 +7487,10 @@ function listTable(m,rows,k){
   const label=k2=>{const f=m.fields.find(f=>f.k===k2);return f?f.l:({amount:'Amount',attachment:'Attachment'}[k2]||k2);};
   const isNumCol=c=>{const f=m.fields.find(f=>f.k===c);return (f&&f.t==='number')||(!f&&c==='amount');};
   const ac=m.actionsCol;
+  const customAct=m.customView||m.customEdit;
   const fsum=FILE_SUMMARY[k];
-  return '<table><thead><tr>'+cols.map(c=>'<th'+(isNumCol(c)?' class="num"':'')+'>'+esc(label(c))+'</th>').join('')+'<th class="no-print">'+(ac?'Actions':'')+'</th></tr></thead><tbody>'+
-    (m.list_presorted?rows.slice():rows.slice().reverse()).map(r=>'<tr'+(ac?'':' class="rowlink" onclick="editRec(\''+r.id+'\')"')+'>'+cols.map(c=>{
+  return '<table><thead><tr>'+cols.map(c=>'<th'+(isNumCol(c)?' class="num"':'')+'>'+esc(label(c))+'</th>').join('')+'<th class="no-print">'+((ac||customAct)?'Actions':'')+'</th></tr></thead><tbody>'+
+    (m.list_presorted?rows.slice():rows.slice().reverse()).map(r=>'<tr'+((ac||customAct)?'':' class="rowlink" onclick="editRec(\''+r.id+'\')"')+'>'+cols.map(c=>{
       // Virtual column — the file itself lives in erp_record_files, never
       // as a plain value on the record (see FILE_SUMMARY/fileSummaryLoad).
       if(c==='attachment'){const has=!!(fsum&&fsum[r.id]);return '<td><span class="pill '+(has?'g':'')+'">'+(fsum?(has?'Yes':'No'):'…')+'</span></td>';}
@@ -7466,6 +7502,14 @@ function listTable(m,rows,k){
       return '<td>'+esc(v||'')+'</td>';
     }).join('')+(ac
       ?'<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View" onclick="event.stopPropagation();viewRec(\''+r.id+'\')">👁</button> <button class="btn ghost small" title="Edit" onclick="event.stopPropagation();editRecModal(\''+r.id+'\')">✎</button> <button class="del" title="Delete" onclick="event.stopPropagation();delRec(\''+r.id+'\')">🗑</button></td>'
+      :customAct
+        // A per-module bespoke View/Edit (e.g. Stock Transactions' own big
+        // modal, unlike the generic actionsCol one above) -- same three
+        // icons, pointed at the module's own function names instead.
+        ?'<td class="no-print" style="white-space:nowrap">'+
+           (m.customView?'<button class="btn ghost small" title="View" onclick="event.stopPropagation();'+m.customView+'(\''+r.id+'\')">👁</button> ':'')+
+           (m.customEdit?'<button class="btn ghost small" title="Edit" onclick="event.stopPropagation();'+m.customEdit+'(\''+r.id+'\')">✎</button> ':'')+
+           '<button class="del" title="Delete" onclick="event.stopPropagation();delRec(\''+r.id+'\')">🗑</button></td>'
       :m.rowPdf
         // m.editModal (a function name string, like m.rowPdf) swaps the
         // View👁 button for an Edit✎ one — used by modules (GRN) whose
@@ -7648,7 +7692,7 @@ async function saveRec(){
       await Promise.all(m.fields.filter(f=>f.t==='file').map(f=>fileFieldApplyStaged(k,saved.id,'f-'+f.k)));
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
-      collSet(k,cur);REC_AT[k]=0;editId=null;if(k==='grns')closeModal('grnmodal');render();toast('Saved.','ok');
+      collSet(k,cur);REC_AT[k]=0;editId=null;if(MODAL_EDIT_ID[k])closeModal(MODAL_EDIT_ID[k]);render();toast('Saved.','ok');
       // grnSyncPoStatus's PUT lands AFTER the render() above, so without a
       // follow-up refresh the PO's new receiving status (Partially received
       // / Received) — which both the GRN list's own Status column AND any
@@ -7683,7 +7727,7 @@ async function saveRec(){
   // Confirm the save on screen — with the record number when the module is
   // auto-numbered, so the user sees which document was just filed and the
   // fresh form below already shows the next number.
-  const auto=m.fields.find(f=>f.auto);
+  const auto=m.fields.find(f=>f.auto&&f.t==='computed'); // skip auto-defaulted plain fields (e.g. "Received by") -- only an auto-NUMBERED field belongs in this toast
   toast(m.name.replace(/ies$/,'y').replace(/s$/,'')+(wasNew?' saved':' updated')+(auto&&rec[auto.k]?' — Record No. '+rec[auto.k]:'')+'.','ok');
   if(k==='employees'){
     await pushEmployeeToIso(rec,wasNew);
@@ -8177,21 +8221,139 @@ SELX_CB['f-item']=assetPickItem;
    without price/tax since this is an internal stock move, not a sale or
    purchase. */
 let SML=[{}];
+// Net stock on hand for an item, worked out from every saved Stock
+// Transaction line that names it: Receipt / Adjustment + add, Issue /
+// Adjustment - subtract, Transfer and PR (Purchase Request) don't change
+// the total (a transfer just moves it between locations; a PR isn't a
+// movement at all). null means the item has never appeared on any Stock
+// Transaction -- "N/A" rather than a misleading 0.
+function stockAvailable(itemName){
+  if(!itemName)return null;
+  // Item Master doesn't deal with stock at all -- this is purely the
+  // running total of every saved Stock Transaction line that names this
+  // item. null (shown as "N/A") means it's never appeared on one yet.
+  let total=0,found=false;
+  coll('stockmoves').forEach(r=>{
+    const sign=(r.type==='Receipt'||r.type==='Adjustment +')?1:((r.type==='Issue'||r.type==='Adjustment -')?-1:0);
+    if(!sign)return;
+    (r.smlines||[]).forEach(l=>{if(l.item===itemName){found=true;total+=sign*(+l.qty||0);}});
+  });
+  return found?total:null;
+}
+function smAvailText(itemName){const v=stockAvailable(itemName);return v==null?'N/A':fmt(v);}
+// Negative on-hand stock is worth a glance of red; N/A stays a plain
+// faint grey (it's a "don't know", not a problem). Shared by the grid
+// and the View modal so the two never disagree on what counts as low.
+function smAvailStyle(itemName){
+  const v=stockAvailable(itemName);
+  if(v==null)return 'color:var(--faint,#98A2B3)';
+  if(v<0)return 'color:#DC2626;font-weight:700';
+  return 'font-weight:600';
+}
+/* ============ Stock Report (Inventory -> Stock Reports) ============
+   Read-only — every Item Master item, its Current Stock Level (from
+   Stock Transactions, see stockAvailable() above) and its Reorder Level
+   side by side, so it's obvious at a glance which items need reordering.
+   Not a saved/editable record of its own, so it isn't one of MODULES —
+   just a plain computed view + a PDF export, wired into EXTRA_NAV. */
+function stockReportRows(){
+  return coll('items').slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(it=>{
+    const current=stockAvailable(it.name);
+    const reorder=(it.reorder!=null&&it.reorder!=='')?+it.reorder:null;
+    return {
+      code:it.code||'',desc:it.name||'',cat:it.cat||'',
+      current,reorder,
+      low:current!=null&&reorder!=null&&current<=reorder,
+    };
+  });
+}
+function renderStockReport(){
+  recEnsure('items');recEnsure('stockmoves'); // keep Current Stock Level live with the latest Stock Transactions
+  const c=document.getElementById('content');
+  const rows=stockReportRows();
+  const lowCount=rows.filter(r=>r.low).length;
+  c.innerHTML='<div class="kpis">'+
+   '<div class="kpi"><span>Total Items</span><b>'+rows.length+'</b></div>'+
+   '<div class="kpi"><span>At / Below Reorder Level</span><b'+(lowCount?' class="warn"':'')+'>'+lowCount+'</b></div>'+
+   '</div>'+
+   '<div class="card"><div class="card-h">Stock Report<span class="hint" style="font-weight:400"> — current stock level per item, worked out from Stock Transactions</span>'+
+    '<span style="margin-left:auto"><button class="btn ghost" onclick="stockReportPdf()">↓ Download PDF</button></span></div>'+
+   '<div class="card-b"><div class="tblwrap"><table><thead><tr><th>Item No.</th><th>Item Description</th><th>Category</th><th class="num">Current Stock Level</th><th class="num">Reorder Level</th></tr></thead><tbody>'+
+    (rows.length?rows.map(r=>'<tr'+(r.low?' style="background:#FEF2F2"':'')+'><td>'+esc(r.code)+'</td><td>'+esc(r.desc)+'</td><td>'+esc(r.cat)+'</td>'+
+      '<td class="num" style="'+(r.current==null?'color:var(--faint,#98A2B3)':r.current<0?'color:#DC2626;font-weight:700':'font-weight:600')+'">'+(r.current==null?'N/A':fmt(r.current))+'</td>'+
+      '<td class="num">'+(r.reorder==null?'—':fmt(r.reorder))+'</td></tr>').join('')
+     :'<tr><td colspan="5" class="empty">No items in Item Master yet.</td></tr>')+
+   '</tbody></table></div></div></div>';
+}
+function stockReportPdf(){
+  const rows=stockReportRows();
+  if(!rows.length)return toast('No items to report.','err');
+  const doc=new PdfDoc({landscape:true});
+  doc.header('STOCK REPORT','As of '+today());
+  doc.table(['Item No.','Item Description','Category','Current Stock Level','Reorder Level'],
+   rows.map(r=>[r.code,r.desc,r.cat,r.current==null?'N/A':fmt(r.current),r.reorder==null?'—':fmt(r.reorder)]));
+  doc.out('Stock-Report-'+today());
+}
+function smPickItem(i,v){
+  SML[i].item=v;
+  const el=document.getElementById('sm-avail-'+i);
+  if(el){el.textContent=smAvailText(v);el.style.cssText=smAvailStyle(v);}
+}
 function smGrid(rec){
   const itemNames=coll('items').map(x=>x.name).filter(Boolean);
-  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick items from Item Master, one line per item</span></div>'+
-  '<div class="tblwrap sm-lines-wrap"><table><thead><tr>'+
-    '<th style="width:26px">#</th><th style="width:260px">Item</th><th style="width:100px">Quantity</th><th>Note</th><th style="width:30px"></th>'+
+  return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick items from Item Master, one line per item — Available Stock updates as you pick</span></div>'+
+  '<div class="tblwrap sm-lines-wrap pogrid"><table><thead><tr>'+
+    '<th style="width:26px">#</th><th style="width:280px">Item</th><th style="width:130px" class="num">Available Stock</th><th style="width:110px">Quantity</th><th>Note</th><th style="width:36px"></th>'+
   '</tr></thead><tbody>'+
   SML.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
-   '<td>'+selx('sm-item-'+i,l.item||'',itemNames,v=>{SML[i].item=v;},'Select item…')+'</td>'+
+   '<td>'+selx('sm-item-'+i,l.item||'',itemNames,(v)=>smPickItem(i,v),'Select item…')+'</td>'+
+   '<td class="num" id="sm-avail-'+i+'" style="'+smAvailStyle(l.item)+'">'+smAvailText(l.item)+'</td>'+
    '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
    '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>').join('')+
   '</tbody></table></div>'+
-  '<button class="btn ghost small" style="margin-top:6px" onclick="SML.push({});smRefresh()">+ Add item</button>';
+  '<button class="btn ghost small" style="margin-top:8px" onclick="SML.push({});smRefresh()">+ Add item</button>';
 }
 function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-zone');if(z)z.innerHTML=smGrid(null);}
+// Custom View / Edit for Stock Transactions (see m.customView/m.customEdit
+// in MODULES.stockmoves, and the generic listTable() branch that reads
+// them) -- both open a big (~95vw/95vh) modal instead of the small
+// generic recviewmodal/recimodal, since those know nothing about the
+// Items grid. Edit reuses the exact top-of-page form (see renderModule()'s
+// modalEditId branch); View is a separate, fully read-only renderer that
+// never touches editId/SML, so just looking at a request can't
+// accidentally put the page into "editing" state.
+function smEditOpen(id){editId=id;renderModule._lk=false;render();}
+function smViewOpen(id){
+  const rec=coll('stockmoves').find(r=>r.id===id);if(!rec)return;
+  document.getElementById('smviewmodal-title').textContent='Stock Transaction'+(rec.ref?' — '+rec.ref:'')+(rec.date?' — '+rec.date:'');
+  document.getElementById('smviewmodal-body').innerHTML=smViewHtml(rec);
+  openModal('smviewmodal');
+}
+function smViewHtml(rec){
+  const detail=(label,html)=>'<div><div class="hint" style="margin-bottom:3px">'+esc(label)+'</div><div style="font-size:14.5px;font-weight:600">'+(html||'<span style="opacity:.4">—</span>')+'</div></div>';
+  const lines=rec.smlines||[];
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px;padding:2px 2px 20px;border-bottom:1px solid var(--line);margin-bottom:16px">'+
+    detail('Date',esc(rec.date||''))+
+    detail('Type','<span class="pill '+pillCls(rec.type)+'" style="font-size:13px">'+esc(rec.type||'—')+'</span>')+
+    detail('From Location',esc(rec.from||''))+
+    detail('To Location',esc(rec.to||''))+
+    detail('Reference (PO/WO)',esc(rec.ref||''))+
+    detail('By',esc(rec.who||''))+
+  '</div>'+
+  '<div style="font-weight:700;font-size:13.5px;margin-bottom:8px">Items</div>'+
+  '<div class="tblwrap pogrid"><table><thead><tr><th>Item</th><th class="num">Available Stock</th><th class="num">Quantity</th><th>Note</th></tr></thead><tbody>'+
+   (lines.length?lines.map(l=>'<tr><td>'+esc(l.item||'—')+'</td>'+
+     '<td class="num" style="'+smAvailStyle(l.item)+'">'+smAvailText(l.item)+'</td>'+
+     '<td class="num">'+(l.qty?fmt(+l.qty):'—')+'</td>'+
+     '<td>'+esc(l.note||'')+'</td></tr>').join(''):
+    '<tr><td colspan="4" class="hint">No items on this transaction.</td></tr>')+
+  '</tbody></table></div>'+
+  '<div class="actions" style="justify-content:flex-end;margin-top:18px">'+
+   '<button class="btn ghost" onclick="closeModal(\'smviewmodal\')">Close</button>'+
+   '<button class="btn" onclick="closeModal(\'smviewmodal\');smEditOpen(\''+rec.id+'\')">✎ Edit</button>'+
+  '</div>';
+}
 /* ============ GRN (Goods Receipt) line grid ============================
    Picking a PO (above, in the main form) pulls its line items straight
    in here — same item list the PO itself has, read-only Item + PO Qty,
@@ -15655,7 +15817,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -15669,7 +15831,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
