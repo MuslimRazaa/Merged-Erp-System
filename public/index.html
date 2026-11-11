@@ -1134,7 +1134,7 @@ activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type'
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
-items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('stock','Stock',{nospin:1,req:1}),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','stock','reorder','cost','loc','attachment'],badge:r=>r.cat},
+items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),{...T('assettag','Asset Tag Number'),showIf:{field:'cat',values:['Tool']}},FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,customView:'smViewOpen',customEdit:'smEditOpen',fields:[{...D('date','Date'),auto:1,fn:()=>today()},S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer','PR (Purchase Request)']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),{...T('who','By'),auto:1,fn:()=>(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:'',locked:true},C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref','who'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
 purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
@@ -1254,6 +1254,7 @@ const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets'
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Overtime'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
+  'Inventory':[{id:'inv_stock_report',ic:'📊',name:'Stock Reports'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
@@ -1299,6 +1300,7 @@ function bootGoTake(){
 const GROUP_NAV_ORDER={
   'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
   'Inspection':['insp_report','insp_list','woalloc','insplocs','contracts','workorders','insp_wo_view','insp_map'],
+  'Inventory':['items','stockmoves','inv_stock_report'],
 };
 let NAV_EXPANDED=new Set();
 function navExtraItemHtml(x){
@@ -1674,7 +1676,7 @@ function isAdmin(){return SESSION&&SESSION.role==='Administrator';}
 function canManageRoles(){return SESSION&&(SESSION.role==='Administrator'||SESSION.role==='Sub Admin');}
 function routeGroup(r){
   if(r&&r.startsWith('m_')){const m=MODULES[r.slice(2)];return m?m.g:'Home';}
-  const t=TITLES&&TITLES[r];if(t)return t[0]==='Accounting'?'Accounting':t[0]==='Inspection'?'Inspection':'Home';
+  const t=TITLES&&TITLES[r];if(t)return t[0]==='Accounting'?'Accounting':t[0]==='Inspection'?'Inspection':t[0]==='Inventory'?'Inventory':'Home';
   return 'Home';
 }
 function userChip(){
@@ -8217,14 +8219,10 @@ let SML=[{}];
 // Transaction -- "N/A" rather than a misleading 0.
 function stockAvailable(itemName){
   if(!itemName)return null;
-  // Starts from Item Master's own "Stock" field (the opening balance
-  // entered when the item was added -- required on every item from here
-  // on) and layers every Receipt/Issue/Adjustment since on top of that.
-  // An item added before this field existed, with no movement history
-  // either, has no known number at all -- that's the only real N/A case.
-  const itemRec=coll('items').find(x=>x.name===itemName);
-  const hasBase=itemRec&&itemRec.stock!=null&&itemRec.stock!=='';
-  let total=hasBase?(+itemRec.stock||0):0,found=hasBase;
+  // Item Master doesn't deal with stock at all -- this is purely the
+  // running total of every saved Stock Transaction line that names this
+  // item. null (shown as "N/A") means it's never appeared on one yet.
+  let total=0,found=false;
   coll('stockmoves').forEach(r=>{
     const sign=(r.type==='Receipt'||r.type==='Adjustment +')?1:((r.type==='Issue'||r.type==='Adjustment -')?-1:0);
     if(!sign)return;
@@ -8241,6 +8239,50 @@ function smAvailStyle(itemName){
   if(v==null)return 'color:var(--faint,#98A2B3)';
   if(v<0)return 'color:#DC2626;font-weight:700';
   return 'font-weight:600';
+}
+/* ============ Stock Report (Inventory -> Stock Reports) ============
+   Read-only — every Item Master item, its Current Stock Level (from
+   Stock Transactions, see stockAvailable() above) and its Reorder Level
+   side by side, so it's obvious at a glance which items need reordering.
+   Not a saved/editable record of its own, so it isn't one of MODULES —
+   just a plain computed view + a PDF export, wired into EXTRA_NAV. */
+function stockReportRows(){
+  return coll('items').slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(it=>{
+    const current=stockAvailable(it.name);
+    const reorder=(it.reorder!=null&&it.reorder!=='')?+it.reorder:null;
+    return {
+      code:it.code||'',desc:it.name||'',cat:it.cat||'',
+      current,reorder,
+      low:current!=null&&reorder!=null&&current<=reorder,
+    };
+  });
+}
+function renderStockReport(){
+  recEnsure('items');recEnsure('stockmoves'); // keep Current Stock Level live with the latest Stock Transactions
+  const c=document.getElementById('content');
+  const rows=stockReportRows();
+  const lowCount=rows.filter(r=>r.low).length;
+  c.innerHTML='<div class="kpis">'+
+   '<div class="kpi"><span>Total Items</span><b>'+rows.length+'</b></div>'+
+   '<div class="kpi"><span>At / Below Reorder Level</span><b'+(lowCount?' class="warn"':'')+'>'+lowCount+'</b></div>'+
+   '</div>'+
+   '<div class="card"><div class="card-h">Stock Report<span class="hint" style="font-weight:400"> — current stock level per item, worked out from Stock Transactions</span>'+
+    '<span style="margin-left:auto"><button class="btn ghost" onclick="stockReportPdf()">↓ Download PDF</button></span></div>'+
+   '<div class="card-b"><div class="tblwrap"><table><thead><tr><th>Item No.</th><th>Item Description</th><th>Category</th><th class="num">Current Stock Level</th><th class="num">Reorder Level</th></tr></thead><tbody>'+
+    (rows.length?rows.map(r=>'<tr'+(r.low?' style="background:#FEF2F2"':'')+'><td>'+esc(r.code)+'</td><td>'+esc(r.desc)+'</td><td>'+esc(r.cat)+'</td>'+
+      '<td class="num" style="'+(r.current==null?'color:var(--faint,#98A2B3)':r.current<0?'color:#DC2626;font-weight:700':'font-weight:600')+'">'+(r.current==null?'N/A':fmt(r.current))+'</td>'+
+      '<td class="num">'+(r.reorder==null?'—':fmt(r.reorder))+'</td></tr>').join('')
+     :'<tr><td colspan="5" class="empty">No items in Item Master yet.</td></tr>')+
+   '</tbody></table></div></div></div>';
+}
+function stockReportPdf(){
+  const rows=stockReportRows();
+  if(!rows.length)return toast('No items to report.','err');
+  const doc=new PdfDoc({landscape:true});
+  doc.header('STOCK REPORT','As of '+today());
+  doc.table(['Item No.','Item Description','Category','Current Stock Level','Reorder Level'],
+   rows.map(r=>[r.code,r.desc,r.cat,r.current==null?'N/A':fmt(r.current),r.reorder==null?'—':fmt(r.reorder)]));
+  doc.out('Stock-Report-'+today());
 }
 function smPickItem(i,v){
   SML[i].item=v;
@@ -15406,7 +15448,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -15420,7 +15462,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;
