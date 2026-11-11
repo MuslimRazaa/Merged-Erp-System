@@ -94,7 +94,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
    certificate off a rig sheet, so they get full-strength ink, not the faint
    grey used for incidental forms. */
 .irform .field label{color:var(--ink);font-size:10.5px}
-/* Released, and so not open to editing. Everything in the form stops
+/* Released, and, so not open to editing. Everything in the form stops
    taking input; the approval picker itself does not, because setting it
    back to In Process is how an inspector unlocks it to make a correction.
    Buttons that only read the record - PDF, print, cancel - are left alone,
@@ -1160,8 +1160,10 @@ maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','
    close a route. */
 woalloc:{g:'Inspection',ic:'⊞',name:'Allocation Of Work Order',admin:1,cols:2,
   fields:[
-    /* Only Operations staff, the same rule that decides who may sign a
-       certificate - see irOpsStaff. */
+    /* Only Operations staff: work order numbers are allocated to the
+       people who go out and use them. Reviewed by is no longer held to
+       that department - see irRevStaff - but this is a different
+       question and keeps its own answer. */
     {...REF('insp','Inspector Name','employees','name',
             e=>String(e.dept||'').trim().toLowerCase()==='operations'),req:1},
     {...N('from','From Work Order No'),req:1},
@@ -1192,6 +1194,7 @@ insplocs:{g:'Inspection',ic:'◉',name:'Add Location',admin:1,cols:2,
   fields:[{...T('loc','Location','Karachi'),req:1},
           {...T('subloc','Sub Location','Site A'),req:1}],
   list:['loc','subloc']},
+
 contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
    (see woPdf() — every field below prints, and nothing prints that isn't
    entered here). `contract`/`status` are the only two ERP-only extras:
@@ -1356,7 +1359,13 @@ function nav(){
   }).join('')+
   (isAdmin()?'<div class="ngrp"><h5>Administration</h5><button class="nitem'+(route==='users'?' on':'')+'" onclick="go(\'users\')"><span class="ic">\u26bf</span>Users &amp; Roles</button></div>':'');
 }
-function go(r){if(r!=='users'&&!canSee(routeGroup(r))){alert('Your role ('+(SESSION?SESSION.role:'none')+') does not have access to this section.');return;}if(r.startsWith('m_')&&modAdminOnly(r.slice(2))){alert('Administrator access required.');return;}if(r==='users'&&!isAdmin()){alert('Administrator access required.');return;}route=r;lsSet('ui_route',r);editId=null;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
+function go(r){if(r!=='users'&&!canSee(routeGroup(r))){alert('Your role ('+(SESSION?SESSION.role:'none')+') does not have access to this section.');return;}
+if(r.startsWith('m_')&&modAdminOnly(r.slice(2))){alert('Administrator access required.');return;}if(r==='users'&&!isAdmin()){alert('Administrator access required.');return;}
+/* Leaving the report form resets it, however it is left - the Cancel
+   button, the sidebar, a jump to another module. After the checks above,
+   so a refused move does not clear the form the person is still on. */
+if(route==='insp_report'&&r!=='insp_report'&&typeof irFormLeave==='function')irFormLeave();
+route=r;lsSet('ui_route',r);editId=null;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
 
 /* ============ generic module screens ============ */
 let editId=null,filterQ='';
@@ -7521,7 +7530,8 @@ function viewRec(id){
   const rows=m.fields.filter(f=>f.t!=='file').filter(f=>!f.showIf||f.showIf.values.includes(r[f.showIf.field])).map(f=>{
     let v=f.t==='computed'?f.fn(r):r[f.k];
     if(f.t==='number'&&v)v=fmt(+v);
-    return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><div style="flex:0 0 160px;color:var(--faint,#98A2B3);font-size:12.5px">'+esc(f.l)+'</div><div style="flex:1;font-size:13px">'+esc(v||'—')+'</div></div>';
+    const cell=esc(v||'—'),lbl=esc(f.l);
+    return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><div style="flex:0 0 160px;color:var(--faint,#98A2B3);font-size:12.5px">'+lbl+'</div><div style="flex:1;font-size:13px">'+cell+'</div></div>';
   }).join('');
   document.getElementById('recview-body').innerHTML=rows+filePreviewHtml(id,m);
   if(m.fields.some(f=>f.t==='file'))fileFieldLoad(k,id,null);
@@ -10296,7 +10306,7 @@ Object.assign(SCHEMAS,MASTER_SCHEMAS);
 /* The wall thickness record is not offered on the Detailed Report page any
    more. Its schema stays in SCHEMAS: a report already filed under that type
    still has to open with the columns it was written with. */
-const SCHEMA_CATS=Object.assign({'General (built-in)':Object.keys(SCHEMAS).filter(k=>!MASTER_SCHEMAS[k])},{"Drill String & Tubulars":["Drill Collar Inspection (FM-IR-06, DS-1 / RP 7G-2)","Non-Magnetic Drilling Tools Inspection (FM-IR-70)","Drill Pipe / PTISCOPE Tally Inspection (FM-IR-7)","Heavy-Weight Drill Pipe Inspection (FM-IR-11)","Tubing / PTI Scope (EMI) Tally Inspection (FM-IR-19)","Casing / Tubing Inspection Summary","Casing / Tubing Inspection Tally Report"],"Drilling Tools & Crossovers":["Drilling Tools Crossover PIN × PIN (FM-IR-16)","Drilling Tools Crossover BOX × BOX (FM-IR-17)","Drilling Tools Crossover PIN × BOX (FM-IR-60)"],"Fishing & Specialty Tools":["Overshot Series 70 Inspection (FM-IR-21)","Cutter Outside (External) Mechanical Inspection (FM-IR-22)","Overshot Series 150 Inspection (FM-IR-23)","Junk Basket Boot / Welded Sleeve Style Inspection (FM-IR-24)","Reverse Circulation Junk Basket (RCJB) Inspection (FM-IR-25)","Magnet Fishing Inspection (FM-IR-26)","Magnet Fishing Guide Cutlip Inspection (FM-IR-27)","Magnet Fishing Guide Cutlip Inspection (FM-IR-28)","Safety Joint, Rotary Type Inspection (FM-IR-29)","Mill Bladed Junk Inspection (FM-IR-30)","Overshot Guide Oversized Inspection (FM-IR-31)","Magnetic Fishing Inspection (FM-IR-32)","Grapple, Segment Type ITCO Spear Inspection (FM-IR-33)","Grapple, One Piece Type ITCO Spear Inspection (FM-IR-34)","Magnet Fishing Guide Cutlip Inspection (FM-IR-45)","Mill Pilot Custom Cut w/ Bottom Connection Inspection (FM-IR-46)","Overshot Extension Inspection (FM-IR-47)","Overshot Hollow Mill Insert Inspection (FM-IR-48)","Shoe Washover, Type A–K Inspection (FM-IR-49)","Rope Spear, Crankshaft Type Inspection (FM-IR-50)","Rope Spear, Straight Type Inspection (FM-IR-51)","Spear ITCO Style Flush Mandrel Inspection (FM-IR-52)","Spear Packoff Assembly Inspection (FM-IR-53)","Sub Drive Triple Bushing Connector (Canfield) Inspection (FM-IR-54)","Sub Drive Washover Top Sub Inspection (FM-IR-55)","Block Lead Impression Style Inspection (FM-IR-56)","Shoe Washover, Poor Boy Style Inspection (FM-IR-57)","Sub Crossover Box × Box API Inspection (FM-IR-58)","Sub Crossover Box × Box with Fishneck API Inspection (FM-IR-59)","Crossover Pin × Pin with Fishing Neck API Inspection (FM-IR-61)","Washover Pipe FJWP Inspection (FM-IR-62)","Crossover Pin × Pin API Inspection (FM-IR-63)"],"Milling & Stabilizer Maintenance":["Watermelon Mill Maintenance Inspection (FM-IR-35)","Taper Mill Maintenance Inspection (FM-IR-36)","SAQC Steering Mill Maintenance Inspection (FM-IR-37)","SAQC Secondary Mill Maintenance Inspection (FM-IR-38)","Retrieval Hook Maintenance Inspection (FM-IR-39)","Quickcut Lead Mill Maintenance Inspection (FM-IR-40)","Quickcut Flex Mill Maintenance Inspection (FM-IR-41)","MLS Window Mill Maintenance Inspection (FM-IR-42)","Flex Mandrel Maintenance Inspection (FM-IR-43)","Box Tap / Die Collar Maintenance Inspection (FM-IR-44)","String Stabilizer Inspection (FM-IR-13)","Near-Bit Stabilizer Inspection (FM-IR-18)"],"NDT & Test Methods":["Eddy Current Inspection Report","Ultrasonic Inspection Report (Flaw Detection)","Hardness Testing Report (FM-IR-10)","Dye Penetrant Testing (DPT) Report","Handling Tool MPI Report","Annular BOP Piston Inspection Report","Hydraulic Drilling Jar Inspection Report"],"Lifting & Certification":["Certificate of Load / Proof Load Test & Thorough Examination","Lifting Gear Thorough Inspection Report (HS5001)","Certificate of Pressure Witness Test"],"Rig Structure & DROPS":["API RP 4G Annex A — Cat III/IV Visual Field Inspection (Mast & Substructure)","API RP 4G Annex B — Cat III/IV Visual Field Inspection (Derrick)","API RP 4G Annex C — Cat III/IV Visual Field Inspection (Mast (Cantilever))","API RP 4G Annex D — Cat III/IV Visual Field Inspection (Substructure)","Drop Objects Checklist","Drop Object Survey — Mast","Drop Object Survey — Monkey Board","Failed Items List (DROPS Appendix D)","Failed Items Observation Report (Appendix B)","Deviation Report"]});
+const SCHEMA_CATS=Object.assign({'General (built-in)':Object.keys(SCHEMAS).filter(k=>!MASTER_SCHEMAS[k])},{"Drill String & Tubulars":["Drill Collar Inspection (FM-IR-06, DS-1 / RP 7G-2)","Non-Magnetic Drilling Tools Inspection (FM-IR-70)","Drill Pipe / PTISCOPE Tally Inspection (FM-IR-7)","Heavy-Weight Drill Pipe Inspection (FM-IR-11)","Tubing / PTI Scope (EMI) Tally Inspection (FM-IR-19)","Casing / Tubing Inspection Summary","Casing / Tubing Inspection Tally Report"],"Drilling Tools & Crossovers":["Drilling Tools Crossover PIN × PIN (FM-IR-16)","Drilling Tools Crossover BOX × BOX (FM-IR-17)","Drilling Tools Crossover PIN × BOX (FM-IR-60)"],"Fishing & Specialty Tools":["Overshot Series 70 Inspection (FM-IR-21)","Cutter Outside (External) Mechanical Inspection (FM-IR-22)","Overshot Series 150 Inspection (FM-IR-23)","Junk Basket Boot / Welded Sleeve Style Inspection (FM-IR-24)","Reverse Circulation Junk Basket (RCJB) Inspection (FM-IR-25)","Magnet Fishing Inspection (FM-IR-26)","Magnet Fishing Guide Cutlip Inspection (FM-IR-27)","Magnet Fishing Guide Cutlip Inspection (FM-IR-28)","Safety Joint, Rotary Type Inspection (FM-IR-29)","Mill Bladed Junk Inspection (FM-IR-30)","Overshot Guide Oversized Inspection (FM-IR-31)","Magnetic Fishing Inspection (FM-IR-32)","Grapple, Segment Type ITCO Spear Inspection (FM-IR-33)","Grapple, One Piece Type ITCO Spear Inspection (FM-IR-34)","Magnet Fishing Guide Cutlip Inspection (FM-IR-45)","Mill Pilot Custom Cut w/ Bottom Connection Inspection (FM-IR-46)","Overshot Extension Inspection (FM-IR-47)","Overshot Hollow Mill Insert Inspection (FM-IR-48)","Shoe Washover, Type A–K Inspection (FM-IR-49)","Rope Spear, Crankshaft Type Inspection (FM-IR-50)","Rope Spear, Straight Type Inspection (FM-IR-51)","Spear ITCO Style Flush Mandrel Inspection (FM-IR-52)","Spear Packoff Assembly Inspection (FM-IR-53)","Sub Drive Triple Bushing Connector (Canfield) Inspection (FM-IR-54)","Sub Drive Washover Top Sub Inspection (FM-IR-55)","Block Lead Impression Style Inspection (FM-IR-56)","Shoe Washover, Poor Boy Style Inspection (FM-IR-57)","Sub Crossover Box × Box API Inspection (FM-IR-58)","Sub Crossover Box × Box with Fishneck API Inspection (FM-IR-59)","Crossover Pin × Pin with Fishing Neck API Inspection (FM-IR-61)","Washover Pipe FJWP Inspection (FM-IR-62)","Crossover Pin × Pin API Inspection (FM-IR-63)"],"Milling & Stabilizer Maintenance":["Watermelon Mill Maintenance Inspection (FM-IR-35)","Taper Mill Maintenance Inspection (FM-IR-36)","SAQC Steering Mill Maintenance Inspection (FM-IR-37)","SAQC Secondary Mill Maintenance Inspection (FM-IR-38)","Retrieval Hook Maintenance Inspection (FM-IR-39)","Quickcut Lead Mill Maintenance Inspection (FM-IR-40)","Quickcut Flex Mill Maintenance Inspection (FM-IR-41)","MLS Window Mill Maintenance Inspection (FM-IR-42)","Flex Mandrel Maintenance Inspection (FM-IR-43)","Box Tap / Die Collar Maintenance Inspection (FM-IR-44)","String Stabilizer Inspection (FM-IR-13)","Near-Bit Stabilizer Inspection (FM-IR-18)"],"NDT & Test Methods":["Eddy Current Inspection Report","Ultrasonic Inspection Report (Flaw Detection)","Hardness Testing Report (FM-IR-10)","Dye Penetrant Testing (DPT) Report","Handling Tool MPI Report","Annular BOP Piston Inspection Report","Hydraulic Drilling Jar Inspection Report"],"Lifting & Certification":["Certificate of Load / Proof Load Test & Thorough Examination","Lifting Gear Thorough Inspection Report (HS5001)","Certificate of Pressure Witness Test"],"Rig Structure & DROPS":["API RP 4G Annex A — Cat III/IV Visual Field Inspection (Mast & Substructure)","API RP 4G Annex B — Cat III/IV Visual Field Inspection (Derrick)","API RP 4G Annex C — Cat III/IV Visual Field Inspection (Mast (Cantilever))","API RP 4G Annex D — Cat III/IV Visual Field Inspection (Substructure)","Drop Object Survey (FM-IR-71)","Deviation Report"]});
 function irTypeOptions(sel){return Object.entries(SCHEMA_CATS).map(([cat,list])=>'<optgroup label="'+cat+'">'+list.map(t=>'<option'+(t===sel?' selected':'')+'>'+t.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>').join('')+'</optgroup>').join('');}
 
 
@@ -10344,7 +10354,8 @@ const IR_TYPE_CODES={
  'API RP 4G Annex D \u2014 Cat III/IV Visual Field Inspection (Substructure)':'API4GD',
  'Drop Object Survey \u2014 Mast':'DOSMAST',
  'Drop Object Survey \u2014 Monkey Board':'DOSMB',
- 'Handling Tool MPI Report':'HTMPI'          // MPI alone belongs to NDT \u2014 MPI
+ 'Handling Tool MPI Report':'HTMPI',         // MPI alone belongs to NDT \u2014 MPI
+ 'Drop Object Survey (FM-IR-71)':'DOS71'
 };
 function irTypeCode(type){
   const t=String(type||'');
@@ -10384,12 +10395,13 @@ function irNextReportNo(type){
   while(used[n])n++;
   return n;
 }
-/* Reviewed by is picked from HR, and only from the Operations department
-   — nobody else countersigns an inspection certificate. Inspector is
-   not picked at all; see irStaffField. */
-function irOpsStaff(){
+/* Reviewed by is picked from HR, and from the whole of it. It was the
+   Operations department alone, on the reasoning that nobody else
+   countersigns a certificate; that is the company's call and not this
+   file's, and a reviewer sitting in QA or management had no way to be
+   named. Inspector is not picked at all; see irStaffField. */
+function irRevStaff(){
   return [...new Set(coll('employees')
-    .filter(e=>String(e.dept||'').trim().toLowerCase()==='operations')
     .map(e=>String(e.name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 }
 /* The name that goes on the certificate as the inspector: whoever is
@@ -10413,10 +10425,17 @@ function irStaffField(f){
       (v?'':'<div class="hint" style="margin-top:4px">This session has no name on it \u2014 sign in again.</div>')+
     '</div>';
   }
-  const cur=IR.fields[k]||'',opts=irOpsStaff();
+  const cur=IR.fields[k]||'',opts=irRevStaff();
+  /* Said once, under the box: whoever is picked here signs the report,
+     and that only happens if their stamp has been filed. */
+  const stamped=cur?!!signOf(cur):false;
   return '<div class="field"><label>'+f[1]+'</label>'+
     selx('ir-'+k,cur,opts,v=>{IR.fields[k]=v;irSave();},'\u2014 choose \u2014')+
-    (opts.length?'':'<div class="hint">No Operations employees yet \u2014 add them under Human Resources.</div>')+
+    (opts.length?'':'<div class="hint">No employees yet \u2014 add them under Human Resources.</div>')+
+    (cur?'<div class="hint" style="margin-top:4px">'+(stamped
+      ?'Their signature stamp prints on the report.'
+      :'No signature on file for '+esc(cur)+' \u2014 it is kept on their '+
+       'employee record, under Human Resources.')+'</div>':'')+
   '</div>';
 }
 /* The shared header carries only what every report type needs. Customer,
@@ -10529,7 +10548,6 @@ function renderInspReport(){
      What is closed is the copy in the library, and Open is where that
      is said - see apprLockAsk. */
   '<div class="irform">'+
-  irDraftOffer()+
   '<div class="card"><div class="card-h">Report header</div><div class="card-b"><div class="fgrid">'+
   '<div class="field"><label>Report type ('+Object.keys(SCHEMAS).length+' formats)</label>'+
     // picking nothing would leave the report without a type, so a blank pick is ignored
@@ -10554,6 +10572,7 @@ function renderInspReport(){
   mpiCardHtml()+
   utCardHtml()+
   irtCardHtml()+
+  dropsCardHtml()+
   /* A certified sheet rules its own equipment block and prints from it; this
      card keeps its rows on IR.eq, which that print path never reads. Showing
      both asked for the gauges twice and printed the wrong one - nothing.
@@ -10577,7 +10596,7 @@ function renderInspReport(){
          prints from that - this one's rows live on IR.items, which the
          certified print path never reads;
        - everything else gets the generic grid below. */
-  (IR.type===MPI_TYPE?mpiRowsHtml():IR.type===UT_TYPE?'':irtFor()?'':
+  (IR.type===MPI_TYPE?mpiRowsHtml():IR.type===UT_TYPE?'':irtFor()?'':dropsOn()?'':
   '<div class="card"><div class="card-h">Inspection results<span class="sp"></span><button class="btn small" onclick="IR.items.push({});irSave();render()">+ Add item</button></div><div class="card-b">'+
   '<div class="hint" style="margin-bottom:8px">'+sc.hint+' Changing the report type re-maps the table; shared columns keep their values.</div>'+
   '<div class="tblwrap" id="xt-irit"><table class="dimtable"><thead>'+
@@ -10604,7 +10623,12 @@ function renderInspReport(){
   // Download / print / export / new all live on Saved Reports now — this
   // screen is for filling the report in and filing it.
   '<div class="actions"><button class="btn" onclick="irStore()">Save to report library</button>'+
-   '<span class="hint" style="margin-left:10px">Saved reports are downloaded, printed and exported from <b>Saved Reports</b>.</span></div>'+
+   /* The way back. Worded for what is in front of the person: a report
+      opened out of the library is being left, or a new one is being
+      cleared. Nothing is said beside it - the line that used to point at
+      Saved Reports for printing was asked to go. */
+   '<button class="btn ghost" onclick="irFormCancel()">'+
+     (IR.id?'Cancel — back to Saved Reports':'Cancel — clear this form')+'</button></div>'+
   '</div>';
   irFillSerials();
 }
@@ -10783,6 +10807,7 @@ function dpDrawTemplatePage(doc,dp,pageItems,rowOffset,pageNo,totalPages){
   TC(984,120,652,IR.fields.insp);
   doc.text(1056,864-638,'Reviewed / Approved by:',8,true);
   TC(1118,124,652,IR.fields.rev_by);
+  signStampMid(doc,IR.fields.rev_by,1118,doc.h-652+SIGN_RISE,SIGN_H,124);
 
   // LAST of all: the row's attached image. A row carrying one is alone on its
   // page, so the image takes everything under it — the empty row slots and,
@@ -11079,6 +11104,7 @@ function mpiDrawPage(doc,m,row,i){
   });
   doc.text(155.8,277.7,IR.fields.insp||'',9.9,true);
   doc.text(528.2,278.8,IR.fields.rev_by||'',9.9,true);
+  signStamp(doc,IR.fields.rev_by,528.2,278.8+SIGN_RISE,SIGN_H,150);
 }
 function irPdfMpi(){
   if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
@@ -11407,6 +11433,7 @@ function utDrawPage(doc,u,row,i){
   });
   doc.text(146.3,302.6,IR.fields.insp||'',9.9,true);
   doc.text(500.4,301.4,IR.fields.rev_by||'',9.9,true);
+  signStamp(doc,IR.fields.rev_by,500.4,301.4+SIGN_RISE,SIGN_H,150);
 }
 function irPdfUt(){
   if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
@@ -11942,6 +11969,199 @@ const IRT_DCL={key:"DCL",code:"FM-IR-71",type:"Drop Objects Checklist",cert:"PTI
 const IRT_SB1={key:"SB1",code:"FM-IR-04",type:"API RP 4G Annex D — Cat III/IV Visual Field Inspection (Substructure)",cert:"PTISSUB",page:SB1_PAGE,lh:SB1_LINES_H,lv:SB1_LINES_V,st:SB1_STATIC,fills:SB1_FILLS,certAt:null,logo:[492.2,687.2,69.3,42.8],footer:[25.4,166.4,556.5,38.3],diag:null,lw:0.8,attach:null,fullGrid:true,ownHead:true,perCert:null,more:[{page:SB2_PAGE,lh:SB2_LINES_H,lv:SB2_LINES_V,st:SB2_STATIC,fills:SB2_FILLS,diag:[[DP_BADGES_IMG,26.1,175,556.5,38.5]],fields:[["sb2_f1","1.0 Shoes, Pedestals",369.44,616.45,7,"",425.3,"c"],["sb2_f2","1.0 Shoes, Pedestals — Pin Connections",369.44,606.85,7,"",425.3,"c"],["sb2_f3","1.0 Shoes, Pedestals — Pin Holes",369.44,597.25,7,"",425.3,"c"],["sb2_f4","1.0 Shoes, Pedestals — Bolt Connections",369.44,587.65,7,"",425.3,"c"],["sb2_f5","1.0 Shoes, Pedestals — Bolt Holes",369.44,578.05,7,"",425.3,"c"],["sb2_f6","1.0 Shoes, Pedestals — Pins/Bolts",369.44,568.45,7,"",425.3,"c"],["sb2_f7","1.0 Shoes, Pedestals — Safety Pins",369.44,558.85,7,"",425.3,"c"],["sb2_f8","1.0 Shoes, Pedestals — Support Beams",369.44,549.25,7,"",425.3,"c"],["sb2_f9","1.0 Shoes, Pedestals — Welds",369.44,539.65,7,"",425.3,"c"],["sb2_f10","1.0 Shoes, Pedestals — Number of Visible Marks Applied",155.24,530.05,7,"",120],["sb2_f11","2.0 Floor Area — Floor Plates",369.44,492.13,7,"",425.3,"c"],["sb2_f12","2.0 Floor Area — Handrails & Toe Boards",369.44,482.53,7,"",425.3,"c"],["sb2_f13","2.0 Floor Area — Handrail Connections",369.44,472.93,7,"",425.3,"c"],["sb2_f14","2.0 Floor Area — Setback Material",369.44,463.33,7,"",425.3,"c"],["sb2_f15","2.0 Floor Area — Floor Bracing",369.44,453.73,7,"",425.3,"c"],["sb2_f16","2.0 Floor Area — Welds",369.44,444.13,7,"",425.3,"c"],["sb2_f17","2.0 Floor Area — Number of Visible Marks Applied",155.24,434.53,7,"",120],["sb2_f18","3.0 Sub-Spreaders and Rotary Beams",369.44,396.61,7,"",425.3,"c"],["sb2_f19","3.0 Sub-Spreaders and Rotary Beams — Spreaders",369.44,387.01,7,"",425.3,"c"],["sb2_f20","3.0 Sub-Spreaders and Rotary Beams — Pin Connections",369.44,377.41,7,"",425.3,"c"],["sb2_f21","3.0 Sub-Spreaders and Rotary Beams — Pin Holes",369.44,367.81,7,"",425.3,"c"],["sb2_f22","3.0 Sub-Spreaders and Rotary Beams — Pins",369.44,358.21,7,"",425.3,"c"],["sb2_f23","3.0 Sub-Spreaders and Rotary Beams — Pad-eyes",369.44,348.61,7,"",425.3,"c"],["sb2_f24","3.0 Sub-Spreaders and Rotary Beams — Welds",369.44,339.01,7,"",425.3,"c"],["sb2_f25","3.0 Sub-Spreaders and Rotary Beams — Number of Visible Marks Applied",155.24,329.41,7,"",120],["sb2_f26","4.0 Deadline Anchor Mounting — Supports",369.44,291.49,7,"",425.3,"c"],["sb2_f27","4.0 Deadline Anchor Mounting — Bolts",369.44,281.89,7,"",425.3,"c"],["sb2_f28","4.0 Deadline Anchor Mounting — Flooring",369.44,272.29,7,"",425.3,"c"],["sb2_f29","4.0 Deadline Anchor Mounting — Breakover Assembly",369.44,262.69,7,"",425.3,"c"],["sb2_f30","4.0 Deadline Anchor Mounting — Handrails",369.44,253.09,7,"",425.3,"c"],["sb2_f31","4.0 Deadline Anchor Mounting — Welds",369.44,243.49,7,"",425.3,"c"],["sb2_f32","4.0 Deadline Anchor Mounting — Number of Visible Marks Applied",369.44,234.23,7.8,"",425.3,"c"]],marks:[["sb2_m1","1.0 Shoes, Pedestals — Pin Connections",52.4,605.65,9.6,16.56],["sb2_m2","1.0 Shoes, Pedestals — Pin Holes",52.4,596.05,9.6,16.56],["sb2_m3","1.0 Shoes, Pedestals — Bolt Connections",52.4,586.45,9.6,16.56],["sb2_m4","1.0 Shoes, Pedestals — Bolt Holes",52.4,576.85,9.6,16.56],["sb2_m5","1.0 Shoes, Pedestals — Pins/Bolts",52.4,567.25,9.6,16.56],["sb2_m6","1.0 Shoes, Pedestals — Safety Pins",52.4,557.65,9.6,16.56],["sb2_m7","1.0 Shoes, Pedestals — Support Beams",52.4,548.05,9.6,16.56],["sb2_m8","1.0 Shoes, Pedestals — Welds",52.4,538.45,9.6,16.56],["sb2_m9","2.0 Floor Area — Floor Plates",52.4,490.93,9.6,16.56],["sb2_m10","2.0 Floor Area — Handrails & Toe Boards",52.4,481.33,9.6,16.56],["sb2_m11","2.0 Floor Area — Handrail Connections",52.4,471.73,9.6,16.56],["sb2_m12","2.0 Floor Area — Setback Material",52.4,462.13,9.6,16.56],["sb2_m13","2.0 Floor Area — Floor Bracing",52.4,452.53,9.6,16.56],["sb2_m14","2.0 Floor Area — Welds",52.4,442.93,9.6,16.56],["sb2_m15","3.0 Sub-Spreaders and Rotary Beams — Rotary Beams",52.4,395.41,9.6,16.56],["sb2_m16","3.0 Sub-Spreaders and Rotary Beams — Spreaders",52.4,385.81,9.6,16.56],["sb2_m17","3.0 Sub-Spreaders and Rotary Beams — Pin Connections",52.4,376.21,9.6,16.56],["sb2_m18","3.0 Sub-Spreaders and Rotary Beams — Pin Holes",52.4,366.61,9.6,16.56],["sb2_m19","3.0 Sub-Spreaders and Rotary Beams — Pins",52.4,357.01,9.6,16.56],["sb2_m20","3.0 Sub-Spreaders and Rotary Beams — Pad-eyes",52.4,347.41,9.6,16.56],["sb2_m21","3.0 Sub-Spreaders and Rotary Beams — Welds",52.4,337.81,9.6,16.56],["sb2_m22","4.0 Deadline Anchor Mounting — Supports",52.4,290.29,9.6,16.56],["sb2_m23","4.0 Deadline Anchor Mounting — Bolts",52.4,280.69,9.6,16.56],["sb2_m24","4.0 Deadline Anchor Mounting — Flooring",52.4,271.09,9.6,16.56],["sb2_m25","4.0 Deadline Anchor Mounting — Breakover Assembly",52.4,261.49,9.6,16.56],["sb2_m26","4.0 Deadline Anchor Mounting — Handrails",52.4,251.89,9.6,16.56],["sb2_m27","4.0 Deadline Anchor Mounting — Welds",52.4,242.29,9.6,16.56]],ticks:null,pcells:null,pbase:0,title:"Page 2 — substructures",fixedTicks:[[52.4,683.27,7.0]],fit:[0.98355,5.034,0.631],head:[[27.32,784.0,"PREMIER TUBULAR INSPECTION",7.8,1,0],[27.32,775.0,"House No. E-69, Block # 6, P.E.C.H.S,",7.8,0,0],[27.32,766.0,"P.E.C.H.S. Karachi, Pakistan.",7.0,0,0],[27.32,757.0,"Tel  #  + (92-21) 34559070,34533739",7.0,0,0],[27.32,748.0,"Fax #  + (92-21) 34312712",7.0,0,0]],logo:[492.2,744.0,69.3,42.8]},{page:SB3_PAGE,lh:SB3_LINES_H,lv:SB3_LINES_V,st:SB3_STATIC,fills:SB3_FILLS,diag:[[DP_BADGES_IMG,26.6,152,556.6,38.1]],fields:[["sb3_f1","5.0 Substructure Components — Beams Straight",369.44,728.89,7,"",425.3,"c"],["sb3_f2","5.0 Substructure Components — Cross Braces",369.44,719.29,7,"",425.3,"c"],["sb3_f3","5.0 Substructure Components — Pin/Bolt Holes",369.44,709.69,7,"",425.3,"c"],["sb3_f4","5.0 Substructure Components — Pin/Bolts",369.44,700.09,7,"",425.3,"c"],["sb3_f5","5.0 Substructure Components — Safety Pins",369.44,690.49,7,"",425.3,"c"],["sb3_f6","5.0 Substructure Components — Pull Back Posts",369.44,680.89,7,"",425.3,"c"],["sb3_f7","5.0 Substructure Components — Drawworks Tiedowns",369.44,671.29,7,"",425.3,"c"],["sb3_f8","5.0 Substructure Components — Welds",369.44,661.69,7,"",425.3,"c"],["sb3_f9","5.0 Substructure Components — BOP Anchor Pad-eyes",369.44,652.09,7,"",425.3,"c"],["sb3_f10","5.0 Substructure Components — Pad-eyes",369.44,642.49,7,"",425.3,"c"],["sb3_f11","5.0 Substructure Components — Number of Visible Marks Applied",155.24,632.89,7,"",120],["sb3_f12","6.0 Engine Foundation — Support Beams",369.44,594.97,7,"",425.3,"c"],["sb3_f13","6.0 Engine Foundation — Cross Braces",369.44,585.37,7,"",425.3,"c"],["sb3_f14","6.0 Engine Foundation — Pin/Bolt Holes",369.44,575.77,7,"",425.3,"c"],["sb3_f15","6.0 Engine Foundation — Pins/Bolts",369.44,566.17,7,"",425.3,"c"],["sb3_f16","6.0 Engine Foundation — Safety Pins",369.44,556.57,7,"",425.3,"c"],["sb3_f17","6.0 Engine Foundation — Pad-eyes",369.44,546.97,7,"",425.3,"c"],["sb3_f18","6.0 Engine Foundation — Number of Visible Marks Applied",155.24,537.37,7,"",120],["sb3_f19","7.0 Engine Foundation Spreaders — Beams",369.44,499.45,7,"",425.3,"c"],["sb3_f20","7.0 Engine Foundation Spreaders — Cross Braces",369.44,489.85,7,"",425.3,"c"],["sb3_f21","7.0 Engine Foundation Spreaders — Pins / Bolt Holes",369.44,480.25,7,"",425.3,"c"],["sb3_f22","7.0 Engine Foundation Spreaders — Pins / Bolts",369.44,470.65,7,"",425.3,"c"],["sb3_f23","7.0 Engine Foundation Spreaders — Safety Pins",369.44,461.05,7,"",425.3,"c"],["sb3_f24","7.0 Engine Foundation Spreaders — Welds",369.44,451.45,7,"",425.3,"c"],["sb3_f25","7.0 Engine Foundation Spreaders — Number of Visible Marks Applied",155.24,441.85,7,"",120],["sb3_f26","8.0 BOP Trolley Beams",369.44,413.05,7,"",425.3,"c"],["sb3_f27","8.0 BOP Trolley Beams",369.44,403.93,7,"",425.3,"c"],["sb3_f28","8.0 BOP Trolley Beams — Pin Holes",369.44,394.81,7,"",425.3,"c"],["sb3_f29","8.0 BOP Trolley Beams — Pins",369.44,385.69,7,"",425.3,"c"],["sb3_f30","8.0 BOP Trolley Beams — Safety Pins",369.44,376.57,7,"",425.3,"c"],["sb3_f31","8.0 BOP Trolley Beams — Welds",369.44,367.45,7,"",425.3,"c"],["sb3_f32","8.0 BOP Trolley Beams — Number of Visible Marks Applied",155.24,357.85,7,"",120],["sb3_f33","9.0 Raising Equipment — Pin Connections",369.44,320.41,7,"",425.3,"c"],["sb3_f34","9.0 Raising Equipment — Pin Holes",369.44,311.29,7,"",425.3,"c"],["sb3_f35","9.0 Raising Equipment — Pins",369.44,302.17,7,"",425.3,"c"],["sb3_f36","9.0 Raising Equipment — Wirelines",369.44,292.57,7,"",425.3,"c"],["sb3_f37","9.0 Raising Equipment — Sheaves",369.44,282.97,7,"",425.3,"c"],["sb3_f38","9.0 Raising Equipment — Bearings",369.44,273.37,7,"",425.3,"c"],["sb3_f39","9.0 Raising Equipment — Seals",369.44,263.77,7,"",425.3,"c"],["sb3_f40","9.0 Raising Equipment — Grease Fittings",369.44,254.17,7,"",425.3,"c"],["sb3_f41","9.0 Raising Equipment — Hydraulic Winches",369.44,244.57,7,"",425.3,"c"],["sb3_f42","9.0 Raising Equipment — Hydraulic Cylinders",369.44,234.97,7,"",425.3,"c"],["sb3_f43","9.0 Raising Equipment — Hydraulic Hoses",369.44,225.37,7,"",425.3,"c"],["sb3_f44","9.0 Raising Equipment — Cylinder Hinge",369.44,215.77,7,"",425.3,"c"],["sb3_f45","9.0 Raising Equipment — Number of Visible Marks Applied",155.24,206.17,7,"",120]],marks:[["sb3_m1","5.0 Substructure Components — Beams Straight",52.4,727.69,9.6,16.56],["sb3_m2","5.0 Substructure Components — Cross Braces",52.4,718.09,9.6,16.56],["sb3_m3","5.0 Substructure Components — Pin/Bolt Holes",52.4,708.49,9.6,16.56],["sb3_m4","5.0 Substructure Components — Pin/Bolts",52.4,698.89,9.6,16.56],["sb3_m5","5.0 Substructure Components — Safety Pins",52.4,689.29,9.6,16.56],["sb3_m6","5.0 Substructure Components — Pull Back Posts",52.4,679.69,9.6,16.56],["sb3_m7","5.0 Substructure Components — Drawworks Tiedowns",52.4,670.09,9.6,16.56],["sb3_m8","5.0 Substructure Components — Welds",52.4,660.49,9.6,16.56],["sb3_m9","5.0 Substructure Components — BOP Anchor Pad-eyes",52.4,650.89,9.6,16.56],["sb3_m10","5.0 Substructure Components — Pad-eyes",52.4,641.29,9.6,16.56],["sb3_m11","6.0 Engine Foundation — Support Beams",52.4,593.77,9.6,16.56],["sb3_m12","6.0 Engine Foundation — Cross Braces",52.4,584.17,9.6,16.56],["sb3_m13","6.0 Engine Foundation — Pin/Bolt Holes",52.4,574.57,9.6,16.56],["sb3_m14","6.0 Engine Foundation — Pins/Bolts",52.4,564.97,9.6,16.56],["sb3_m15","6.0 Engine Foundation — Safety Pins",52.4,555.37,9.6,16.56],["sb3_m16","6.0 Engine Foundation — Pad-eyes",52.4,545.77,9.6,16.56],["sb3_m17","7.0 Engine Foundation Spreaders — Beams",52.4,498.25,9.6,16.56],["sb3_m18","7.0 Engine Foundation Spreaders — Cross Braces",52.4,488.65,9.6,16.56],["sb3_m19","7.0 Engine Foundation Spreaders — Pins / Bolt Holes",52.4,479.05,9.6,16.56],["sb3_m20","7.0 Engine Foundation Spreaders — Pins / Bolts",52.4,469.45,9.6,16.56],["sb3_m21","7.0 Engine Foundation Spreaders — Safety Pins",52.4,459.85,9.6,16.56],["sb3_m22","7.0 Engine Foundation Spreaders — Welds",52.4,450.25,9.6,16.56],["sb3_m23","8.0 BOP Trolley Beams — Beams",52.4,402.73,9.12,16.56],["sb3_m24","8.0 BOP Trolley Beams — Pin Holes",52.4,393.61,9.12,16.56],["sb3_m25","8.0 BOP Trolley Beams — Pins",52.4,384.49,9.12,16.56],["sb3_m26","8.0 BOP Trolley Beams — Safety Pins",52.4,375.37,9.12,16.56],["sb3_m27","8.0 BOP Trolley Beams — Welds",52.4,366.25,9.12,16.56],["sb3_m28","9.0 Raising Equipment — Pin Connections",52.4,319.21,9.12,16.56],["sb3_m29","9.0 Raising Equipment — Pin Holes",52.4,310.09,9.12,16.56],["sb3_m30","9.0 Raising Equipment — Pins",52.4,300.97,9.12,16.56],["sb3_m31","9.0 Raising Equipment — Wirelines",52.4,291.37,9.6,16.56],["sb3_m32","9.0 Raising Equipment — Sheaves",52.4,281.77,9.6,16.56],["sb3_m33","9.0 Raising Equipment — Bearings",52.4,272.17,9.6,16.56],["sb3_m34","9.0 Raising Equipment — Seals",52.4,262.57,9.6,16.56],["sb3_m35","9.0 Raising Equipment — Grease Fittings",52.4,252.97,9.6,16.56],["sb3_m36","9.0 Raising Equipment — Hydraulic Winches",52.4,243.37,9.6,16.56],["sb3_m37","9.0 Raising Equipment — Hydraulic Cylinders",52.4,233.77,9.6,16.56],["sb3_m38","9.0 Raising Equipment — Hydraulic Hoses",52.4,224.17,9.6,16.56],["sb3_m39","9.0 Raising Equipment — Cylinder Hinge",52.4,214.57,9.6,16.56]],ticks:null,pcells:null,pbase:0,title:"Page 3",fixedTicks:null,fit:[0.98223,5.438,0.682],head:[[27.32,784.0,"PREMIER TUBULAR INSPECTION",7.8,1,0],[27.32,775.0,"House No. E-69, Block # 6, P.E.C.H.S,",7.8,0,0],[27.32,766.0,"P.E.C.H.S. Karachi, Pakistan.",7.0,0,0],[27.32,757.0,"Tel  #  + (92-21) 34559070,34533739",7.0,0,0],[27.32,748.0,"Fax #  + (92-21) 34312712",7.0,0,0]],logo:[492.2,744.0,69.3,42.8]},{page:SB4_PAGE,lh:SB4_LINES_H,lv:SB4_LINES_V,st:SB4_STATIC,fills:SB4_FILLS,diag:[[DP_BADGES_IMG,26.1,314.5,556.5,38.5]],fields:[["sb4_f1","10.0 Stairs/Landings/Flooring/Handrails — Welds",369.44,719.29,7,"",425.3,"c"],["sb4_f2","10.0 Stairs/Landings/Flooring/Handrails — Pin/Bolt Holes",369.44,710.17,7,"",425.3,"c"],["sb4_f3","10.0 Stairs/Landings/Flooring/Handrails — Pins/Bolts",369.44,701.05,7,"",425.3,"c"],["sb4_f4","10.0 Stairs/Landings/Flooring/Handrails — Floor Plating",369.44,691.93,7,"",425.3,"c"],["sb4_f5","10.0 Stairs/Landings/Flooring/Handrails — Stair Tread Spacing",369.44,682.81,7,"",425.3,"c"],["sb4_f6","10.0 Stairs/Landings/Flooring/Handrails — Handrail Sockets",369.44,673.69,7,"",425.3,"c"],["sb4_f7","10.0 Stairs/Landings/Flooring/Handrails — Number of Visible Marks Applied",155.24,664.09,7,"",120],["sb4_f8","11.0 Paint/Coating",369.44,635.77,7,"",425.3,"c"],["sb4_f9","11.0 Paint/Coating — Condition",369.44,626.17,7,"",425.3,"c"],["sb4_f10","11.0 Paint/Coating",305.48,616.57,7,"",553.2,"c"],["sb4_f11","11.0 Paint/Coating",305.48,607.69,7,"",553.2,"c"],["sb4_f12","11.0 Paint/Coating",305.48,597.85,7,"",553.2,"c"],["sb4_f13","11.0 Paint/Coating",305.48,588.25,7,"",553.2,"c"],["sb4_f14","12.0 Skidding Equipment — Pad-eyes",369.44,549.85,7,"",425.3,"c"],["sb4_f15","12.0 Skidding Equipment — Pins",369.44,540.49,7,"",425.3,"c"],["sb4_f16","12.0 Skidding Equipment — Beam Clamps",369.44,530.89,7,"",425.3,"c"],["sb4_f17","12.0 Skidding Equipment — Jacks",369.44,521.29,7,"",425.3,"c"],["sb4_f18","12.0 Skidding Equipment — Jacking Motors",369.44,511.69,7,"",425.3,"c"],["sb4_f19","12.0 Skidding Equipment — Jacking Rack",155.24,502.08,7,"",120],["sb4_f20","13.0 Corrosion (refer to Section 7.2) — Corrosion Detected",436.78,464.89,7,"",120],["sb4_f21","13.0 Corrosion (refer to Section 7.2) — Location",136.77,446.05,7,"",120],["sb4_f22","13.0 Corrosion (refer to Section 7.2) — Extent",129.98,437.41,7,"",120],["sb4_f23","13.0 Corrosion (refer to Section 7.2) — Potential Impact",162.66,428.41,7,"",120],["sb4_f24","13.0 Corrosion (refer to Section 7.2) — Recommendation",305.78,419.05,7,"",553.1,"c"],["sb4_f25","13.0 Corrosion (refer to Section 7.2)",305.78,409.93,7,"",553.1,"c"],["sb4_f26","13.0 Corrosion (refer to Section 7.2)",305.78,400.81,7,"",553.1,"c"],["sb4_f27","13.0 Corrosion (refer to Section 7.2)",305.78,391.69,7,"",553.1,"c"],["sb4_f28","13.0 Corrosion (refer to Section 7.2)",305.48,382.57,7,"",553.2,"c"],["sb4_f29","13.0 Corrosion (refer to Section 7.2)",305.48,373.45,7,"",553.2,"c"]],marks:[["sb4_m1","10.0 Stairs/Landings/Flooring/Handrails — Welds",52.4,718.09,9.12,16.56],["sb4_m2","10.0 Stairs/Landings/Flooring/Handrails — Pin/Bolt Holes",52.4,708.97,9.12,16.56],["sb4_m3","10.0 Stairs/Landings/Flooring/Handrails — Pins/Bolts",52.4,699.85,9.12,16.56],["sb4_m4","10.0 Stairs/Landings/Flooring/Handrails — Floor Plating",52.4,690.73,9.12,16.56],["sb4_m5","10.0 Stairs/Landings/Flooring/Handrails — Stair Tread Spacing",52.4,681.61,9.12,16.56],["sb4_m6","10.0 Stairs/Landings/Flooring/Handrails — Handrail Sockets",52.4,672.49,9.12,16.56],["sb4_m7","11.0 Paint/Coating — Condition",52.4,624.97,9.6,16.56],["sb4_m8","12.0 Skidding Equipment — Pad-eyes",52.4,548.41,9.12,16.56],["sb4_m9","12.0 Skidding Equipment — Pins",52.4,538.81,9.6,16.56],["sb4_m10","12.0 Skidding Equipment — Beam Clamps",52.4,529.21,9.6,16.56],["sb4_m11","12.0 Skidding Equipment — Jacks",52.4,519.61,9.6,16.56],["sb4_m12","12.0 Skidding Equipment — Jacking Motors",52.4,510.01,9.6,16.56],["sb4_m13","12.0 Skidding Equipment — Jacking Rack",52.4,500.89,9.12,16.56]],ticks:null,pcells:null,pbase:0,title:"Page 4",fixedTicks:null,fit:[0.98256,5.337,0.669],head:[[27.32,784.0,"PREMIER TUBULAR INSPECTION",7.8,1,0],[27.32,775.0,"House No. E-69, Block # 6, P.E.C.H.S,",7.8,0,0],[27.32,766.0,"P.E.C.H.S. Karachi, Pakistan.",7.0,0,0],[27.32,757.0,"Tel  #  + (92-21) 34559070,34533739",7.0,0,0],[27.32,748.0,"Fax #  + (92-21) 34312712",7.0,0,0]],logo:[492.2,744.0,69.3,42.8]},{page:SB5_PAGE,lh:SB5_LINES_H,lv:SB5_LINES_V,st:SB5_STATIC,fills:SB5_FILLS,diag:[[DP_BADGES_IMG,28.5,76.5,556.6,36]],fields:[["sb5_f1","14.0 Comments, Drawings, and/or Pictures",306,716.17,7,"",300,"c"]],marks:null,ticks:null,pcells:[[26.1,600.17,134.15,89.43],[166.25,600.17,134.15,89.43],[306.4,600.17,134.15,89.43],[446.55,600.17,134.15,89.43],[26.1,504.73,134.15,89.43],[166.25,504.73,134.15,89.43],[306.4,504.73,134.15,89.43],[446.55,504.73,134.15,89.43],[26.1,409.3,134.15,89.43],[166.25,409.3,134.15,89.43],[306.4,409.3,134.15,89.43],[446.55,409.3,134.15,89.43],[26.1,313.87,134.15,89.43],[166.25,313.87,134.15,89.43],[306.4,313.87,134.15,89.43],[446.55,313.87,134.15,89.43],[26.1,218.43,134.15,89.43],[166.25,218.43,134.15,89.43],[306.4,218.43,134.15,89.43],[446.55,218.43,134.15,89.43]],pbase:0,title:"Page 5 — comments, drawings and pictures",fixedTicks:null,fit:[0.98289,5.236,0.657],head:[[27.32,784.0,"PREMIER TUBULAR INSPECTION",7.8,1,0],[27.32,775.0,"House No. E-69, Block # 6, P.E.C.H.S,",7.8,0,0],[27.32,766.0,"P.E.C.H.S. Karachi, Pakistan.",7.0,0,0],[27.32,757.0,"Tel  #  + (92-21) 34559070,34533739",7.0,0,0],[27.32,748.0,"Fax #  + (92-21) 34312712",7.0,0,0]],logo:[492.2,744.0,69.3,42.8]},{page:SB6_PAGE,lh:SB6_LINES_H,lv:SB6_LINES_V,st:SB6_STATIC,fills:SB6_FILLS,diag:[[DP_BADGES_IMG,25.4,115.9,556.5,38.5]],fields:[["sb6_inspDate","Inspector's date",540,183.61,7,"date",45],["sb6_ownerDate","Owner representative's date",540,165.37,7,"date",45]],marks:null,ticks:null,pcells:[[26.6,663.35,134.03,89.35],[166.62,663.35,134.03,89.35],[306.65,663.35,134.03,89.35],[446.68,663.35,134.03,89.35],[26.6,568.0,134.03,89.35],[166.62,568.0,134.03,89.35],[306.65,568.0,134.03,89.35],[446.68,568.0,134.03,89.35],[26.6,472.65,134.03,89.35],[166.62,472.65,134.03,89.35],[306.65,472.65,134.03,89.35],[446.68,472.65,134.03,89.35],[26.6,377.3,134.03,89.35],[166.62,377.3,134.03,89.35],[306.65,377.3,134.03,89.35],[446.68,377.3,134.03,89.35],[26.6,281.95,134.03,89.35],[166.62,281.95,134.03,89.35],[306.65,281.95,134.03,89.35],[446.68,281.95,134.03,89.35]],pbase:20,title:"Page 6 — pictures and signing",fixedTicks:null,fit:[0.98113,5.773,0.724],head:[[27.32,784.0,"PREMIER TUBULAR INSPECTION",7.8,1,0],[27.32,775.0,"House No. E-69, Block # 6, P.E.C.H.S,",7.8,0,0],[27.32,766.0,"P.E.C.H.S. Karachi, Pakistan.",7.0,0,0],[27.32,757.0,"Tel  #  + (92-21) 34559070,34533739",7.0,0,0],[27.32,748.0,"Fax #  + (92-21) 34312712",7.0,0,0]],logo:[492.2,744.0,69.3,42.8]}],fit:null,head:null,marks:null,photoSplit:true,tickTitle:"The structure, and how it was inspected",fixedTicks:null,fields:[["sb1_f1","Company",162.74,490.93,7,"customer",166.9,"c"],["sb1_f2","Rig #",436.76,490.93,7,"",290.6,"c"],["sb1_f3","Date",436.76,481.81,7,"date",290.6,"c"],["sb1_f4","Location",143.06,472.69,7,"",127.6,"c"],["sb1_f5","Manufacturer",436.76,472.69,7,"",290.6,"c"],["sb1_f6","Date of Manufacture",175.34,454.45,7,"",141.7,"c"],["sb1_f7","Manufacturer's Rating",175.34,436.21,7,"",141.7,"c"],["sb1_f8","Height",347.54,436.21,7,"",112.2,"c"],["sb1_f9","Substructure Serial #",195.02,417.97,7,"",181.1,"c"],["sb1_f10","Self Elevating",289.88,399.73,7,"",120],["sb1_f11","Offshore",289.88,381.49,7,"",120],["sb1_f12","Inspected By",133.4,260.16,9.4,"",120]],centred:[],eq:{"size":7.0,"rows":[],"sides":[],"sideRows":null,"w":[],"fixed":null,"names":null,"shared":null,"cols":null},cons:{"size":7.0,"rows":[],"names":null,"cols":[]},tickSz:7,ticks:[["sb_b1","Type of inspection performed (check one box only)",637.79,[["Category III Inspection",34.82,643.79],["Category IV Inspection",229.4,643.79]],7],["sb_b2","Substructure Type",399.59,[["Box on Box",201.44]],7,"ruled"],["sb_b3","Substructure Type",381.35,[["Telescoping",201.44]],7,"ruled"],["sb_b4","Substructure Position",363.11,[["Elevated",201.44,369.11],["Lowered",308.12,369.11],["Disassembled",495.74,369.11]],7],["sb_b5","Manufacturer's Drawing Available",344.87,[["Yes",229.4,350.87],["No",308.12,350.87]],7],["sb_b6","Assembly Drawings Used in Inspection",326.63,[["Yes",229.4,332.63],["No",308.12,332.63]],7],["sb_b7","Nameplate on Structure",308.39,[["Yes",229.4,314.39],["No",308.12,314.39]],7],["sb_b8","Component Numbers Present",290.15,[["Yes",229.4,296.15],["No",308.12,296.15]],7]],cols:[],rowY:[],rowB:[],rowSize:7,grid:[25.9,585.1],rowMax:null,rowFields:null,stretch:null,photoCells:[[26.1,600.17,134.15,89.43],[166.25,600.17,134.15,89.43],[306.4,600.17,134.15,89.43],[446.55,600.17,134.15,89.43],[26.1,504.73,134.15,89.43],[166.25,504.73,134.15,89.43],[306.4,504.73,134.15,89.43],[446.55,504.73,134.15,89.43],[26.1,409.3,134.15,89.43],[166.25,409.3,134.15,89.43],[306.4,409.3,134.15,89.43],[446.55,409.3,134.15,89.43],[26.1,313.87,134.15,89.43],[166.25,313.87,134.15,89.43],[306.4,313.87,134.15,89.43],[446.55,313.87,134.15,89.43],[26.1,218.43,134.15,89.43],[166.25,218.43,134.15,89.43],[306.4,218.43,134.15,89.43],[446.55,218.43,134.15,89.43],[26.6,663.35,134.03,89.35],[166.62,663.35,134.03,89.35],[306.65,663.35,134.03,89.35],[446.68,663.35,134.03,89.35],[26.6,568.0,134.03,89.35],[166.62,568.0,134.03,89.35],[306.65,568.0,134.03,89.35],[446.68,568.0,134.03,89.35],[26.6,472.65,134.03,89.35],[166.62,472.65,134.03,89.35],[306.65,472.65,134.03,89.35],[446.68,472.65,134.03,89.35],[26.6,377.3,134.03,89.35],[166.62,377.3,134.03,89.35],[306.65,377.3,134.03,89.35],[446.68,377.3,134.03,89.35],[26.6,281.95,134.03,89.35],[166.62,281.95,134.03,89.35],[306.65,281.95,134.03,89.35],[446.68,281.95,134.03,89.35]],optional:null,limits:null,limitCols:null,sum:[],sumSize:7,names:null,namesW:null,photo:null};
 const IRT_MA1={key:"MA1",code:"FM-IR-01",type:"API RP 4G Annex A — Cat III/IV Visual Field Inspection (Mast & Substructure)",cert:"PTISMAST",page:MA1_PAGE,lh:MA1_LINES_H,lv:MA1_LINES_V,st:MA1_STATIC,fills:MA1_FILLS,certAt:null,logo:[394.4,692.7,47.1,29.3],footer:[73.8,151.5,380.5,26.0],diag:null,lw:0.6,attach:null,fullGrid:true,ownHead:true,perCert:null,more:[{page:MA2_PAGE,lh:MA2_LINES_H,lv:MA2_LINES_V,st:MA2_STATIC,fills:MA2_FILLS,diag:[[DP_BADGES_IMG,73.8,162.5,380.5,26.1]],fields:[["ma2_f1","1.0 Crown Assembly — Make/Model",313.4,580.54,4.8,"",280.1,"c"],["ma2_f2","1.0 Crown Assembly — Number of Sheaves",183.8,558.47,4.8,"",20.9,"c"],["ma2_f3","1.0 Crown Assembly — Main Cluster Sheave Diameter",328.46,557.75,4.8,"",47.6,"c"],["ma2_f4","1.0 Crown Assembly — Fast Line Sheave Diameter",328.46,543.11,4.8,"",47.6,"c"],["ma2_f5","1.0 Crown Assembly — Sheaves",313.4,528.47,4.8,"",280.1,"c"],["ma2_f6","1.0 Crown Assembly — Grooves in Gage",313.4,521.15,4.8,"",280.1,"c"],["ma2_f7","1.0 Crown Assembly — Spacers or Seals",313.4,513.83,4.8,"",280.1,"c"],["ma2_f8","1.0 Crown Assembly — Grease Fittings",313.4,506.51,4.8,"",280.1,"c"],["ma2_f9","1.0 Crown Assembly — Bearings",313.4,499.19,4.8,"",280.1,"c"],["ma2_f10","1.0 Crown Assembly — Drilling Line Guards",171.56,491.87,4.8,"",120],["ma2_f11","1.0 Crown Assembly",306.32,485.26,4.8,"",120],["ma2_f12","1.0 Crown Assembly — Decking",313.4,469.91,4.8,"",280.1,"c"],["ma2_f13","1.0 Crown Assembly — Holes Covered",313.4,462.59,4.8,"",280.1,"c"],["ma2_f14","1.0 Crown Assembly — Safety Gate",313.4,455.27,4.8,"",280.1,"c"],["ma2_f15","1.0 Crown Assembly — Ladder Access",313.4,447.95,4.8,"",280.1,"c"],["ma2_f16","1.0 Crown Assembly — Handrails",313.4,440.63,4.8,"",280.1,"c"],["ma2_f17","1.0 Crown Assembly — Frame Straight",313.4,433.31,4.8,"",280.1,"c"],["ma2_f18","1.0 Crown Assembly — Welds",313.4,425.99,4.8,"",280.1,"c"],["ma2_f19","1.0 Crown Assembly — Bolts and Nuts",313.4,418.67,4.8,"",280.1,"c"],["ma2_f20","1.0 Crown Assembly — Beam Straight",313.4,396.71,4.8,"",280.1,"c"],["ma2_f21","1.0 Crown Assembly — Pins & Bolts",313.4,389.39,4.8,"",280.1,"c"],["ma2_f22","1.0 Crown Assembly — Safety Pins/Keepers",313.4,382.07,4.8,"",280.1,"c"],["ma2_f23","1.0 Crown Assembly — Welds",313.4,374.75,4.8,"",280.1,"c"],["ma2_f24","1.0 Crown Assembly",181.64,367.43,4.8,"",120],["ma2_f25","1.0 Crown Assembly — Name",294.62,353.75,4.8,"",317.6,"c"],["ma2_f26","1.0 Crown Assembly — Condition",294.62,346.43,4.8,"",317.6,"c"],["ma2_f27","1.0 Crown Assembly — SWL Marked",313.4,323.51,4.8,"",280.1,"c"],["ma2_f28","1.0 Crown Assembly — Welds",313.4,316.19,4.8,"",280.1,"c"],["ma2_f29","1.0 Crown Assembly — Pin Holes",313.4,308.87,4.8,"",280.1,"c"]],marks:[["ma2_m1","1.0 Crown Assembly — Sheaves",94.76,527.41,7.32,11.28],["ma2_m2","1.0 Crown Assembly — Grooves in Gage",94.76,520.09,7.32,11.28],["ma2_m3","1.0 Crown Assembly — Spacers or Seals",94.76,512.77,7.32,11.28],["ma2_m4","1.0 Crown Assembly — Grease Fittings",94.76,505.45,7.32,11.28],["ma2_m5","1.0 Crown Assembly — Bearings",94.76,498.13,7.32,11.28],["ma2_m6","1.0 Crown Assembly — Drilling Line Guards",94.76,490.81,7.32,11.28],["ma2_m7","1.0 Crown Assembly — Decking",94.76,468.85,7.32,11.28],["ma2_m8","1.0 Crown Assembly — Holes Covered",94.76,461.53,7.32,11.28],["ma2_m9","1.0 Crown Assembly — Safety Gate",94.76,454.21,7.32,11.28],["ma2_m10","1.0 Crown Assembly — Ladder Access",94.76,446.89,7.32,11.28],["ma2_m11","1.0 Crown Assembly — Handrails",94.76,439.57,7.32,11.28],["ma2_m12","1.0 Crown Assembly — Frame Straight",94.76,432.25,7.32,11.28],["ma2_m13","1.0 Crown Assembly — Welds",94.76,424.93,7.32,11.28],["ma2_m14","1.0 Crown Assembly — Bolts and Nuts",94.76,417.61,7.32,11.28],["ma2_m15","1.0 Crown Assembly — Beam Straight",94.76,395.65,7.32,11.28],["ma2_m16","1.0 Crown Assembly — Pins & Bolts",94.76,388.33,7.32,11.28],["ma2_m17","1.0 Crown Assembly — Safety Pins/Keepers",94.76,381.01,7.32,11.28],["ma2_m18","1.0 Crown Assembly — Welds",94.76,373.69,7.32,11.28],["ma2_m19","1.0 Crown Assembly — Condition",94.76,344.41,7.32,11.28],["ma2_m20","1.0 Crown Assembly — SWL Marked",94.76,322.45,7.32,11.28],["ma2_m21","1.0 Crown Assembly — Welds",94.76,315.13,7.32,11.28],["ma2_m22","1.0 Crown Assembly — Pin Holes",94.76,307.81,7.32,11.28]],ticks:null,pcells:null,pbase:0,title:"Page 2 — drilling masts",fixedTicks:[[94.76,653.03,6.16]],fit:null,head:null,logo:[399.6,703.4,47.1,29.4]},{page:MA3_PAGE,lh:MA3_LINES_H,lv:MA3_LINES_V,st:MA3_STATIC,fills:MA3_FILLS,diag:[[DP_BADGES_IMG,73.8,162.3,380.5,26.1]],fields:[["ma3_f1","Support Pole",313.4,672.71,4.8,"",280.1,"c"],["ma3_f2","Base",313.4,665.39,4.8,"",280.1,"c"],["ma3_f3","Sheave Attachment",313.4,658.07,4.8,"",280.1,"c"],["ma3_f4","Weight Bucket Attach",313.4,650.75,4.8,"",280.1,"c"],["ma3_f5","Welds",313.4,643.43,4.8,"",280.1,"c"],["ma3_f6","Safety Mesh",313.4,621.47,4.8,"",280.1,"c"],["ma3_f7","Safety Cable",313.4,614.15,4.8,"",280.1,"c"],["ma3_f8","Block(s) Condition",313.4,606.83,4.8,"",280.1,"c"],["ma3_f9","Attachment Strapping",313.4,599.51,4.8,"",280.1,"c"],["ma3_f10","Strapping Welds",313.4,592.19,4.8,"",280.1,"c"],["ma3_f11","Number of Visible Marks Applied",313.4,584.87,4.8,"",280.1,"c"],["ma3_f12","Entry",265.34,577.69,6.4,"",376.2,"c"],["ma3_f13","2.0 Mast Legs — Leg Straight",313.4,540.95,4.8,"",280.1,"c"],["ma3_f14","2.0 Mast Legs — Pin Connections",313.4,533.63,4.8,"",280.1,"c"],["ma3_f15","2.0 Mast Legs — Pin Hole(s)",313.4,526.31,4.8,"",280.1,"c"],["ma3_f16","2.0 Mast Legs — Pins",313.4,518.99,4.8,"",280.1,"c"],["ma3_f17","2.0 Mast Legs — Safety Pins/Keepers",313.4,511.67,4.8,"",280.1,"c"],["ma3_f18","2.0 Mast Legs — Welds",313.4,504.35,4.8,"",280.1,"c"],["ma3_f19","2.0 Mast Legs — Leg Straight",313.4,482.39,4.8,"",280.1,"c"],["ma3_f20","2.0 Mast Legs — Pin Connections",313.4,475.07,4.8,"",280.1,"c"],["ma3_f21","2.0 Mast Legs — Pin Hole(s)",313.4,467.75,4.8,"",280.1,"c"],["ma3_f22","2.0 Mast Legs — Pins",313.4,460.43,4.8,"",280.1,"c"],["ma3_f23","2.0 Mast Legs — Safety Pins/Keepers",313.4,453.11,4.8,"",280.1,"c"],["ma3_f24","2.0 Mast Legs — Welds",313.4,445.79,4.8,"",280.1,"c"],["ma3_f25","2.0 Mast Legs — Leg Straight",313.4,423.83,4.8,"",280.1,"c"],["ma3_f26","2.0 Mast Legs — Pin Connections",313.4,416.51,4.8,"",280.1,"c"],["ma3_f27","2.0 Mast Legs — Pin Hole(s)",313.4,409.19,4.8,"",280.1,"c"],["ma3_f28","2.0 Mast Legs — Pins",313.4,401.87,4.8,"",280.1,"c"],["ma3_f29","2.0 Mast Legs — Safety Pins / Keepers",313.4,394.55,4.8,"",280.1,"c"],["ma3_f30","2.0 Mast Legs — Welds",313.4,387.23,4.8,"",280.1,"c"],["ma3_f31","2.0 Mast Legs — Leg Straight",313.4,365.27,4.8,"",280.1,"c"],["ma3_f32","2.0 Mast Legs — Pin Connections",313.4,357.95,4.8,"",280.1,"c"],["ma3_f33","2.0 Mast Legs — Pin Hole(s)",313.4,350.63,4.8,"",280.1,"c"],["ma3_f34","2.0 Mast Legs — Pin(s)",313.4,343.31,4.8,"",280.1,"c"],["ma3_f35","2.0 Mast Legs — Safety Pins/Keepers",313.4,335.99,4.8,"",280.1,"c"],["ma3_f36","2.0 Mast Legs — Welds",313.4,328.67,4.8,"",280.1,"c"],["ma3_f37","2.0 Mast Legs",313.4,321.49,6.4,"",280.1,"c"],["ma3_f38","2.0 Mast Legs — Number of Visible Marks Applied",171.56,314.03,4.8,"",120],["ma3_f39","2.0 Mast Legs",265.34,306.85,6.4,"",376.2,"c"],["ma3_f40","2.0 Mast Legs",265.34,299.53,6.4,"",376.2,"c"],["ma3_f41","2.0 Mast Legs",265.34,292.21,6.4,"",376.2,"c"]],marks:[["ma3_m1","2.0 Mast Legs — Leg Straight",94.76,539.89,7.32,11.28],["ma3_m2","2.0 Mast Legs — Pin Connections",94.76,532.57,7.32,11.28],["ma3_m3","2.0 Mast Legs — Pin Hole(s)",94.76,525.25,7.32,11.28],["ma3_m4","2.0 Mast Legs — Pins",94.76,517.93,7.32,11.28],["ma3_m5","2.0 Mast Legs — Safety Pins/Keepers",94.76,510.61,7.32,11.28],["ma3_m6","2.0 Mast Legs — Welds",94.76,503.29,7.32,11.28],["ma3_m7","2.0 Mast Legs — Leg Straight",94.76,481.33,7.32,11.28],["ma3_m8","2.0 Mast Legs — Pin Connections",94.76,474.01,7.32,11.28],["ma3_m9","2.0 Mast Legs — Pin Hole(s)",94.76,466.69,7.32,11.28],["ma3_m10","2.0 Mast Legs — Pins",94.76,459.37,7.32,11.28],["ma3_m11","2.0 Mast Legs — Safety Pins/Keepers",94.76,452.05,7.32,11.28],["ma3_m12","2.0 Mast Legs — Welds",94.76,444.73,7.32,11.28],["ma3_m13","2.0 Mast Legs — Leg Straight",94.76,422.77,7.32,11.28],["ma3_m14","2.0 Mast Legs — Pin Connections",94.76,415.45,7.32,11.28],["ma3_m15","2.0 Mast Legs — Pin Hole(s)",94.76,408.13,7.32,11.28],["ma3_m16","2.0 Mast Legs — Pins",94.76,400.81,7.32,11.28],["ma3_m17","2.0 Mast Legs — Safety Pins / Keepers",94.76,393.49,7.32,11.28],["ma3_m18","2.0 Mast Legs — Welds",94.76,386.17,7.32,11.28],["ma3_m19","2.0 Mast Legs — Leg Straight",94.76,364.21,7.32,11.28],["ma3_m20","2.0 Mast Legs — Pin Connections",94.76,356.89,7.32,11.28],["ma3_m21","2.0 Mast Legs — Pin Hole(s)",94.76,349.57,7.32,11.28],["ma3_m22","2.0 Mast Legs — Pin(s)",94.76,342.25,7.32,11.28],["ma3_m23","2.0 Mast Legs — Safety Pins/Keepers",94.76,334.93,7.32,11.28],["ma3_m24","2.0 Mast Legs — Welds",94.76,327.61,7.32,11.28]],ticks:null,pcells:null,pbase:0,title:"Page 3",fixedTicks:null,fit:null,head:null,logo:[400.3,700.8,47.1,28.6]},{page:MA4_PAGE,lh:MA4_LINES_H,lv:MA4_LINES_V,st:MA4_STATIC,fills:MA4_FILLS,diag:[[DP_BADGES_IMG,73.8,162.3,380.5,26.1]],fields:[["ma4_f1","3.0 Spreaders (Back Panel Trusses) — Members Straight",313.4,665.39,4.8,"",280.1,"c"],["ma4_f2","3.0 Spreaders (Back Panel Trusses) — Bolts",313.4,658.07,4.8,"",280.1,"c"],["ma4_f3","3.0 Spreaders (Back Panel Trusses) — Pin/Bolt Hole(s)",313.4,650.75,4.8,"",280.1,"c"],["ma4_f4","3.0 Spreaders (Back Panel Trusses) — Pins",313.4,643.43,4.8,"",280.1,"c"],["ma4_f5","3.0 Spreaders (Back Panel Trusses) — Safety Pins/Keepers",313.4,636.11,4.8,"",280.1,"c"],["ma4_f6","3.0 Spreaders (Back Panel Trusses) — Welds",313.4,628.79,4.8,"",280.1,"c"],["ma4_f7","3.0 Spreaders (Back Panel Trusses) — Number of Visible Marks Applied",313.4,621.61,6.4,"",280.1,"c"],["ma4_f8","4.0 Girt(s) and Bracing — Members Straight",313.4,592.19,4.8,"",280.1,"c"],["ma4_f9","4.0 Girt(s) and Bracing — Welds",313.4,584.87,4.8,"",280.1,"c"],["ma4_f10","4.0 Girt(s) and Bracing — Number of Visible Marks Applied",313.4,577.69,6.4,"",280.1,"c"],["ma4_f11","5.0 Mast Feet or Pivots — Condition",313.4,548.27,4.8,"",280.1,"c"],["ma4_f12","5.0 Mast Feet or Pivots — Pin Hole(s)",313.4,540.95,4.8,"",280.1,"c"],["ma4_f13","5.0 Mast Feet or Pivots — Pins",313.4,533.63,4.8,"",280.1,"c"],["ma4_f14","5.0 Mast Feet or Pivots — Safety Pins/Keepers",313.4,526.31,4.8,"",280.1,"c"],["ma4_f15","5.0 Mast Feet or Pivots — Welds",313.4,518.99,4.8,"",280.1,"c"],["ma4_f16","5.0 Mast Feet or Pivots — Number of Visible Marks Applied",313.4,511.67,4.8,"",280.1,"c"],["ma4_f17","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Supports",313.4,482.39,4.8,"",280.1,"c"],["ma4_f18","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Bolts",313.4,475.07,4.8,"",280.1,"c"],["ma4_f19","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Anchor Mounting Welds",313.4,467.75,4.8,"",280.1,"c"],["ma4_f20","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Brass Inserts",313.4,460.43,4.8,"",280.1,"c"],["ma4_f21","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Number of Visible Marks Applied",313.4,453.11,4.8,"",280.1,"c"],["ma4_f22","7.0 A-Frame/Gin Pole — Leg Straight",313.4,416.51,4.8,"",280.1,"c"],["ma4_f23","7.0 A-Frame/Gin Pole — Pin Hole(s)",313.4,409.19,4.8,"",280.1,"c"],["ma4_f24","7.0 A-Frame/Gin Pole — Pins",313.4,401.87,4.8,"",280.1,"c"],["ma4_f25","7.0 A-Frame/Gin Pole — Safety Pins/Keepers",313.4,394.55,4.8,"",280.1,"c"],["ma4_f26","7.0 A-Frame/Gin Pole — Welds",313.4,387.23,4.8,"",280.1,"c"],["ma4_f27","7.0 A-Frame/Gin Pole — Leg Straight",313.4,365.27,4.8,"",280.1,"c"],["ma4_f28","7.0 A-Frame/Gin Pole — Pin Hole(s)",313.4,357.95,4.8,"",280.1,"c"],["ma4_f29","7.0 A-Frame/Gin Pole — Pins",313.4,350.63,4.8,"",280.1,"c"],["ma4_f30","7.0 A-Frame/Gin Pole — Safety Pins/Keepers",313.4,343.31,4.8,"",280.1,"c"],["ma4_f31","7.0 A-Frame/Gin Pole — Welds",313.4,335.99,4.8,"",280.1,"c"],["ma4_f32","7.0 A-Frame/Gin Pole — Members",313.4,314.03,4.8,"",280.1,"c"],["ma4_f33","7.0 A-Frame/Gin Pole — Welds",313.4,306.71,4.8,"",280.1,"c"],["ma4_f34","7.0 A-Frame/Gin Pole — Members",313.4,284.75,4.8,"",280.1,"c"],["ma4_f35","7.0 A-Frame/Gin Pole — Welds",313.4,277.43,4.8,"",280.1,"c"]],marks:[["ma4_m1","3.0 Spreaders (Back Panel Trusses) — Members Straight",94.76,664.33,7.32,11.28],["ma4_m2","3.0 Spreaders (Back Panel Trusses) — Bolts",94.76,657.01,7.32,11.28],["ma4_m3","3.0 Spreaders (Back Panel Trusses) — Pin/Bolt Hole(s)",94.76,649.69,7.32,11.28],["ma4_m4","3.0 Spreaders (Back Panel Trusses) — Pins",94.76,642.37,7.32,11.28],["ma4_m5","3.0 Spreaders (Back Panel Trusses) — Safety Pins/Keepers",94.76,635.05,7.32,11.28],["ma4_m6","3.0 Spreaders (Back Panel Trusses) — Welds",94.76,627.73,7.32,11.28],["ma4_m7","4.0 Girt(s) and Bracing — Members Straight",94.76,591.13,7.32,11.28],["ma4_m8","4.0 Girt(s) and Bracing — Welds",94.76,583.81,7.32,11.28],["ma4_m9","5.0 Mast Feet or Pivots — Condition",94.76,547.21,7.32,11.28],["ma4_m10","5.0 Mast Feet or Pivots — Pin Hole(s)",94.76,539.89,7.32,11.28],["ma4_m11","5.0 Mast Feet or Pivots — Pins",94.76,532.57,7.32,11.28],["ma4_m12","5.0 Mast Feet or Pivots — Safety Pins/Keepers",94.76,525.25,7.32,11.28],["ma4_m13","5.0 Mast Feet or Pivots — Welds",94.76,517.93,7.32,11.28],["ma4_m14","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Supports",94.76,481.33,7.32,11.28],["ma4_m15","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Bolts",94.76,474.01,7.32,11.28],["ma4_m16","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Anchor Mounting Welds",94.76,466.69,7.32,11.28],["ma4_m17","6.0 Deadline Anchor Mounting: (Reference API RP 8B) — Brass Inserts",94.76,459.37,7.32,11.28],["ma4_m18","7.0 A-Frame/Gin Pole — Leg Straight",94.76,415.45,7.32,11.28],["ma4_m19","7.0 A-Frame/Gin Pole — Pin Hole(s)",94.76,408.13,7.32,11.28],["ma4_m20","7.0 A-Frame/Gin Pole — Pins",94.76,400.81,7.32,11.28],["ma4_m21","7.0 A-Frame/Gin Pole — Safety Pins/Keepers",94.76,393.49,7.32,11.28],["ma4_m22","7.0 A-Frame/Gin Pole — Welds",94.76,386.17,7.32,11.28],["ma4_m23","7.0 A-Frame/Gin Pole — Leg Straight",94.76,364.21,7.32,11.28],["ma4_m24","7.0 A-Frame/Gin Pole — Pin Hole(s)",94.76,356.89,7.32,11.28],["ma4_m25","7.0 A-Frame/Gin Pole — Pins",94.76,349.57,7.32,11.28],["ma4_m26","7.0 A-Frame/Gin Pole — Safety Pins/Keepers",94.76,342.25,7.32,11.28],["ma4_m27","7.0 A-Frame/Gin Pole — Welds",94.76,334.93,7.32,11.28],["ma4_m28","7.0 A-Frame/Gin Pole — Members",94.76,312.97,7.32,11.28],["ma4_m29","7.0 A-Frame/Gin Pole — Welds",94.76,305.65,7.32,11.28],["ma4_m30","7.0 A-Frame/Gin Pole — Members",94.76,283.69,7.32,11.28],["ma4_m31","7.0 A-Frame/Gin Pole — Welds",94.76,276.37,7.32,11.28]],ticks:null,pcells:null,pbase:0,title:"Page 4",fixedTicks:null,fit:null,head:null,logo:[401.7,704.5,47.0,28.6]},{page:MA5_PAGE,lh:MA5_LINES_H,lv:MA5_LINES_V,st:MA5_STATIC,fills:MA5_FILLS,diag:[[DP_BADGES_IMG,73.8,162.3,380.5,26.1]],fields:[["ma5_f1","Pin Connections",313.4,672.71,4.8,"",280.1,"c"],["ma5_f2","Pin Hole(s)",313.4,665.39,4.8,"",280.1,"c"],["ma5_f3","Pins",313.4,658.07,4.8,"",280.1,"c"],["ma5_f4","Safety Pins/Keepers",313.4,650.75,4.8,"",280.1,"c"],["ma5_f5","Welds",313.4,643.43,4.8,"",280.1,"c"],["ma5_f6","Entry",313.4,636.25,6.4,"",280.1,"c"],["ma5_f7","Number of Visible Marks Applied",313.4,628.79,4.8,"",280.1,"c"],["ma5_f8","Entry",265.34,621.61,6.4,"",376.2,"c"],["ma5_f9","Entry",265.34,614.29,6.4,"",376.2,"c"],["ma5_f10","Entry",265.34,606.97,6.4,"",376.2,"c"],["ma5_f11","8.0 Working Platforms — Pipe Racking Platform",313.4,577.55,4.8,"",280.1,"c"],["ma5_f12","8.0 Working Platforms — Frame Straight",313.4,570.23,4.8,"",280.1,"c"],["ma5_f13","8.0 Working Platforms — Pin Hole(s)",313.4,562.91,4.8,"",280.1,"c"],["ma5_f14","8.0 Working Platforms — Pins",313.4,555.59,4.8,"",280.1,"c"],["ma5_f15","8.0 Working Platforms — Safety Pins/Keepers",313.4,548.27,4.8,"",280.1,"c"],["ma5_f16","8.0 Working Platforms — Frame Welds",313.4,540.95,4.8,"",280.1,"c"],["ma5_f17","8.0 Working Platforms — Working Platform",313.4,533.63,4.8,"",280.1,"c"],["ma5_f18","8.0 Working Platforms — Landing Platform",313.4,526.31,4.8,"",280.1,"c"],["ma5_f19","8.0 Working Platforms — Handrails",313.4,518.99,4.8,"",280.1,"c"],["ma5_f20","8.0 Working Platforms — Ladder Access",313.4,511.67,4.8,"",280.1,"c"],["ma5_f21","8.0 Working Platforms — Fingers Straight",313.4,504.35,4.8,"",280.1,"c"],["ma5_f22","8.0 Working Platforms — Finger Welds",313.4,497.03,4.8,"",280.1,"c"],["ma5_f23","8.0 Working Platforms — Finger Safety Line(s)",313.4,489.71,4.8,"",280.1,"c"],["ma5_f24","8.0 Working Platforms — Hoist Mounting",313.4,482.39,4.8,"",280.1,"c"],["ma5_f25","8.0 Working Platforms — Number of Visible Marks Applied",313.4,475.07,4.8,"",280.1,"c"],["ma5_f26","8.0 Working Platforms — Frame Straight",313.4,453.11,4.8,"",280.1,"c"],["ma5_f27","8.0 Working Platforms — Welds",313.4,445.79,4.8,"",280.1,"c"],["ma5_f28","8.0 Working Platforms — Handrails",313.4,438.47,4.8,"",280.1,"c"],["ma5_f29","8.0 Working Platforms — Working Platform",313.4,431.15,4.8,"",280.1,"c"],["ma5_f30","8.0 Working Platforms — Hoisting Assembly",313.4,423.83,4.8,"",280.1,"c"],["ma5_f31","8.0 Working Platforms — Hoist Mounting",313.4,416.51,4.8,"",280.1,"c"],["ma5_f32","8.0 Working Platforms — Lower Travel Stops",313.4,409.19,4.8,"",280.1,"c"],["ma5_f33","8.0 Working Platforms — Pin or Bolt Holes",313.4,401.87,4.8,"",280.1,"c"],["ma5_f34","8.0 Working Platforms — Pins or Bolts",313.4,394.55,4.8,"",280.1,"c"],["ma5_f35","8.0 Working Platforms — Safety Pins/Keepers",313.4,387.23,4.8,"",280.1,"c"],["ma5_f36","8.0 Working Platforms — Number of Visible Marks Applied",313.4,380.05,6.4,"",280.1,"c"],["ma5_f37","8.0 Working Platforms — Frame Straight",313.4,359.15,4.8,"",280.1,"c"],["ma5_f38","8.0 Working Platforms — Welds",313.4,351.83,4.8,"",280.1,"c"],["ma5_f39","8.0 Working Platforms — Handrails",313.4,344.51,4.8,"",280.1,"c"],["ma5_f40","8.0 Working Platforms — Pin Holes",313.4,337.19,4.8,"",280.1,"c"],["ma5_f41","8.0 Working Platforms — Pins",313.4,329.87,4.8,"",280.1,"c"],["ma5_f42","8.0 Working Platforms — Safety Pins/Keepers",313.4,322.55,4.8,"",280.1,"c"],["ma5_f43","8.0 Working Platforms — Support Cables",313.4,315.23,4.8,"",280.1,"c"],["ma5_f44","8.0 Working Platforms — Cable Connections",313.4,307.91,4.8,"",280.1,"c"],["ma5_f45","8.0 Working Platforms — Number of Visible Marks Applied",313.4,300.29,5.3,"",280.1,"c"]],marks:[["ma5_m1","8.0 Working Platforms — Frame Straight",94.76,569.17,7.32,11.28],["ma5_m2","8.0 Working Platforms — Pin Hole(s)",94.76,561.85,7.32,11.28],["ma5_m3","8.0 Working Platforms — Pins",94.76,554.53,7.32,11.28],["ma5_m4","8.0 Working Platforms — Safety Pins/Keepers",94.76,547.21,7.32,11.28],["ma5_m5","8.0 Working Platforms — Frame Welds",94.76,539.89,7.32,11.28],["ma5_m6","8.0 Working Platforms — Working Platform",94.76,532.57,7.32,11.28],["ma5_m7","8.0 Working Platforms — Landing Platform",94.76,525.25,7.32,11.28],["ma5_m8","8.0 Working Platforms — Handrails",94.76,517.93,7.32,11.28],["ma5_m9","8.0 Working Platforms — Ladder Access",94.76,510.61,7.32,11.28],["ma5_m10","8.0 Working Platforms — Fingers Straight",94.76,503.29,7.32,11.28],["ma5_m11","8.0 Working Platforms — Finger Welds",94.76,495.97,7.32,11.28],["ma5_m12","8.0 Working Platforms — Finger Safety Line(s)",94.76,488.65,7.32,11.28],["ma5_m13","8.0 Working Platforms — Hoist Mounting",94.76,481.33,7.32,11.28],["ma5_m14","8.0 Working Platforms — Frame Straight",94.76,452.05,7.32,11.28],["ma5_m15","8.0 Working Platforms — Welds",94.76,444.73,7.32,11.28],["ma5_m16","8.0 Working Platforms — Handrails",94.76,437.41,7.32,11.28],["ma5_m17","8.0 Working Platforms — Working Platform",94.76,430.09,7.32,11.28],["ma5_m18","8.0 Working Platforms — Hoisting Assembly",94.76,422.77,7.32,11.28],["ma5_m19","8.0 Working Platforms — Hoist Mounting",94.76,415.45,7.32,11.28],["ma5_m20","8.0 Working Platforms — Lower Travel Stops",94.76,408.13,7.32,11.28],["ma5_m21","8.0 Working Platforms — Pin or Bolt Holes",94.76,400.81,7.32,11.28],["ma5_m22","8.0 Working Platforms — Pins or Bolts",94.76,393.49,7.32,11.28],["ma5_m23","8.0 Working Platforms — Safety Pins/Keepers",94.76,386.17,7.32,11.28],["ma5_m24","8.0 Working Platforms — Frame Straight",94.76,356.89,7.32,11.28],["ma5_m25","8.0 Working Platforms — Welds",94.76,349.57,7.32,11.28],["ma5_m26","8.0 Working Platforms — Handrails",94.76,342.25,7.32,11.28],["ma5_m27","8.0 Working Platforms — Pin Holes",94.76,334.93,7.32,11.28],["ma5_m28","8.0 Working Platforms — Pins",94.76,327.61,7.32,11.28],["ma5_m29","8.0 Working Platforms — Safety Pins/Keepers",94.76,320.29,7.32,11.28],["ma5_m30","8.0 Working Platforms — Support Cables",94.76,312.97,7.32,11.28],["ma5_m31","8.0 Working Platforms — Cable Connections",94.76,305.65,7.32,11.28]],ticks:null,pcells:null,pbase:0,title:"Page 5",fixedTicks:null,fit:null,head:null,logo:[402.1,700.8,47.0,28.6]},{page:MA6_PAGE,lh:MA6_LINES_H,lv:MA6_LINES_V,st:MA6_STATIC,fills:MA6_FILLS,diag:[[DP_BADGES_IMG,73.8,162.4,380.5,26.1]],fields:[["ma6_f1","9.0 Ladders — Vertical Rails Straight",313.4,665.39,4.8,"",280.1,"c"],["ma6_f2","9.0 Ladders — Rails in Alignment",313.4,658.07,4.8,"",280.1,"c"],["ma6_f3","9.0 Ladders — Ladder Stand Offs",313.4,650.75,4.8,"",280.1,"c"],["ma6_f4","9.0 Ladders — Stand Off Connections",313.4,643.43,4.8,"",280.1,"c"],["ma6_f5","9.0 Ladders — Rail Welds",313.4,636.11,4.8,"",280.1,"c"],["ma6_f6","9.0 Ladders — Rungs",313.4,628.79,4.8,"",280.1,"c"],["ma6_f7","9.0 Ladders — Rung Welds",313.4,621.47,4.8,"",280.1,"c"],["ma6_f8","9.0 Ladders — Rung Spacing",313.4,614.15,4.8,"",280.1,"c"],["ma6_f9","9.0 Ladders — Access at Rig Floor",313.4,606.83,4.8,"",280.1,"c"],["ma6_f10","9.0 Ladders — Cage",313.4,599.51,4.8,"",280.1,"c"],["ma6_f11","9.0 Ladders — Toe Clearance",313.4,592.19,4.8,"",280.1,"c"],["ma6_f12","9.0 Ladders — Number of Visible Marks Applied",171.56,584.87,4.8,"",120],["ma6_f13","10.0 Raising and Telescoping System — Wireline",313.4,548.27,4.8,"",280.1,"c"],["ma6_f14","10.0 Raising and Telescoping System — Wireline—Sockets",313.4,540.95,4.8,"",280.1,"c"],["ma6_f15","10.0 Raising and Telescoping System — Pins",313.4,533.63,4.8,"",280.1,"c"],["ma6_f16","10.0 Raising and Telescoping System — Safety Pins/Keepers",313.4,526.31,4.8,"",280.1,"c"],["ma6_f17","10.0 Raising and Telescoping System — Sheaves Turn Freely",313.4,518.99,4.8,"",280.1,"c"],["ma6_f18","10.0 Raising and Telescoping System — Sheaves",313.4,511.67,4.8,"",280.1,"c"],["ma6_f19","10.0 Raising and Telescoping System — Grooves in Gage",313.4,504.35,4.8,"",280.1,"c"],["ma6_f20","10.0 Raising and Telescoping System — Spacers or Seals",313.4,497.03,4.8,"",280.1,"c"],["ma6_f21","10.0 Raising and Telescoping System — Grease Fittings",313.4,489.71,4.8,"",280.1,"c"],["ma6_f22","10.0 Raising and Telescoping System — Bearings",313.4,482.39,4.8,"",280.1,"c"],["ma6_f23","10.0 Raising and Telescoping System — Line Guards",313.4,475.07,4.8,"",280.1,"c"],["ma6_f24","10.0 Raising and Telescoping System — Welds",313.4,467.75,4.8,"",280.1,"c"],["ma6_f25","10.0 Raising and Telescoping System — Equalizer Assembly",313.4,460.43,4.8,"",280.1,"c"],["ma6_f26","10.0 Raising and Telescoping System — Number of Visible Marks Applied",313.4,453.11,4.8,"",280.1,"c"],["ma6_f27","10.0 Raising and Telescoping System — Hydraulic Cylinders—Raising",313.4,431.29,6.4,"",280.1,"c"],["ma6_f28","10.0 Raising and Telescoping System — Seals",313.4,424.79,4.8,"",280.1,"c"],["ma6_f29","10.0 Raising and Telescoping System — Main Ram",313.4,417.47,4.8,"",280.1,"c"],["ma6_f30","10.0 Raising and Telescoping System — Cylinder Hinge Points",313.4,410.15,4.8,"",280.1,"c"],["ma6_f31","10.0 Raising and Telescoping System — Hinge Pin Hole(s)",313.4,402.83,4.8,"",280.1,"c"],["ma6_f32","10.0 Raising and Telescoping System — Hinge Pins",313.4,395.51,4.8,"",280.1,"c"],["ma6_f33","10.0 Raising and Telescoping System — Safety Pins/Keepers",313.4,388.19,4.8,"",280.1,"c"],["ma6_f34","10.0 Raising and Telescoping System — Hydraulic Hoses",313.4,380.87,4.8,"",280.1,"c"],["ma6_f35","10.0 Raising and Telescoping System — Hose Connections",313.4,373.55,4.8,"",280.1,"c"],["ma6_f36","10.0 Raising and Telescoping System — Bleed Valve",313.4,366.23,4.8,"",280.1,"c"],["ma6_f37","10.0 Raising and Telescoping System — Hydraulic Cylinder(s) Telescoping",313.4,350.77,6.4,"",280.1,"c"],["ma6_f38","10.0 Raising and Telescoping System — Seals",313.4,344.27,4.8,"",280.1,"c"],["ma6_f39","10.0 Raising and Telescoping System — Main Ram",313.4,336.95,4.8,"",280.1,"c"],["ma6_f40","10.0 Raising and Telescoping System — Cylinder Hinge Points",313.4,329.63,4.8,"",280.1,"c"],["ma6_f41","10.0 Raising and Telescoping System — Pin Hole(s)",313.4,322.31,4.8,"",280.1,"c"],["ma6_f42","10.0 Raising and Telescoping System — Pins",313.4,314.99,4.8,"",280.1,"c"],["ma6_f43","10.0 Raising and Telescoping System — Safety Pins/Keepers",313.4,307.67,4.8,"",280.1,"c"],["ma6_f44","10.0 Raising and Telescoping System — Hydraulic Hoses",313.4,300.35,4.8,"",280.1,"c"],["ma6_f45","10.0 Raising and Telescoping System — Hose Connections",313.4,293.03,4.8,"",280.1,"c"],["ma6_f46","10.0 Raising and Telescoping System — Cylinder Stabilizers",313.4,285.71,4.8,"",280.1,"c"],["ma6_f47","10.0 Raising and Telescoping System — Bleed Valve",313.4,278.39,4.8,"",280.1,"c"],["ma6_f48","10.0 Raising and Telescoping System — Lubrication",313.4,271.07,4.8,"",280.1,"c"]],marks:[["ma6_m1","9.0 Ladders — Vertical Rails Straight",94.76,664.33,7.32,11.28],["ma6_m2","9.0 Ladders — Rails in Alignment",94.76,657.01,7.32,11.28],["ma6_m3","9.0 Ladders — Ladder Stand Offs",94.76,649.69,7.32,11.28],["ma6_m4","9.0 Ladders — Stand Off Connections",94.76,642.37,7.32,11.28],["ma6_m5","9.0 Ladders — Rail Welds",94.76,635.05,7.32,11.28],["ma6_m6","9.0 Ladders — Rungs",94.76,627.73,7.32,11.28],["ma6_m7","9.0 Ladders — Rung Welds",94.76,620.41,7.32,11.28],["ma6_m8","9.0 Ladders — Rung Spacing",94.76,613.09,7.32,11.28],["ma6_m9","9.0 Ladders — Access at Rig Floor",94.76,605.77,7.32,11.28],["ma6_m10","9.0 Ladders — Cage",94.76,598.45,7.32,11.28],["ma6_m11","9.0 Ladders — Toe Clearance",94.76,591.13,7.32,11.28],["ma6_m12","10.0 Raising and Telescoping System — Wireline",94.76,547.21,7.32,11.28],["ma6_m13","10.0 Raising and Telescoping System — Wireline—Sockets",94.76,539.89,7.32,11.28],["ma6_m14","10.0 Raising and Telescoping System — Pins",94.76,532.57,7.32,11.28],["ma6_m15","10.0 Raising and Telescoping System — Safety Pins/Keepers",94.76,525.25,7.32,11.28],["ma6_m16","10.0 Raising and Telescoping System — Sheaves Turn Freely",94.76,517.93,7.32,11.28],["ma6_m17","10.0 Raising and Telescoping System — Sheaves",94.76,510.61,7.32,11.28],["ma6_m18","10.0 Raising and Telescoping System — Grooves in Gage",94.76,503.29,7.32,11.28],["ma6_m19","10.0 Raising and Telescoping System — Spacers or Seals",94.76,495.97,7.32,11.28],["ma6_m20","10.0 Raising and Telescoping System — Grease Fittings",94.76,488.65,7.32,11.28],["ma6_m21","10.0 Raising and Telescoping System — Bearings",94.76,481.33,7.32,11.28],["ma6_m22","10.0 Raising and Telescoping System — Line Guards",94.76,474.01,7.32,11.28],["ma6_m23","10.0 Raising and Telescoping System — Welds",94.76,466.69,7.32,11.28],["ma6_m24","10.0 Raising and Telescoping System — Equalizer Assembly",94.76,459.37,7.32,11.28],["ma6_m25","10.0 Raising and Telescoping System — Seals",94.76,422.77,7.32,11.28],["ma6_m26","10.0 Raising and Telescoping System — Main Ram",94.76,415.45,7.32,11.28],["ma6_m27","10.0 Raising and Telescoping System — Cylinder Hinge Points",94.76,408.13,7.32,11.28],["ma6_m28","10.0 Raising and Telescoping System — Hinge Pin Hole(s)",94.76,400.81,7.32,11.28],["ma6_m29","10.0 Raising and Telescoping System — Hinge Pins",94.76,393.49,7.32,11.28],["ma6_m30","10.0 Raising and Telescoping System — Safety Pins/Keepers",94.76,386.17,7.32,11.28],["ma6_m31","10.0 Raising and Telescoping System — Hydraulic Hoses",94.76,378.85,7.32,11.28],["ma6_m32","10.0 Raising and Telescoping System — Hose Connections",94.76,371.53,7.32,11.28],["ma6_m33","10.0 Raising and Telescoping System — Bleed Valve",94.76,364.21,7.32,11.28],["ma6_m34","10.0 Raising and Telescoping System — Seals",94.76,342.25,7.32,11.28],["ma6_m35","10.0 Raising and Telescoping System — Main Ram",94.76,334.93,7.32,11.28],["ma6_m36","10.0 Raising and Telescoping System — Cylinder Hinge Points",94.76,327.61,7.32,11.28],["ma6_m37","10.0 Raising and Telescoping System — Pin Hole(s)",94.76,320.29,7.32,11.28],["ma6_m38","10.0 Raising and Telescoping System — Pins",94.76,312.97,7.32,11.28],["ma6_m39","10.0 Raising and Telescoping System — Safety Pins/Keepers",94.76,305.65,7.32,11.28],["ma6_m40","10.0 Raising and Telescoping System — Hydraulic Hoses",94.76,298.33,7.32,11.28],["ma6_m41","10.0 Raising and Telescoping System — Hose Connections",94.76,291.01,7.32,11.28],["ma6_m42","10.0 Raising and Telescoping System — Cylinder Stabilizers",94.76,283.69,7.32,11.28],["ma6_m43","10.0 Raising and Telescoping System — Bleed Valve",94.76,276.37,7.32,11.28],["ma6_m44","10.0 Raising and Telescoping System — Lubrication",94.76,269.05,7.32,11.28]],ticks:null,pcells:null,pbase:0,title:"Page 6",fixedTicks:null,fit:null,head:null,logo:[403.1,699.5,47.0,28.6]},{page:MA7_PAGE,lh:MA7_LINES_H,lv:MA7_LINES_V,st:MA7_STATIC,fills:MA7_FILLS,diag:[[DP_BADGES_IMG,73.8,162.4,380.5,26.1]],fields:[["ma7_f1","Cleaned",313.4,672.71,4.8,"",280.1,"c"],["ma7_f2","Lubricated",313.4,665.39,4.8,"",280.1,"c"],["ma7_f3","Number of Visible Marks Applied",313.4,658.07,4.8,"",280.1,"c"],["ma7_f4","11.0 Locking Device & Seats—Telescoping Masts — Pin Hole(s)",313.4,628.79,4.8,"",280.1,"c"],["ma7_f5","11.0 Locking Device & Seats—Telescoping Masts — Pins",313.4,621.47,4.8,"",280.1,"c"],["ma7_f6","11.0 Locking Device & Seats—Telescoping Masts — Safety Pins/Keepers",313.4,614.15,4.8,"",280.1,"c"],["ma7_f7","11.0 Locking Device & Seats—Telescoping Masts — Bars/Dogs or Pawls",313.4,606.83,4.8,"",280.1,"c"],["ma7_f8","11.0 Locking Device & Seats—Telescoping Masts — Seats",313.4,599.51,4.8,"",280.1,"c"],["ma7_f9","11.0 Locking Device & Seats—Telescoping Masts — Mechanism",313.4,592.19,4.8,"",280.1,"c"],["ma7_f10","11.0 Locking Device & Seats—Telescoping Masts — Number of Visible Marks Applied",313.4,585.01,6.4,"",280.1,"c"],["ma7_f11","12.0 Tong Counterweights — Guides",313.4,555.59,4.8,"",280.1,"c"],["ma7_f12","12.0 Tong Counterweights — Weight Device",313.4,548.27,4.8,"",280.1,"c"],["ma7_f13","12.0 Tong Counterweights — Sheaves/Shafts",313.4,540.95,4.8,"",280.1,"c"],["ma7_f14","12.0 Tong Counterweights — Wirelines",313.4,533.63,4.8,"",280.1,"c"],["ma7_f15","12.0 Tong Counterweights — Cable Clamps",313.4,526.31,4.8,"",280.1,"c"],["ma7_f16","12.0 Tong Counterweights — Welds",313.4,518.99,4.8,"",280.1,"c"],["ma7_f17","12.0 Tong Counterweights — Number of Visible Marks Applied",171.56,511.67,4.8,"",120],["ma7_f18","13.0 Miscellaneous Sheave Assemblies — Clevis/Shackle",313.4,482.39,4.8,"",280.1,"c"],["ma7_f19","13.0 Miscellaneous Sheave Assemblies — Mast Pad-eye",313.4,475.07,4.8,"",280.1,"c"],["ma7_f20","13.0 Miscellaneous Sheave Assemblies — Sheaves",313.4,467.75,4.8,"",280.1,"c"],["ma7_f21","13.0 Miscellaneous Sheave Assemblies — Bearings",313.4,460.43,4.8,"",280.1,"c"],["ma7_f22","13.0 Miscellaneous Sheave Assemblies — Shafts",313.4,453.11,4.8,"",280.1,"c"],["ma7_f23","13.0 Miscellaneous Sheave Assemblies — Sheave Bolt",313.4,445.79,4.8,"",280.1,"c"],["ma7_f24","13.0 Miscellaneous Sheave Assemblies — Side Plate Bolts",313.4,438.47,4.8,"",280.1,"c"],["ma7_f25","13.0 Miscellaneous Sheave Assemblies — Bolt Safety Pins",313.4,431.15,4.8,"",280.1,"c"],["ma7_f26","13.0 Miscellaneous Sheave Assemblies — Grease Fittings",313.4,423.83,4.8,"",280.1,"c"],["ma7_f27","13.0 Miscellaneous Sheave Assemblies — Safety Line",313.4,416.51,4.8,"",280.1,"c"],["ma7_f28","14.0 Mast Boom Assembly — Mounting Brackets",313.4,387.23,4.8,"",280.1,"c"],["ma7_f29","14.0 Mast Boom Assembly — Sheaves",313.4,379.91,4.8,"",280.1,"c"],["ma7_f30","14.0 Mast Boom Assembly — Boom Pole",313.4,372.59,4.8,"",280.1,"c"],["ma7_f31","14.0 Mast Boom Assembly — Support Cable/Clamps",313.4,365.27,4.8,"",280.1,"c"],["ma7_f32","14.0 Mast Boom Assembly — Bolts/Nuts",313.4,357.95,4.8,"",280.1,"c"],["ma7_f33","14.0 Mast Boom Assembly — Sheave Shaft",313.4,350.63,4.8,"",280.1,"c"],["ma7_f34","14.0 Mast Boom Assembly — Bolt Safety Pins",313.4,343.31,4.8,"",280.1,"c"],["ma7_f35","14.0 Mast Boom Assembly — Grease Fittings",313.4,335.99,4.8,"",280.1,"c"],["ma7_f36","14.0 Mast Boom Assembly — Number of Visible Marks Applied",313.4,328.67,4.8,"",280.1,"c"],["ma7_f37","15.0 Ancillary Equipment — Pipe Clamps",313.4,284.75,4.8,"",280.1,"c"],["ma7_f38","15.0 Ancillary Equipment — Leg Clamps",313.4,277.43,4.8,"",280.1,"c"],["ma7_f39","15.0 Ancillary Equipment — Welds",313.4,270.11,4.8,"",280.1,"c"],["ma7_f40","15.0 Ancillary Equipment — Bolts/Nuts",313.4,262.79,4.8,"",280.1,"c"]],marks:[["ma7_m1","11.0 Locking Device & Seats—Telescoping Masts — Pin Hole(s)",94.76,627.73,7.32,11.28],["ma7_m2","11.0 Locking Device & Seats—Telescoping Masts — Pins",94.76,620.41,7.32,11.28],["ma7_m3","11.0 Locking Device & Seats—Telescoping Masts — Safety Pins/Keepers",94.76,613.09,7.32,11.28],["ma7_m4","11.0 Locking Device & Seats—Telescoping Masts — Bars/Dogs or Pawls",94.76,605.77,7.32,11.28],["ma7_m5","11.0 Locking Device & Seats—Telescoping Masts — Seats",94.76,598.45,7.32,11.28],["ma7_m6","11.0 Locking Device & Seats—Telescoping Masts — Mechanism",94.76,591.13,7.32,11.28],["ma7_m7","12.0 Tong Counterweights — Guides",94.76,554.53,7.32,11.28],["ma7_m8","12.0 Tong Counterweights — Weight Device",94.76,547.21,7.32,11.28],["ma7_m9","12.0 Tong Counterweights — Sheaves/Shafts",94.76,539.89,7.32,11.28],["ma7_m10","12.0 Tong Counterweights — Wirelines",94.76,532.57,7.32,11.28],["ma7_m11","12.0 Tong Counterweights — Cable Clamps",94.76,525.25,7.32,11.28],["ma7_m12","12.0 Tong Counterweights — Welds",94.76,517.93,7.32,11.28],["ma7_m13","13.0 Miscellaneous Sheave Assemblies — Clevis/Shackle",94.76,481.33,7.32,11.28],["ma7_m14","13.0 Miscellaneous Sheave Assemblies — Mast Pad-eye",94.76,474.01,7.32,11.28],["ma7_m15","13.0 Miscellaneous Sheave Assemblies — Sheaves",94.76,466.69,7.32,11.28],["ma7_m16","13.0 Miscellaneous Sheave Assemblies — Bearings",94.76,459.37,7.32,11.28],["ma7_m17","13.0 Miscellaneous Sheave Assemblies — Shafts",94.76,452.05,7.32,11.28],["ma7_m18","13.0 Miscellaneous Sheave Assemblies — Sheave Bolt",94.76,444.73,7.32,11.28],["ma7_m19","13.0 Miscellaneous Sheave Assemblies — Side Plate Bolts",94.76,437.41,7.32,11.28],["ma7_m20","13.0 Miscellaneous Sheave Assemblies — Bolt Safety Pins",94.76,430.09,7.32,11.28],["ma7_m21","13.0 Miscellaneous Sheave Assemblies — Grease Fittings",94.76,422.77,7.32,11.28],["ma7_m22","13.0 Miscellaneous Sheave Assemblies — Safety Line",94.76,415.45,7.32,11.28],["ma7_m23","14.0 Mast Boom Assembly — Mounting Brackets",94.76,386.17,7.32,11.28],["ma7_m24","14.0 Mast Boom Assembly — Sheaves",94.76,378.85,7.32,11.28],["ma7_m25","14.0 Mast Boom Assembly — Boom Pole",94.76,371.53,7.32,11.28],["ma7_m26","14.0 Mast Boom Assembly — Support Cable/Clamps",94.76,364.21,7.32,11.28],["ma7_m27","14.0 Mast Boom Assembly — Bolts/Nuts",94.76,356.89,7.32,11.28],["ma7_m28","14.0 Mast Boom Assembly — Sheave Shaft",94.76,349.57,7.32,11.28],["ma7_m29","14.0 Mast Boom Assembly — Bolt Safety Pins",94.76,342.25,7.32,11.28],["ma7_m30","14.0 Mast Boom Assembly — Grease Fittings",94.76,334.93,7.32,11.28],["ma7_m31","15.0 Ancillary Equipment — Pipe Clamps",94.76,283.69,7.32,11.28],["ma7_m32","15.0 Ancillary Equipment — Leg Clamps",94.76,276.37,7.32,11.28],["ma7_m33","15.0 Ancillary Equipment — Welds",94.76,269.05,7.32,11.28],["ma7_m34","15.0 Ancillary Equipment — Bolts/Nuts",94.76,261.73,7.32,11.28]],ticks:null,pcells:null,pbase:0,title:"Page 7",fixedTicks:null,fit:null,head:null,logo:[402.8,702.0,47.0,28.6]},{page:MA8_PAGE,lh:MA8_LINES_H,lv:MA8_LINES_V,st:MA8_STATIC,fills:MA8_FILLS,diag:[[DP_BADGES_IMG,73.8,162.3,380.5,26.1]],fields:[["ma8_f1","Pipe Clamps",313.4,672.71,4.8,"",280.1,"c"],["ma8_f2","Leg Clamps",313.4,665.39,4.8,"",280.1,"c"],["ma8_f3","Welds",313.4,658.07,4.8,"",280.1,"c"],["ma8_f4","Bolts/Nuts",313.4,650.75,4.8,"",280.1,"c"],["ma8_f5","Cable",313.4,628.79,4.8,"",280.1,"c"],["ma8_f6","Cable Attachments",313.4,621.47,4.8,"",280.1,"c"],["ma8_f7","Counter Weight",313.4,614.15,4.8,"",280.1,"c"],["ma8_f8","Sheave/Control",313.4,606.83,4.8,"",280.1,"c"],["ma8_f9","Descent Device",313.4,599.51,4.8,"",280.1,"c"],["ma8_f10","Cable",313.4,577.55,4.8,"",280.1,"c"],["ma8_f11","Cable Attachments",313.4,570.23,4.8,"",280.1,"c"],["ma8_f12","Device Attachment",313.4,562.91,4.8,"",280.1,"c"],["ma8_f13","Sheave/Control",313.4,555.59,4.8,"",280.1,"c"],["ma8_f14","Descent Device",313.4,548.27,4.8,"",280.1,"c"],["ma8_f15","Mast Attachment",313.4,526.31,4.8,"",280.1,"c"],["ma8_f16","Cable",313.4,518.99,4.8,"",280.1,"c"],["ma8_f17","Device Condition",313.4,511.67,4.8,"",280.1,"c"],["ma8_f18","Frame Condition",313.4,489.71,4.8,"",280.1,"c"],["ma8_f19","Frame Welds",313.4,482.39,4.8,"",280.1,"c"],["ma8_f20","Frame Bolts/Pins",313.4,475.07,4.8,"",280.1,"c"],["ma8_f21","Metal Wall Sections",313.4,467.75,4.8,"",280.1,"c"],["ma8_f22","Rail(s)",313.4,445.79,4.8,"",280.1,"c"],["ma8_f23","Pad-eyes",313.4,438.47,4.8,"",280.1,"c"],["ma8_f24","Mounting Brackets",313.4,431.15,4.8,"",280.1,"c"],["ma8_f25","Pins/Bolts",313.4,423.83,4.8,"",280.1,"c"],["ma8_f26","Safety Pins/Keepers",313.4,416.51,4.8,"",280.1,"c"],["ma8_f27","Cables",313.4,409.19,4.8,"",280.1,"c"],["ma8_f28","Block Dollies",313.4,401.87,4.8,"",280.1,"c"],["ma8_f29","Welds",313.4,394.55,4.8,"",280.1,"c"],["ma8_f30","16.0 Corrosion (refer to Section 7.2) — Corrosion Detected",330.74,372.34,4.8,"",120],["ma8_f31","16.0 Corrosion (refer to Section 7.2) — Location",157.04,365.02,4.8,"",120],["ma8_f32","16.0 Corrosion (refer to Section 7.2) — Extent",140.67,357.7,4.8,"",120],["ma8_f33","16.0 Corrosion (refer to Section 7.2) — Potential Impact",160.43,350.63,4.8,"",120],["ma8_f34","16.0 Corrosion (refer to Section 7.2) — Recommendation",265.52,343.45,6.4,"",376.1,"c"],["ma8_f35","16.0 Corrosion (refer to Section 7.2)",265.52,335.99,4.8,"",376.1,"c"],["ma8_f36","16.0 Corrosion (refer to Section 7.2)",265.52,328.81,6.4,"",376.1,"c"],["ma8_f37","16.0 Corrosion (refer to Section 7.2)",265.52,321.49,6.4,"",376.1,"c"],["ma8_f38","16.0 Corrosion (refer to Section 7.2)",265.34,314.17,6.4,"",376.2,"c"],["ma8_f39","16.0 Corrosion (refer to Section 7.2)",265.34,306.85,6.4,"",376.2,"c"]],marks:null,ticks:null,pcells:null,pbase:0,title:"Page 8",fixedTicks:null,fit:null,head:null,logo:[403.1,699.8,47.0,28.6]},{page:MA9_PAGE,lh:MA9_LINES_H,lv:MA9_LINES_V,st:MA9_STATIC,fills:MA9_FILLS,diag:[[DP_BADGES_IMG,73.8,162.4,380.5,26.1]],fields:[["ma9_f1","17.0 Paint/Coating",313.4,672.85,6.4,"",280.1,"c"],["ma9_f2","17.0 Paint/Coating — Condition",313.4,665.53,6.4,"",280.1,"c"],["ma9_f3","17.0 Paint/Coating",265.34,658.21,6.4,"",376.2,"c"],["ma9_f4","17.0 Paint/Coating",265.34,646.33,6.4,"",376.2,"c"],["ma9_f5","17.0 Paint/Coating",265.34,639.01,6.4,"",376.2,"c"],["ma9_f6","17.0 Paint/Coating",265.34,631.69,6.4,"",376.2,"c"],["ma9_f7","17.0 Paint/Coating",265.34,624.37,6.4,"",376.2,"c"],["ma9_f8","17.0 Paint/Coating",265.34,617.05,6.4,"",376.2,"c"],["ma9_f9","17.0 Paint/Coating",265.34,609.73,6.4,"",376.2,"c"],["ma9_f10","17.0 Paint/Coating",265.34,602.41,6.4,"",376.2,"c"],["ma9_f11","17.0 Paint/Coating",265.34,595.09,6.4,"",376.2,"c"],["ma9_f12","17.0 Paint/Coating",265.34,587.77,6.4,"",376.2,"c"],["ma9_f13","17.0 Paint/Coating",265.34,580.45,6.4,"",376.2,"c"],["ma9_f14","17.0 Paint/Coating",265.34,573.13,6.4,"",376.2,"c"],["ma9_f15","18.0",265.34,558.49,6.4,"",376.2,"c"],["ma9_f16","18.0 Comments, Sketches, and/or Pictures",265.34,551.17,6.4,"",376.2,"c"],["ma9_f17","18.0 Comments, Sketches, and/or Pictures",265.34,543.85,6.4,"",376.2,"c"],["ma9_f18","18.0 Comments, Sketches, and/or Pictures",265.34,536.53,6.4,"",376.2,"c"],["ma9_cap1","Pictures — caption, band 1",263.95,436.86,6.4,"",360.3,"c"],["ma9_cap2","Pictures — caption, band 2",263.95,338.01,6.4,"",360.3,"c"],["ma9_cap3","Pictures — caption, band 3",263.95,239.17,6.4,"",360.3,"c"]],marks:[["ma9_m1","17.0 Paint/Coating — Condition",94.76,664.33,7.32,11.28]],ticks:null,pcells:[[73.8,445.36,122.77,81.84],[202.57,445.36,122.77,81.84],[331.33,445.36,122.77,81.84],[73.8,346.51,122.77,81.84],[202.57,346.51,122.77,81.84],[331.33,346.51,122.77,81.84],[73.8,247.67,122.77,81.84],[202.57,247.67,122.77,81.84],[331.33,247.67,122.77,81.84]],pbase:0,title:"Page 9 — paint, findings and pictures",fixedTicks:null,fit:null,head:null,logo:[402.4,699.2,47.1,28.6]},{page:MA10_PAGE,lh:MA10_LINES_H,lv:MA10_LINES_V,st:MA10_STATIC,fills:MA10_FILLS,diag:[[DP_BADGES_IMG,73.8,163.2,380.5,25.6]],fields:[["ma10_inspDate","Inspector's date",434,470.5,4.8,"date",50],["ma10_ownerDate","Owner representative's date",434,451.2,4.8,"date",50]],marks:null,ticks:null,pcells:[[74.1,585.57,122.6,81.73],[202.7,585.57,122.6,81.73],[331.3,585.57,122.6,81.73],[74.1,497.83,122.6,81.73],[202.7,497.83,122.6,81.73],[331.3,497.83,122.6,81.73]],pbase:9,title:"Page 10 — pictures and signing",fixedTicks:null,fit:null,head:null,logo:[394.1,691.1,47.0,27.7]}],fit:null,head:null,marks:null,photoSplit:true,tickTitle:"The mast, and how it was inspected",fixedTicks:null,fields:[["ma1_f1","Rig #",365.66,530.03,4.8,"",175.6,"c"],["ma1_f2","Company",159.8,529.64,6.4,"customer",91.4,"c"],["ma1_f3","Date",365.66,512.51,4.8,"date",175.6,"c"],["ma1_f4","Location",159.8,494.99,4.8,"",91.4,"c"],["ma1_f5","Mast Manufacturer",365.66,494.99,4.8,"",175.6,"c"],["ma1_f6","Date of Manufacture",182.6,477.47,4.8,"",93.6,"c"],["ma1_f7","Manufacturer's Rating",182.6,444.11,4.8,"",93.6,"c"],["ma1_f8","Height",315.08,442.43,4.8,"",74.4,"c"],["ma1_f9","Mast Serial #",182.6,424.91,4.8,"",93.6,"c"],["ma1_f10","Inspected By",151.64,328.38,5.3,"",120]],centred:[],eq:{"size":7.0,"rows":[],"sides":[],"sideRows":null,"w":[],"fixed":null,"names":null,"shared":null,"cols":null},cons:{"size":7.0,"rows":[],"names":null,"cols":[]},tickSz:7,ticks:[["ma_b1","Type of inspection performed (check one box only)",658.25,[["Category III Inspection",81.56],["Category IV Inspection",220.34]],4.6,"ruled"],["ma_b2","Manufacturer's Drawing Available for Use in Inspection",459.77,[["Yes",288.32,465.77],["No",341.78,465.77]],6.76],["ma_b3","Mast Type",407.21,[["Telescoping",183.74,413.21],["Cantilevered",253.58,413.21]],6.76],["ma_b4","Mast Position",389.69,[["Disassembled",183.74,395.69],["Standing",253.58,395.69],["Lying down",341.78,395.69]],6.76],["ma_b5","Mast Nameplate on Structure",372.17,[["Yes",202.76,378.17],["No",253.58,378.17]],6.76],["ma_b6","Component Numbers Present",354.65,[["Yes",202.76,360.65],["No",253.58,360.65]],6.76]],cols:[],rowY:[],rowB:[],rowSize:7,grid:[73.8,456.4],rowMax:null,rowFields:null,stretch:null,photoCells:[[73.8,445.36,122.77,81.84],[202.57,445.36,122.77,81.84],[331.33,445.36,122.77,81.84],[73.8,346.51,122.77,81.84],[202.57,346.51,122.77,81.84],[331.33,346.51,122.77,81.84],[73.8,247.67,122.77,81.84],[202.57,247.67,122.77,81.84],[331.33,247.67,122.77,81.84],[74.1,585.57,122.6,81.73],[202.7,585.57,122.6,81.73],[331.3,585.57,122.6,81.73],[74.1,497.83,122.6,81.73],[202.7,497.83,122.6,81.73],[331.3,497.83,122.6,81.73]],optional:null,limits:null,limitCols:null,sum:[],sumSize:7,names:null,namesW:null,photo:null};
 const IRT_DV={key:"DV",code:"FM-IR-69",type:"Deviation Report",cert:"PTISDEV",page:DV_PAGE,lh:DV_LINES_H,lv:DV_LINES_V,st:DV_STATIC,fills:DV_FILLS,certAt:null,logo:[477.3,752.6,81.7,57.0],footer:null,diag:null,lw:0.8,attach:null,fullGrid:true,ownHead:true,perCert:null,more:null,fit:null,head:null,marks:null,photoSplit:null,tickTitle:null,fixedTicks:null,fields:[["devNo","Deviation Report No",243.84,713.75,10.0,"",152.0],["date","Date",477.84,713.75,10.0,"date",78.0],["wo","Work Order Number",243.84,695.27,10.0,"",152.0],["orderDate","Order Date",477.84,695.27,10.0,"date",78.0],["custRef","Customer Reference",243.84,676.79,10.0,"",152.0],["rig","Location / Rig",477.84,676.79,10.0,"",78.0],["spec","Specification / PTIS SOP / Standard Reference",45.84,623.3,10.0,"wrap",506.0,"","",3,12.5],["desc","Deviation Description",45.84,554.3,10.0,"wrap",506.0,"","",13,12.5],["reqBy","Deviation suggested / requested by",229.0,362.74,10.0,"",323.0],["reqCompany","Requested by — company name",243.84,344.63,10.0,"",308.0],["reqName","Requested by — name / surname",243.84,326.15,10.0,"",308.0],["reqPosition","Requested by — position",243.84,307.67,10.0,"",308.0],["appBy","Deviation verified & approved by",212.0,254.74,10.0,"",340.0],["appCompany","Approved by — company name",243.84,227.27,10.0,"",308.0],["appName","Approved by — name / surname",243.84,208.79,10.0,"",308.0],["appPosition","Approved by — position",243.84,190.31,10.0,"",308.0]],centred:[],eq:{"size":8.0,"rows":[],"sides":[],"sideRows":null,"w":[],"fixed":null,"names":null,"shared":null,"cols":null},cons:{"size":8.0,"rows":[],"names":null,"cols":[]},tickSz:8,ticks:[],cols:[],rowY:[],rowB:[],rowSize:10,grid:[40.9,558.0],rowMax:null,rowFields:null,stretch:null,photoCells:null,optional:null,limits:null,limitCols:null,sum:[],sumSize:8,names:null,namesW:null,photo:null};
+/* ================================================================
+   FM-IR-71 — THE DROPS PACK
+
+   A drop-object survey is one report that prints as four sheets. They
+   were four report types, each asking for the same client, date, area,
+   report number and work order, and each downloading a file of its own
+   that somebody then had to staple to the others.
+
+   Nothing here draws a sheet. Each of the four keeps the descriptor and
+   the bag it always had, so what prints is the certified geometry; this
+   is a header written once, an Appendix B worked out instead of typed,
+   and the order the four go in.
+   ================================================================ */
+const DROPS_TYPE='Drop Object Survey (FM-IR-71)';
+/* In the order they print. `derived` marks the sheet that is not typed. */
+const DROPS_PARTS=[
+  {key:'DSM',name:'Mast'},
+  {key:'DSB',name:'Monkey Board'},
+  {key:'FIO',name:'Appendix B — Failed Items Observation',derived:1},
+  {key:'FID',name:'Appendix D — Failed Items List'}
+];
+function dropsOn(){return IR&&IR.type===DROPS_TYPE;}
+function dropsPart(key){
+  const list=(typeof IRT_FORM_LIST!=='undefined'?IRT_FORM_LIST:[]);
+  for(let i=0;i<list.length;i++)if(list[i].key===key)return list[i];
+  return null;
+}
+/* The header, asked for once. The mast, monkey board and Appendix B
+   sheets each rule boxes for these; Appendix D rules only a rig number.
+   It is kept here and written into each sheet's own bag by dropsSync,
+   because each sheet prints from its own bag. */
+const DROPS_HEAD=[['client','Client','ro'],['wo','Work Order #','wo'],
+  ['inspDate','Inspection Date','date'],['area','Inspection Area',''],
+  ['reportNo','Report #',''],['rigNo','Rig No.','ro']];
+function dropsF(){ if(!IR.drops)IR.drops={}; if(!IR.drops.f)IR.drops.f={}; return IR.drops; }
+function dropsSet(k,v){ dropsF().f[k]=v; dropsSync(); irSave(); }
+/* Copy the header into the sheets that rule boxes for it, and no further:
+   writing a key into a bag whose blank has no box for it would be filling
+   in a drawer nobody opens. */
+function dropsSync(){
+  const f=dropsF().f;
+  DROPS_PARTS.forEach(p=>{
+    const t=dropsPart(p.key);
+    if(!t)return;
+    const b=irtF(t),only=new Set((t.fields||[]).map(x=>x[0]));
+    DROPS_HEAD.forEach(h=>{ if(only.has(h[0])&&f[h[0]]!=null)b.f[h[0]]=f[h[0]]; });
+  });
+}
+/* Appendix B is the survey's failed lines.
+
+   The sheet rules the same eight columns the mast survey does, so a line
+   ticked as failed IS an Appendix B line. It is worked out here and shown
+   read-only on the card: a copy that can be edited is a copy that comes
+   to disagree with the survey it was taken from, and then nobody knows
+   which of the two the client was sent.
+
+   The monkey board sheet rules an extra Item column that Appendix B has
+   no box for, so that one value does not travel. Everything else does,
+   the photograph included - the picture of the fault is the whole point
+   of the observation sheet. */
+function dropsFailed(){
+  const out=[];
+  ['DSM','DSB'].forEach(key=>{
+    const t=dropsPart(key);
+    if(!t)return;
+    (irtF(t).rows||[]).forEach(r=>{ if(r&&r._failed&&irtRowFilled(r))out.push(r); });
+  });
+  return out;
+}
+/* What the pack actually carries, in print order. A sheet with nothing
+   written on it is left out: a job that surveyed the mast and not the
+   monkey board should not hand the client blank monkey board pages. */
+function dropsSheets(){
+  const out=[];
+  DROPS_PARTS.forEach(p=>{
+    const t=dropsPart(p.key);
+    if(!t)return;
+    const rows=p.derived?dropsFailed():(irtF(t).rows||[]);
+    if(rows.some(irtRowFilled))out.push({t:t,rows:rows,part:p});
+  });
+  return out;
+}
+function dropsPdf(){
+  if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
+  dropsSync();
+  const parts=dropsSheets();
+  /* Nothing filled in yet still prints the mast sheet, so there is a
+     document to look at rather than a button that does nothing. */
+  if(!parts.length){
+    const t=dropsPart('DSM');
+    if(!t)return false;
+    parts.push({t:t,rows:[]});
+  }
+  /* One document is one page size — PdfDoc.newPage reads this.h and takes
+     no argument — so every sheet in the pack has to share it. These four
+     do. Checked rather than trusted: a sheet added to the pack later
+     would otherwise print at the wrong size without a word. */
+  const w=parts[0].t.page[0],h=parts[0].t.page[1];
+  const odd=parts.find(p=>p.t.page[0]!==w||p.t.page[1]!==h);
+  if(odd){
+    toast(odd.t.type+' is not the same page size as the rest of the pack, '+
+      'so it cannot go in one file. Tell whoever added it.','err');
+    return false;
+  }
+  const doc=new PdfDoc({w:w,h:h});
+  doc.noFooter=true;
+  parts.forEach((p,i)=>{ irtPdfInto(doc,p.t,p.rows,i===0); });
+  doc.out('FM-IR-71-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
+  return true;
+}
+/* ---- the entry card ------------------------------------------------- */
+function dropsHeadHtml(){
+  const f=dropsF().f;
+  return '<div class=\"card\"><div class=\"card-h\">Drop object survey'+
+   '<span class=\"hint\" style=\"font-weight:400\"> — asked once; it prints on '+
+   'every sheet of the pack that rules a box for it</span></div>'+
+   '<div class=\"card-b\"><div class=\"fgrid\">'+
+   DROPS_HEAD.map(h=>{
+     const k=h[0],v=f[k]==null?'':f[k];
+     if(h[2]==='wo')
+       return '<div class=\"field\"><label>'+esc(h[1])+'</label>'+
+         wofPickHtml(v,'drops-'+k)+'</div>';
+     if(h[2]==='ro')return wofWoBox(h[1],v,'drops-'+k);
+     return '<div class=\"field\"><label>'+esc(h[1])+'</label><input'+
+       (h[2]==='date'?' type=\"date\"':'')+' id=\"drops-'+k+'\" value=\"'+esc(v)+
+       '\" oninput=\"dropsSet(\''+k+'\',this.value)\"></div>';
+   }).join('')+
+   '</div></div></div>';
+}
+/* The tick that sends a line to Appendix B. It is the survey's own
+   column, not a second table, so there is one place a fault is written
+   down and one place it can be corrected. */
+function dropsFailSet(key,i,on){
+  const b=irtF(dropsPart(key));
+  if(!b.rows[i])b.rows[i]={};
+  if(on)b.rows[i]._failed=true;else delete b.rows[i]._failed;
+  irSave();render();
+}
+function dropsFailHtml(key){
+  const t=dropsPart(key);
+  if(!t)return '';
+  const rows=irtF(t).rows||[];
+  return '<div class=\"card-b\" style=\"padding-top:0\">'+
+   '<div class=\"hint\" style=\"margin-bottom:6px\">Tick a line that failed — it '+
+   'goes on Appendix B with its photograph.</div><div style=\"display:flex;'+
+   'flex-wrap:wrap;gap:12px\">'+
+   rows.map((r,i)=>irtRowFilled(r)
+     ?'<label style=\"display:inline-flex;align-items:center;gap:6px;'+
+      'font-size:12.5px;cursor:pointer\"><input type=\"checkbox\"'+
+      (r._failed?' checked':'')+' onchange=\"dropsFailSet(\''+key+'\','+i+',this.checked)\">'+
+      'Line '+(i+1)+(r.descr?' — '+esc(String(r.descr).slice(0,40)):'')+'</label>'
+     :'').join('')+
+   (rows.some(irtRowFilled)?'':'<span class=\"hint\">Nothing written on this sheet yet.</span>')+
+   '</div></div>';
+}
+/* Appendix B, shown rather than offered. */
+function dropsAppBHtml(){
+  const t=dropsPart('FIO');
+  if(!t)return '';
+  const rows=dropsFailed(),cols=irtCols(t).filter(c=>c[0]!=='sno');
+  return '<div class=\"card\"><div class=\"card-h\">Appendix B — Failed Items Observation'+
+   '<span class=\"sp\"></span><span class=\"hint\" style=\"font-weight:400\">'+
+   rows.length+' failed line'+(rows.length===1?'':'s')+'</span></div><div class=\"card-b\">'+
+   '<div class=\"hint\" style=\"margin-bottom:8px\">Not typed: these are the '+
+   'lines ticked as failed above. Correct them where they were written.</div>'+
+   (rows.length
+     ?'<div class=\"tblwrap\"><table><thead><tr><th style=\"width:34px\">#</th>'+
+      cols.map(c=>'<th>'+esc(c[1])+'</th>').join('')+'</tr></thead><tbody>'+
+      rows.map((r,i)=>'<tr><td class=\"num\">'+(i+1)+'</td>'+
+        cols.map(c=>'<td>'+esc(r[c[0]]||'')+'</td>').join('')+'</tr>').join('')+
+      '</tbody></table></div>'
+     :'<div class=\"empty\">No line has been ticked as failed, so Appendix B '+
+      'does not print.</div>')+
+   '</div></div>';
+}
+function dropsCardHtml(){
+  if(!dropsOn())return '';
+  dropsSync();
+  const sheet=(key,title)=>{
+    const t=dropsPart(key);
+    if(!t)return '';
+    return '<div class=\"hint\" style=\"margin:14px 0 4px;font-weight:600\">'+
+      esc(title)+'</div>'+irtRowsHtml(t)+
+      (key==='DSM'||key==='DSB'?dropsFailHtml(key):'');
+  };
+  return dropsHeadHtml()+
+   sheet('DSM','Mast')+
+   sheet('DSB','Monkey Board')+
+   dropsAppBHtml()+
+   sheet('FID','Appendix D — Failed Items List')+
+   '<div class=\"hint\" style=\"margin:10px 0 0\">The PDF carries only the '+
+   'sheets that have lines on them, in one file.</div>';
+}
 const IRT_FORM_LIST=[IRT_DC,IRT_HW,IRT_NM,IRT_TB,IRT_CT,IRT_C16,IRT_C17,IRT_C60,IRT_EC,IRT_PW,IRT_DPT,IRT_LP,IRT_LG,IRT_S13,IRT_O21,IRT_C22,IRT_O23,IRT_J24,IRT_R25,IRT_M26,IRT_G27,IRT_G28,IRT_S29,IRT_B30,IRT_O31,IRT_M32,IRT_G33,IRT_G34,IRT_G45,IRT_P46,IRT_E47,IRT_H48,IRT_W49,IRT_R50,IRT_S51,IRT_F52,IRT_K53,IRT_C54,IRT_W55,IRT_L56,IRT_W57,IRT_B58,IRT_F59,IRT_P61,IRT_J62,IRT_X63,IRT_W35,IRT_T36,IRT_M37,IRT_S38,IRT_R39,IRT_Q40,IRT_Q41,IRT_L42,IRT_F43,IRT_B44,IRT_N18,IRT_H10,IRT_DSM,IRT_DSB,IRT_FIO,IRT_FID,IRT_U14,IRT_J68,IRT_DCL,IRT_SB1,IRT_MA1,IRT_DV];
 /* ---- certified template sheets, one engine, one descriptor per form ------
    FM-IR-06, FM-IR-11 and FM-IR-70 print from the same code. Each sheet's
@@ -12000,6 +12220,76 @@ function cellW(x,y,size,linesV,statics,pageW){
 /* Left-aligned where the sheet's table puts it, shrunk until it fits the
    cell, and only cut if it will not go even at the smallest size these
    sheets are still readable at. */
+/* ================================================================
+   SIGNATURE STAMPS
+
+   One picture filed against one name, printed wherever that name is
+   signed on a report.
+   ================================================================ */
+
+/* How tall a stamp prints, and how far its foot sits above the line
+   the name is printed on. Thirteen points is about four millimetres,
+   which is a signature on a form rather than a signature on a cheque.
+   Both are here, in one place, because settling them means looking at
+   a printed sheet and nudging a number. */
+const SIGN_H=13,SIGN_RISE=11;
+/* The stamp on a person's own employee record, matched the way every
+   other name on here is matched \u2014 by the name itself, without its
+   capitals, because the employee list is where both the register of
+   people and the report's Reviewed by box get their names.
+
+   There was a screen in Inspection for filing these. It was not asked
+   for and it is gone: a person's signature belongs on the person's
+   record, next to everything else about them. Nothing writes one there
+   yet, so nothing prints yet - the moment one is added in the employees
+   section, every report naming that person carries it. */
+function signOf(name){
+  const n=String(name==null?'':name).trim().toLowerCase();
+  if(!n)return '';
+  const e=coll('employees').find(x=>String(x.name||'').trim().toLowerCase()===n);
+  if(!e)return '';
+  /* Whichever of these the employee record ends up calling it. A
+     signature has to be a picture to be printed, so anything that is
+     not one is passed over rather than handed to the PDF writer. */
+  const v=e.sign||e.signature||e.signImg||'';
+  return /^data:image\//.test(String(v))?String(v):'';
+}
+/* Draws it standing on a line: x is the left edge, baseY the line it
+   stands on, h how tall it may be. The width follows from the picture's
+   own shape, so a signature is not stretched into a smear, and is
+   capped so it cannot run into what is printed beside it.
+
+   Returns whether anything was drawn, so a caller can tell a stamp
+   that printed from no stamp on file. */
+/* The same thing centred on x rather than starting at it, for a sheet
+   that centres the name in a cell. */
+function signStampMid(doc,name,cx,baseY,h,maxW){
+  const w=signWidth(doc,name,h,maxW);
+  if(!w)return false;
+  return signStamp(doc,name,cx-w/2,baseY,h,maxW);
+}
+/* How wide the stamp will come out at this height: its own shape,
+   capped. Worked out on its own so a caller that has to place it can
+   ask before it is drawn. */
+function signWidth(doc,name,h,maxW){
+  const src=signOf(name);
+  if(!src)return 0;
+  let iw=0,ih=0;
+  try{ [iw,ih]=doc.parseJpegDims(atob(src.split(',')[1])); }catch(e){}
+  const ar=(iw>0&&ih>0)?iw/ih:3;
+  return Math.min(h*ar,maxW>0?maxW:h*ar);
+}
+function signStamp(doc,name,x,baseY,h,maxW){
+  const src=signOf(name);
+  if(!src)return false;
+  let iw=0,ih=0;
+  try{ [iw,ih]=doc.parseJpegDims(atob(src.split(',')[1])); }catch(e){}
+  const ar=(iw>0&&ih>0)?iw/ih:3;
+  let hh=h,ww=hh*ar;
+  if(maxW>0&&ww>maxW){ ww=maxW; hh=ww/ar; }
+  doc.imageAt(src,x,baseY,ww,hh);
+  return true;
+}
 function cellText(doc,x,y,v,size,w){
   let sz=size;
   while(sz>size*0.6&&doc.twx(v,sz,true)>w)sz-=0.2;
@@ -12128,14 +12418,50 @@ function irtEqMax(t){ return t.eq.fixed?t.eq.fixed.length:t.eq.rows.length*t.eq.
 function irtConsMax(t){ return t.cons.rows.length; }
 // how many lines the report may carry; the sheet's own rows are how many
 // of them fit on one page
-function irtRowMax(t){ return t.rowMax||t.rowY.length; }
+/* How many lines the sheet rules on one page. That is all the number
+   in the descriptor ever was: not a limit on the job, a limit on the
+   paper. A sheet that rules none - one certificate to a line - takes
+   one line a page. */
+function irtPerPage(t){ return Math.max(1,(t.rowY||[]).length); }
+/* Which lines land on which page. One function, so what the card says
+   about the break and what the PDF does are the same decision.
+
+   A line carrying a picture ends its page: the picture is printed in
+   the space the rest of the lines would have used. */
+function irtPages(t,rows){
+  const all=t.cols.length?(rows||irtF(t).rows||[]).filter(r=>r&&irtRowFilled(r)):[];
+  const per=irtPerPage(t);
+  const pages=[];
+  let cur=[];
+  all.forEach(r=>{
+    cur.push(r);
+    if(t.perCert||r.img||cur.length>=per){pages.push(cur);cur=[];}
+  });
+  if(cur.length||!pages.length)pages.push(cur);
+  return pages;
+}
+/* Has anything been written on this line?
+
+   A picture counts. A key beginning with an underscore does not: those
+   are the app's own marks on the line - _failed, set by the DROPS card -
+   and a tick is not something to print a page for. */
+function irtRowFilled(r){
+  if(!r)return false;
+  if(r.img)return true;
+  return Object.keys(r).some(k=>k!=='img'&&k.charAt(0)!=='_'&&r[k]);
+}
 function irtSet(k,v){ irtF().f[k]=v; irSave(); }
 function irtSetSum(k,v){ irtF().sum[k]=v; irSave(); }
 function irtSetLimit(row,k,v){ const b=irtF(); if(!b[row])b[row]={}; b[row][k]=v; irSave(); }
 /* Leaving a block off takes its columns off the entry grid and off the
    sheet; whatever was already typed into them is kept, so ticking the box
    by mistake loses nothing. */
-function irtSetOpt(k,on){ irtF().opt[k]=!!on; irSave(); render(); }
+/* The sheet a row handler is editing. A report that is one sheet has
+   only one answer and irtFor gives it; a report made of several (the
+   DROPS pack) has to say which, and irtRowsHtml does - it is drawing
+   one sheet at a time and knows perfectly well which one. */
+function irtOf(key){ return (key?dropsPart(key):null)||irtFor(); }
+function irtSetOpt(k,on,key){ irtF(irtOf(key)).opt[k]=!!on; irSave(); render(); }
 function irtOff(t,k){ return !!(irtF(t).opt||{})[k]; }
 /* When a block is left off the sheet, the columns beside it take the width
    it gave back. This maps any x on the sheet - a rule, a grey panel, a heading
@@ -12262,10 +12588,13 @@ function irtMteFill(rows){
 }
 function irtSetEq(i,k,v){ const b=irtF(); if(!b.eq[i])b.eq[i]={}; b.eq[i][k]=v; irSave(); }
 function irtSetCons(i,k,v){ const b=irtF(); if(!b.cons[i])b.cons[i]={}; b.cons[i][k]=v; irSave(); }
-function irtSetRow(i,k,v){ const b=irtF(); if(!b.rows[i])b.rows[i]={}; b.rows[i][k]=v; irSave(); }
-function irtRowAdd(){ const t=irtFor(),b=irtF(); if(b.rows.length<irtRowMax(t)){b.rows.push({});irSave();render();} }
-function irtRowDel(i){ const b=irtF(); b.rows.splice(i,1); if(!b.rows.length)b.rows.push({}); irSave(); render(); }
-function irtRowImgDel(i){ delete irtF().rows[i].img; irSave(); render(); }
+function irtSetRow(i,k,v,key){ const b=irtF(irtOf(key)); if(!b.rows[i])b.rows[i]={}; b.rows[i][k]=v; irSave(); }
+/* Never refused. It used to stop at the number of lines the sheet rules
+   on one page, which is a fact about the paper and not about the job -
+   and the PDF has always carried the rest onto a second page. */
+function irtRowAdd(key){ const t=irtOf(key),b=irtF(t); b.rows.push({}); irSave(); render(); }
+function irtRowDel(i,key){ const b=irtF(irtOf(key)); b.rows.splice(i,1); if(!b.rows.length)b.rows.push({}); irSave(); render(); }
+function irtRowImgDel(i,key){ delete irtF(irtOf(key)).rows[i].img; irSave(); render(); }
 /* On a sheet where one line is one certificate, the pictures are of the
    piece that line certifies, so a line carries as many as the sheet rules
    boxes for - the MPI sheet's arrangement. Elsewhere a line carries one. */
@@ -12276,8 +12605,8 @@ function irtRowPics(r){
   if(!r)return [];
   return r.imgs&&r.imgs.length?r.imgs:(r.img?[r.img]:[]);
 }
-function irtRowPicDel(i,k){
-  const r=irtF().rows[i];
+function irtRowPicDel(i,k,key){
+  const r=irtF(irtOf(key)).rows[i];
   if(r&&r.imgs){ r.imgs.splice(k,1); if(!r.imgs.length)delete r.imgs; }
   irSave(); render();
 }
@@ -12340,10 +12669,10 @@ function irtPhotoHtml(t){
       (ph[i]?'<button class="del" title="Remove" onclick="irtPhotoDel('+i+')">\u232b</button>':'')+
      '</div></div>').join('')+'</div></div></div>';
 }
-function irtRowImg(i,files){
-  const t=irtFor();
+function irtRowImg(i,files,key){
+  const t=irtOf(key);
   const many=irtRowMaxPics(t)>1;
-  if(many){ irtRowImgs(i,files); return; }
+  if(many){ irtRowImgs(i,files,key); return; }
   const file=files&&files[0];
   if(!file||!file.type.startsWith('image/'))return;
   const img=new Image();
@@ -12366,8 +12695,8 @@ function irtRowImg(i,files){
 }
 /* Several pictures on one line, each resampled to the box it will print
    in at 300 dpi - the same as the MPI sheet does with its row photographs. */
-function irtRowImgs(i,files){
-  const t=irtFor(),b=irtF(t),row=b.rows[i];
+function irtRowImgs(i,files,key){
+  const t=irtOf(key),b=irtF(t),row=b.rows[i];
   if(!row)return;
   if(!row.imgs)row.imgs=irtRowPics(row).slice();
   delete row.img;
@@ -12623,11 +12952,16 @@ function irtRowsHtml(t){
   const optBoxes=(t.optional||[]).map(o=>
     '<label style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-weight:400">'+
     '<input type="checkbox"'+(irtOff(t,o.key)?' checked':'')+
-      ' onchange="irtSetOpt(\''+o.key+'\',this.checked)">'+esc(o.label)+'</label>').join('');
+      ' onchange="irtSetOpt(\''+o.key+'\',this.checked,\''+t.key+'\')">'+esc(o.label)+'</label>').join('');
+  /* What it says instead of refusing: how many lines there are, and how
+     many sheets of paper that comes to. Worked out by the same function
+     the printing uses, so it cannot say one thing and print another. */
+  const np=irtPages(t).length,per=irtPerPage(t);
   return '<div class="card"><div class="card-h">Inspection results'+
    '<span class="sp"></span><span class="hint" style="font-weight:400;margin-right:8px">'+
-     rows.length+' of '+irtRowMax(t)+' lines</span>'+
-   '<button class="btn small"'+(rows.length>=irtRowMax(t)?' disabled':'')+' onclick="irtRowAdd()">+ Add line</button></div>'+
+     rows.length+' line'+(rows.length===1?'':'s')+' \u2014 '+
+     (np>1?np+' pages, '+per+' to a page':'one page, room for '+per)+'</span>'+
+   '<button class="btn small" onclick="irtRowAdd(\''+t.key+'\')">+ Add line</button></div>'+
    '<div class="card-b">'+
    (optBoxes?'<div style="margin-bottom:10px">'+optBoxes+'</div>':'')+
    '<div class="tblwrap"><table><thead><tr>'+
@@ -12641,23 +12975,23 @@ function irtRowsHtml(t){
      (numbered?'<td class="num">'+(i+1)+'</td>':'')+
      cols.map(c=>c[5]==='check'
      ?'<td style="text-align:center"><input type="checkbox"'+(r[c[0]]?' checked':'')+
-       ' onchange="irtSetRow('+i+',\''+c[0]+'\',this.checked?\'YES\':\'\')"></td>'
+       ' onchange="irtSetRow('+i+',\''+c[0]+'\',this.checked?\'YES\':\'\',\''+t.key+'\')"></td>'
      :'<td><input'+(c[5]==='date'?' type="date"':'')+' style="width:100%;min-width:62px" value="'+esc(r[c[0]]||'')+
-       '" oninput="irtSetRow('+i+',\''+c[0]+'\',this.value)"></td>').join('')+
+       '" oninput="irtSetRow('+i+',\''+c[0]+'\',this.value,\''+t.key+'\')"></td>').join('')+
      '<td class="no-print" style="white-space:nowrap">'+
        (maxPics>1
          ?(irtRowPics(r).length?'<span class="pill b">'+irtRowPics(r).length+'/'+maxPics+'</span> ':'')+
           irtRowPics(r).map((src,k)=>'<img src="'+src+'" alt="" style="height:24px;border-radius:3px;margin-right:3px;vertical-align:middle">'+
-            '<button class="del" title="Remove" onclick="irtRowPicDel('+i+','+k+')">\u232b</button>').join('')+
+            '<button class="del" title="Remove" onclick="irtRowPicDel('+i+','+k+',\''+t.key+'\')">\u232b</button>').join('')+
           '<button class="btn ghost small"'+(irtRowPics(r).length>=maxPics?' disabled':'')+
             ' onclick="document.getElementById(\'irt-img-'+i+'\').click()">\u25a3 Add</button>'+
-          '<input type="file" id="irt-img-'+i+'" accept="image/*" multiple style="display:none" onchange="irtRowImg('+i+',this.files)">'
+          '<input type="file" id="irt-img-'+i+'" accept="image/*" multiple style="display:none" onchange="irtRowImg('+i+',this.files,\''+t.key+'\')">'
          :(r.img?'<img src="'+r.img+'" alt="line '+(i+1)+'" style="height:26px;border:1px solid var(--line);border-radius:3px;vertical-align:middle">':'')+
           '<button class="btn ghost small" onclick="document.getElementById(\'irt-img-'+i+'\').click()">\u25a3 '+(r.img?'Replace':'Add')+'</button>'+
-          '<input type="file" id="irt-img-'+i+'" accept="image/*" style="display:none" onchange="irtRowImg('+i+',this.files)">'+
-          (r.img?'<button class="del" title="Remove image" onclick="irtRowImgDel('+i+')">\u232b</button>':''))+
+          '<input type="file" id="irt-img-'+i+'" accept="image/*" style="display:none" onchange="irtRowImg('+i+',this.files,\''+t.key+'\')">'+
+          (r.img?'<button class="del" title="Remove image" onclick="irtRowImgDel('+i+',\''+t.key+'\')">\u232b</button>':''))+
      '</td>'+
-     '<td class="no-print"><button class="del" onclick="irtRowDel('+i+')">\u2715</button></td></tr>').join('')+
+     '<td class="no-print"><button class="del" onclick="irtRowDel('+i+',\''+t.key+'\')">\u2715</button></td></tr>').join('')+
    '</tbody></table></div>'+
    '<div class="hint" style="margin-top:6px">'+
    (t.photoCells
@@ -13109,6 +13443,12 @@ function irtDrawPage(doc,t,pageRows,rowOffset,pageNo,pages){
   const nm=t.names,nw=t.namesW;
   if(nm)[IR.fields.insp,IR.fields.rev_by].forEach((v,i)=>{
     if(!v||!nm[i])return;
+    /* The reviewer's stamp, above the line their name goes on. Only
+       the reviewer's: the inspector is whoever is signed in, and
+       stamping that was not asked for. Turning it on means dropping
+       this one test. */
+    if(i===1)signStamp(doc,v,nm[i][0],sy(nm[i][1])+SIGN_RISE,SIGN_H,
+                       (nw&&nw[i])?nw[i]:110);
     // FM-IR-70 boxes the two names; the other sheets rule a line and sign above it
     if(nw&&nw[i])doc.atFit(nm[i][0],H-sy(nm[i][1]),
                            irtBox(t,nm[i][0],nm[i][1],nm[i][2],nw[i]),
@@ -13169,49 +13509,43 @@ function irtCell(doc,cx,ty,w,s,size,bold){
   doc.atFit(cx,ty-3.4,w,parts.slice(0,half).join(' '),size-0.6,size-3,bold);
   doc.atFit(cx,ty+3.4,w,parts.slice(half).join(' '),size-0.6,size-3,bold);
 }
+/* One sheet's pages, laid into a document that is already open.
+
+   This is the body irtPdf always had, lifted out so a report made of
+   several sheets can put them all in one file (dropsPdf). `rows` lets
+   the caller hand in lines that are not the bag's own - Appendix B's
+   are worked out from the survey, not typed - and `first` says whether
+   this sheet starts the document or follows another one.
+
+   One PdfDoc is one page size - newPage() reads this.h and takes no
+   argument - so every sheet laid into one document has to share it.
+   The four DROPS sheets are all 792x612; dropsPdf checks rather than
+   trusts that, because a sheet added to the pack later would print at
+   the wrong size in silence. */
+function irtPdfInto(doc,t,rows,first){
+  const pages=irtPages(t,rows);
+  let offset=0;
+  pages.forEach((pr,pi)=>{
+    if(pi||!first)doc.newPage();
+    irtDrawPage(doc,t,pr,offset,pi+1,pages.length);
+    const last=pr[pr.length-1];
+    const hasBoxes=!t.photoSplit&&(t.photoCells||[]).length>0;
+    if(last&&last.img&&!hasBoxes&&!irtDrawImage(doc,t,pr.length,last.img)){
+      doc.newPage();
+      irtPhotoPage(doc,t,offset+pr.length,last);
+    }
+    offset+=pr.length;
+  });
+  (t.more||[]).forEach(m=>{ doc.newPage(); irtDrawMore(doc,t,m); });
+  return pages.length;
+}
 function irtPdf(){
   const t=irtFor();
   if(!t)return false;
   if(!IR.fields.no){IR.fields.no=irNextReportNo();irStampEmp();irStampDocId();irSave();}
-  const b=irtF(t);
-  /* A sheet that rules no item columns has nowhere to put a line, so it is
-     one page however many lines the record happens to carry. The drop-objects
-     checklist and the certificates are of that kind. */
-  const all=t.cols.length
-    ?(b.rows||[]).filter(r=>r&&Object.keys(r).some(k=>k!=='img'?r[k]:false)||r&&r.img)
-    :[];
-  const per=Math.max(1,t.rowY.length);   // what fits on one page, not what the report may hold
-  /* Lines are laid out a page at a time; a line carrying a picture ends its
-     page, because the picture then takes the rest of the grid. */
-  const pages=[];
-  let cur=[];
-  all.forEach(r=>{
-    cur.push(r);
-    if(t.perCert||r.img||cur.length>=per){pages.push(cur);cur=[];}
-  });
-  if(cur.length||!pages.length)pages.push(cur);
   const doc=new PdfDoc({w:t.page[0],h:t.page[1]});
   doc.noFooter=true;
-  let offset=0;
-  pages.forEach((rows,pi)=>{
-    if(pi)doc.newPage();
-    irtDrawPage(doc,t,rows,offset,pi+1,pages.length);
-    const last=rows[rows.length-1];
-    /* A sheet that rules boxes for pictures has already put this one in a
-       box, on the page itself. Painting it over the grid as well, or adding
-       a page of its own for it, printed the same picture twice and gave the
-       report a page nobody asked for. */
-    const hasBoxes=!t.photoSplit&&(t.photoCells||[]).length>0;
-    if(last&&last.img&&!hasBoxes&&!irtDrawImage(doc,t,rows.length,last.img)){
-      // a one-item-per-sheet form (FM-IR-19) keeps no spare grid lines, so the
-      // picture goes on a plain page of its own rather than over the form
-      doc.newPage();
-      irtPhotoPage(doc,t,offset+rows.length,last);
-    }
-    offset+=rows.length;
-  });
-  // the pages a fixed multi-page form carries after its first
-  (t.more||[]).forEach(m=>{ doc.newPage(); irtDrawMore(doc,t,m); });
+  irtPdfInto(doc,t,null,true);
   doc.out(t.code+'-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
   return true;
 }
@@ -13435,6 +13769,8 @@ function irPdfBuild(){
   if(IR.type===DP_TALLY_TYPE){ irPdfDrillPipeTally(); return; }
   if(IR.type===MPI_TYPE){ irPdfMpi(); return; }
   if(IR.type===UT_TYPE){ irPdfUt(); return; }
+  // the DROPS pack is four certified sheets in one file
+  if(IR.type===DROPS_TYPE){ dropsPdf(); return; }
   // FM-IR-06 / 11 / 70 print from the shared template engine
   if(irtFor()){ irtPdf(); return; }
 
@@ -13467,6 +13803,9 @@ function irPdfBuild(){
   }
   doc.need(46);doc.y-=16;
   doc.line(doc.mL,doc.y,doc.mL+180,doc.y);doc.line(doc.w-doc.mR-180,doc.y,doc.w-doc.mR,doc.y);
+  /* The name prints under the rule here, so the stamp goes in the
+     blank above it - which is what the rule is drawn for. */
+  signStamp(doc,IR.fields.rev_by,doc.w-doc.mR-180,doc.y+2,SIGN_H,180);
   doc.y-=11;doc.text(doc.mL,doc.y,'Inspector: '+(IR.fields.insp||''),8);doc.text(doc.w-doc.mR-180,doc.y,'Reviewed / approved: '+(IR.fields.rev_by||''),8);
   doc.out('inspection-report-'+String(IR.fields.no||'draft').replace(/[^A-Za-z0-9_-]+/g,'-'));
 }
@@ -13535,41 +13874,18 @@ function irSummary(){
    card below rather than from a block of its own. */
 function irtShared(){ const t=irtFor(); return !!(t&&t.eq&&t.eq.shared); }
 function irSave(){lsSet('ir_current',IR);}
-/* What was in the editor when the page was last closed, if it was worth
-   keeping. A report with nothing in it but its type is not: offering that
-   back would be a prompt with no purpose. */
-let IR_RELOADED=null;
-function irDraftHeld(){
-  const d=lsGet('ir_current',null);
-  if(!d)return null;
-  const f=d.fields||{};
-  const typed=Object.keys(f).some(k=>f[k]!==''&&f[k]!=null)
-    ||(d.items||[]).some(r=>r&&Object.keys(r).length)
-    ||(d.eq||[]).length||(d.photos||[]).length
-    ||['mpi','ut','dp','irt','ac'].some(k=>d[k]&&Object.keys(d[k]).length);
-  return typed?d:null;
+/* Leaving the form clears it, and that is all. It used to put what was
+   on it to one side and offer it back in a bar above the form; the bar
+   was asked to go, and with nothing able to put a held report back,
+   holding one would only be a copy nobody can reach. */
+function irFormLeave(){
+  IR=irBlank();
+  lsSet('ir_current',IR);
 }
-/* Shown above the form, once, after a reload. */
-function irDraftOffer(){
-  if(!IR_RELOADED)return '';
-  const h=irRecHeader(IR_RELOADED);
-  const what=[IR_RELOADED.type,h.client,h.wo&&('WO '+h.wo)].filter(Boolean).join(' \u00b7 ');
-  return '<div class="card" style="border-color:var(--brand);background:var(--brand-t)">'+
-   '<div class="card-b" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
-   '<div><b>A report was open before this page was reloaded.</b>'+
-   (what?'<div class="hint">'+esc(what)+'</div>':'')+'</div>'+
-   '<span class="sp" style="flex:1"></span>'+
-   '<button class="btn small" onclick="irDraftRestore()">Put it back</button>'+
-   '<button class="btn ghost small" onclick="irDraftDrop()">Start fresh</button>'+
-   '</div></div>';
-}
-function irDraftRestore(){
-  if(!IR_RELOADED)return;
-  IR=IR_RELOADED; IR_RELOADED=null;
-  if(!IR.items)IR.items=[];if(!IR.eq)IR.eq=[];if(!IR.photos)IR.photos=[];if(!IR.fields)IR.fields={};
-  irSave(); render(); toast('The report you had open is back.','ok');
-}
-function irDraftDrop(){ IR_RELOADED=null; render(); }
+/* The way out of the form, which it had none of: a report opened from the
+   library could only be left by reloading the page. What has been filed is
+   in the library; what has only been typed is gone, as it is on a reload. */
+function irFormCancel(){ go('insp_list'); }
 function irFillSerials(){
   const dl=document.getElementById('dl-serial');if(!dl)return;
   let serials=[];
@@ -14118,10 +14434,38 @@ function irImgPrune(){
    ================================================================ */
 const OB_KEY='outbox',OB_GIVEUP=5;    // attempts before a refusal is set aside
 function obAll(){return lsGet(OB_KEY,[]);}
+/* Could this machine have reached the server at this moment? The same
+   four things obDrainOnce needs before it sends anything, asked at the
+   moment a record is saved instead.
+
+   navigator.onLine alone is not enough and never was - it says yes on a
+   yard LAN with no route out - so the session and its token are asked
+   for too. It can still be wrong in the optimistic direction, and that
+   is the safe direction to be wrong in: the record goes in the queue
+   either way, and a queue that cannot be drained holds it. */
+function obOnlineNow(){
+  return !!(navigator.onLine&&typeof SESSION!=='undefined'&&SESSION
+            &&!SESSION.offline&&localStorage.getItem('erp_jwt'));
+}
+/* Is this job being held back for the reason the offline rule exists?
+
+   Only work saved while disconnected is. A report filled in on the live
+   system belongs to everybody working on that system - they are all
+   looking at the one database, so there is nothing to shield them from.
+   What the rule protects is the inspector with no signal, whose
+   half-written report must not go up the moment signal returns, and
+   that is why this is settled when the record is saved rather than when
+   the queue runs.
+
+   `j.offline!==false` and not `j.offline===true`: a job queued by an
+   older build carries no stamp, and the cautious reading of no stamp is
+   the behaviour it was queued under. */
+function obOfflineBorn(j){return !j||j.offline!==false;}
 /* What the queue is holding back, counted in reports rather than requests:
    the inspector thinks in reports, and "3 items" means nothing to them. */
 function apprHeld(){
   return obAll().filter(j=>j.kind==='rec'&&APPR_MODS.has(j.module)
+                        &&obOfflineBorn(j)
                         &&obJobApproval(j)===APPR_INPROC);
 }
 /* What the job would actually put on the server, which is the only thing
@@ -14151,6 +14495,11 @@ function obEnqueue(job){
   const q=obAll();
   job.id=job.id||uid();
   job.at=job.at||new Date().toISOString();
+  /* Whether this was written on the live system or away from it, settled
+     here and never revisited - see obOfflineBorn. A record saved again
+     later replaces this job and is stamped afresh, which is right: that
+     save is as live, or as offline, as the machine was then. */
+  if(job.offline===undefined)job.offline=!obOnlineNow();
   job.tries=0;job.lastErr='';delete job.blocked;
   if(job.kind==='del'){
     /* Deleted after being saved offline: the save never happened as far as
@@ -14269,10 +14618,16 @@ async function obDrainOnce(manual){
     /* A document can only be attached to a record the server has, so a
        file waits while the record it belongs to is still queued. */
     if(j.kind==='file'&&obAll().some(x=>x.kind==='rec'&&x.recId===j.recId&&!x.blocked))continue;
-    /* The two gates on a report or a work order. A photograph is held by
-       the rule above for as long as its record is still queued, so it
-       needs no gate of its own. */
-    if(APPR_MODS.has(j.module)){
+    /* The two gates on a report or a work order WRITTEN OFFLINE. A
+       photograph is held by the rule above for as long as its record is
+       still queued, so it needs no gate of its own.
+
+       Neither gate applies to work saved on the live system: it goes up
+       the way every other module's does, so everybody on that system
+       sees it, In Process and all. Making them press Sync now to show
+       their colleagues a report they are all sitting next to was never
+       the point of either gate. */
+    if(APPR_MODS.has(j.module)&&obOfflineBorn(j)){
       if(obJobApproval(j)===APPR_INPROC)continue;   // still being written
       if(!manual)continue;                          // waits for Sync now
     }
@@ -14739,6 +15094,14 @@ function wofApply(no){
     u.rigWell=v.rigwell;u.wo=v.wo;n+=5;}
   if(IR.type===DP_TALLY_TYPE){const d=dpF();
     d.customer=v.client;d.location=v.loc;d.rigWell=v.rigwell;d.workOrderNum=v.wo;n+=4;}
+  /* The DROPS pack. Its header is asked once and lives in IR.drops, not
+     in a sheet's bag, so it is filled here by hand; the certified-sheet
+     branch below cannot do it, because irtFor() answers nothing for a
+     report type that is a pack of four sheets rather than one of them.
+     dropsSync then carries the header into whichever of those four
+     sheets rules a box for each key. */
+  if(dropsOn()){const d=dropsF().f;
+    d.client=v.client;d.rigNo=v.rigwell;d.wo=v.wo;n+=3;dropsSync();}
   // and a certified sheet, in the keys its own blank rules boxes for
   const t=irtFor();
   if(t){
@@ -14841,13 +15204,19 @@ function wofOwns(k){
    the two things is missing: the work order, or this box on it. */
 function wofWoBox(label,val,id){
   const v=String(val==null?'':val).trim();
-  const wo=v?'':irRecHeader(IR).wo;
+  /* Nothing is said about a box the work order left blank. There was a line
+     here naming the work order and where to go and fill it in; it was asked
+     for and then asked to go, so it is gone. The box is still read-only and
+     still says where its value comes from, on hover.
+
+     The other line stays. With no work order chosen yet every one of these
+     boxes is blank at once, and saying nothing there would leave a form of
+     empty boxes with no way into it. */
+  const none=v?false:!irRecHeader(IR).wo;
   return '<div class="field'+(v?' autofill':'')+'"><label>'+esc(label)+'</label>'+
     '<input'+(id?' id="'+id+'"':'')+' value="'+esc(v)+'" readonly '+
       'title="Comes from the work order">'+
-    (v?'':'<div class="hint" style="margin-top:4px">'+(wo
-      ?'Blank on work order '+esc(wo)+' \u2014 fill it in there, then pick the work order again.'
-      :'Pick the work order above.')+'</div>')+
+    (none?'<div class="hint" style="margin-top:4px">Pick the work order above.</div>':'')+
   '</div>';
 }
 /* The control every format uses for its Work Order box. Picking one is
@@ -15480,13 +15849,9 @@ document.addEventListener('drop',e=>{const dz=document.getElementById('ir-drop')
   calibMigrate();
   route=lsGet('ui_route','dashboard');
   /* A reload starts a fresh report rather than reopening what was in the
-     editor. The draft that was there is held to one side, not thrown away:
-     losing an afternoon's typing to a stray refresh is worse than the
-     stale form this fixes, so the form offers it back once (see
-     irDraftOffer) and the offer is dropped as soon as anything is typed. */
-  IR_RELOADED=irDraftHeld();
-  IR=irBlank();
-  lsSet('ir_current',IR);
+     editor: a report filed yesterday sitting in the editor this morning is
+     how one gets filed twice. */
+  irFormLeave();
 irMigrateReportNos();
   const cfg=syncCfg();
   if(cfg.url)document.getElementById('sync-url').value=cfg.url;
