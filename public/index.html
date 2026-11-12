@@ -1187,15 +1187,15 @@ activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type'
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
 receipts:{g:'Sales & AR',ic:'⬇',name:'Receipts',fields:[T('no','Receipt no.','RCT-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('invoice','Invoice','invoices','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank ref')],list:['no','date','customer','invoice','amount','method'],badge:r=>r.method},
 /* ---------------- INVENTORY ---------------- */
-items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),T('manuf','Manufacturer'),T('model','Model No.'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price'),T('loc','Default location'),FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','manuf','model','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
+items:{g:'Inventory',ic:'▦',name:'Item Master',actionsCol:1,fields:[AUTOCODE('code','Item code','items','ITM'),T('name','Description'),T('manuf','Manufacturer'),T('model','Model No.'),S('cat','Category',['Consumable','Spare part','Tool','Equipment','Chemical','PPE','Other']),S('unit','UoM',['EA','Grams','Kilo gram','Packet','Tin','Litre','Box','SquareYard','Micrometer','Inches','PCs','Feet','Year','Week','Day','Quarter','Hours','Length','Weight','End','All Sizes','Seal','Reading','R. Trip','Joint','Tool','Lump Sum','Bucket','AU','Unit','Set','Spot','Kelly','Month','Gauge','Can','Metre','Trip']),N('reorder','Reorder level',{nospin:1}),S('curr','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('cost','Item Price',{nospin:1}),T('loc','Default location'),FILEF('file','Attachment (image or PDF, optional)'),A('notes','Notes')],list:['code','name','manuf','model','cat','unit','reorder','cost','loc','attachment'],badge:r=>r.cat},
 stockmoves:{g:'Inventory',ic:'⇄',name:'Stock Transactions',smlines:true,customView:'smViewOpen',customEdit:'smEditOpen',fields:[{...D('date','Date'),auto:1,fn:()=>today()},S('type','Type',['Receipt','Issue','Adjustment +','Adjustment -','Transfer','PR (Purchase Request)']),S('from','From location',STOCK_LOCATIONS),S('to','To location',STOCK_LOCATIONS),T('ref','Reference (PO/WO)'),{...T('who','By'),auto:1,fn:()=>(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:'',locked:true},C('itemsSummary','Items',r=>r.itemsSummary||'')],list:['date','type','itemsSummary','from','to','ref','who'],badge:r=>r.type},
 /* ---------------- PROCUREMENT ---------------- */
-purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %'),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
+purchaseorders:{g:'Procurement',ic:'▧',name:'Purchase Orders',polines:true,rowPdf:'poPdf',fields:[AUTOCODE('no','PO no.','purchaseorders','PO'),D('date','Date'),S('potype','PO type',['PO','PO_FA','Service PO'],{req:1}),REF('vendor','Vendor','vendors','name'),C('amount','Amount',r=>r.amount?fmt(+r.amount):''),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('taxpct','Tax %',{nospin:1}),S('freight','Freight Terms',['CFR','FOB','EXW','FCA','FAS','CIF','CIP','CPT','DAF','DES','DEQ','DDU','DDP','DAT','DAP']),S('payterms','Payment Terms',['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT']),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>r.status||'Draft'},D('deldate','Required delivery'),T('shipto','Deliver to'),A('terms','Terms / notes')],list:['no','date','vendor','amount','status','deldate'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>['Issued','Acknowledged','Partially received'].includes(r.status)).length,l:'Open POs'}]},
 grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPdf',editModal:'grnEditOpen',fields:[{k:'no',l:'GRN no.',t:'computed',auto:1,fn:r=>r.no||nextYearCode('grns','no','GRN')},{...D('date','Date'),req:1},{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Issued'||r.status==='Partially received'),req:1},REF('vendor','Vendor','vendors','name'),A('items','Items received'),{k:'status',l:'Status',t:'computed',auto:1,fn:r=>(coll('purchaseorders').find(p=>p.no===r.po)||{}).status||'Draft'},{...T('who','Received by'),req:1,auto:1,fn:()=>(typeof SESSION!=='undefined'&&SESSION)?SESSION.name:''}],list:['no','date','po','vendor','status','who'],badge:r=>r.status},
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',customReport:'assetReportPdf',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'totalqty',l:'Total Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTotalQty(r.item)},{k:'taggedqty',l:'Tagged Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTaggedQty(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',customReport:'assetReportPdf',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'totalqty',l:'Total Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTotalQty(r.item)},{k:'taggedqty',l:'Tagged Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTaggedQty(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost',{nospin:1}),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)',{nospin:1}),req:1},N('salvage','Salvage value',{nospin:1}),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 /* Where a job actually happened, named once instead of typed again on
@@ -8267,8 +8267,8 @@ function poGrid(rec){
    '<td>'+selx('po-item-'+i,l.item||'',itemNames,()=>poPickItem(i),'Select item…')+'</td>'+
    '<td><input value="'+esc(l.cat||'')+'" disabled></td>'+
    '<td><input value="'+esc(l.uom||'')+'" disabled></td>'+
-   '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="POL['+i+'].qty=this.value;poRefreshRow('+i+')"></td>'+
-   '<td><input type="number" step="0.01" value="'+esc(l.price||'')+'" oninput="POL['+i+'].price=this.value;poRefreshRow('+i+')"></td>'+
+   '<td><input type="number" step="0.01" class="nospin-num" value="'+esc(l.qty||'')+'" oninput="POL['+i+'].qty=this.value;poRefreshRow('+i+')"></td>'+
+   '<td><input type="number" step="0.01" class="nospin-num" value="'+esc(l.price||'')+'" oninput="POL['+i+'].price=this.value;poRefreshRow('+i+')"></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="POL['+i+'].note=this.value"></td>'+
    '<td class="num" id="po-amt-'+i+'">'+fmt(poLineTotals(l).amount)+'</td>'+
    '<td><button class="del" onclick="POL.splice('+i+',1);poRefresh()">✕</button></td></tr>').join('')+
@@ -8424,7 +8424,7 @@ function smGrid(rec){
   SML.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
    '<td>'+selx('sm-item-'+i,l.item||'',itemNames,(v)=>smPickItem(i,v),'Select item…')+'</td>'+
    '<td class="num" id="sm-avail-'+i+'" style="'+smAvailStyle(l.item)+'">'+smAvailText(l.item)+'</td>'+
-   '<td><input type="number" step="0.01" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
+   '<td><input type="number" step="0.01" class="nospin-num" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
    '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>').join('')+
   '</tbody></table></div>'+
@@ -8548,8 +8548,8 @@ function assetListHtml(rows){
         '<span>'+fmt(totalStock==null?0:totalStock)+'</span>'+
         '<span>'+fmt(totalReg)+'</span>'+
       '</div>'+
-      (open?'<div class="asset-grp-b"><table><thead><tr><th>Asset code</th><th>Asset Tag Number</th><th>Asset description</th><th>Status</th><th>Location / custodian</th><th class="no-print">Actions</th></tr></thead><tbody>'+
-        entries.map(r=>'<tr><td>'+esc(r.code||'')+'</td><td>'+esc(r.assettag||'')+'</td><td>'+esc(r.name||'')+'</td>'+
+      (open?'<div class="asset-grp-b"><table><thead><tr><th>Item Code</th><th>Asset code</th><th>Asset Tag Number</th><th>Asset description</th><th>Status</th><th>Location / custodian</th><th class="no-print">Actions</th></tr></thead><tbody>'+
+        entries.map(r=>'<tr><td>'+esc(it?it.code:'')+'</td><td>'+esc(r.code||'')+'</td><td>'+esc(r.assettag||'')+'</td><td>'+esc(r.name||'')+'</td>'+
           '<td><span class="pill '+pillCls(r.status)+'">'+esc(r.status||'—')+'</span></td><td>'+esc(r.loc||'')+'</td>'+
           '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View" onclick="event.stopPropagation();assetViewOpen(\''+r.id+'\')">👁</button> '+
           '<button class="btn ghost small" title="Edit" onclick="event.stopPropagation();assetEditOpen(\''+r.id+'\')">✎</button> '+
@@ -8572,16 +8572,28 @@ function assetReportPdf(){
   all.forEach(r=>{const key=r.item||'';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);});
   const items=[...groups.keys()].sort((a,b)=>a.localeCompare(b));
   const doc=new PdfDoc({landscape:true});
+  const avail=doc.w-doc.mL-doc.mR;
   doc.header('ASSET REGISTER REPORT',items.length+' item(s)  ·  '+all.length+' tagged asset(s)  ·  As of '+today());
-  items.forEach(itemName=>{
+  items.forEach((itemName,idx)=>{
     const entries=groups.get(itemName).slice().sort((a,b)=>(a.assettag||'').localeCompare(b.assettag||''));
     const it=coll('items').find(x=>x.name===itemName);
-    doc.need(26);
-    doc.text(doc.mL,doc.y,(it&&it.code?it.code+' — ':'')+(itemName||'—')+'   |   Category: '+(it&&it.cat?it.cat:'—')+
-      '   |   Total Quantity: '+assetTotalQty(itemName)+'   |   Tagged Quantity: '+assetTaggedQty(itemName),9.5,true,'0.10 0.16 0.30');
-    doc.y-=14;
-    doc.table(['Asset code','Asset Tag Number','Asset Description','Status','Location / Custodian','Acquisition Date'],
-      entries.map(r=>[r.code||'',r.assettag||'',r.name||'',r.status||'',r.loc||'',r.acq||'']));
+    // a generous, fixed gap ABOVE every heading (not just enough room for
+    // its own line) is what keeps one item's section from visually
+    // running into the previous item's table; need() alone only avoids a
+    // page break, it doesn't add breathing room.
+    if(idx>0)doc.y-=12;
+    doc.need(34);
+    const heading=(it&&it.code?it.code+' — ':'')+(itemName||'—')+'   |   Category: '+(it&&it.cat?it.cat:'—')+
+      '   |   Total Quantity: '+assetTotalQty(itemName)+'   |   Tagged Quantity: '+assetTaggedQty(itemName);
+    // truncated to the printable width (not left to just run past the
+    // page margin) — a long item name/category is what was overlapping
+    // the table below it
+    doc.text(doc.mL,doc.y,doc.fit(heading,avail,9.5,true),9.5,true,'0.10 0.16 0.30');
+    doc.y-=8;
+    doc.line(doc.mL,doc.y,doc.mL+avail,doc.y);
+    doc.y-=12;
+    doc.table(['Item Code','Asset code','Asset Tag Number','Asset Description','Status','Location / Custodian','Acquisition Date'],
+      entries.map(r=>[it&&it.code?it.code:'',r.code||'',r.assettag||'',r.name||'',r.status||'',r.loc||'',r.acq||'']));
   });
   doc.out('Asset-Register-Report-'+today());
 }
