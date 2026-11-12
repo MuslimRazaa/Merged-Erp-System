@@ -133,6 +133,11 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 #emp-form-page .att-tab{font-size:13.5px;padding:10px 20px}
 #emp-form-page .emp-sec{padding:6px 2px 2px}
 #emp-form-page .card-b{padding:22px 26px}
+/* ---------- m.newScreen "New Record" full page (e.g. Asset Register) ---------- */
+.newscreen-form .fgrid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px 22px}
+.newscreen-form .field label{font-size:12px;margin-bottom:6px}
+.newscreen-form .field input,.newscreen-form .field select,.newscreen-form .field textarea{padding:11px 13px;font-size:14.5px;border-radius:9px}
+.newscreen-form .card-b{padding:22px 26px}
 .field.full{grid-column:1/-1}
 /* searchable dropdown */
 .selx{position:relative}
@@ -1168,7 +1173,7 @@ grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPd
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'stockqty',l:'Stock / Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>{const v=stockAvailable(r.item);return v==null?0:v;}},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 /* Where a job actually happened, named once instead of typed again on
@@ -7435,6 +7440,17 @@ function applyConditionalFields(m,idPrefix){
     if(wrap)wrap.style.display=show?'':'none';
     if(!show){const el=document.getElementById(idPrefix+f.k);if(el)el.value='';}
   });
+  /* A computed field flagged watchOn (e.g. Asset Register's Stock /
+     Quantity, which depends on the Item picked) recomputes the moment
+     that field changes, instead of only showing a stale value from
+     when the form first opened. */
+  m.fields.forEach(f=>{
+    if(f.t!=='computed'||!f.watchOn)return;
+    const inp=document.getElementById(idPrefix+f.k);
+    if(!inp)return;
+    const watchEl=document.getElementById(idPrefix+f.watchOn);
+    inp.value=f.fn({[f.watchOn]:watchEl?watchEl.value:''});
+  });
 }
 function renderModule(){
   const k=modKey(),m=MODULES[k],data=coll(k);
@@ -7462,6 +7478,9 @@ function renderModule(){
   const watchedFields=new Set(m.fields.filter(f=>f.showIf).map(f=>f.showIf.field));
   // a narrowed list has to be re-offered when the field it narrows on moves
   m.fields.forEach(f=>{if(f.narrowOn)watchedFields.add(f.narrowOn);});
+  // a computed field flagged watchOn (Stock / Quantity watching Item) has
+  // to recompute the moment that field changes
+  m.fields.forEach(f=>{if(f.t==='computed'&&f.watchOn)watchedFields.add(f.watchOn);});
   /* A released work order is read, not retyped. */
   const lk=APPR_MODS.has(k)&&editId&&apprLocked(rec);
   const form='<div class="card'+(lk?' appr-locked':'')+'"><div class="card-h">'+(editId?'Edit record':'New record')+' — '+m.name+'</div><div class="card-b">'+
@@ -7512,7 +7531,7 @@ function renderModule(){
   const newScreenActive=m.newScreen&&!editId&&ADD_SCREEN;
   const newScreenIdle=m.newScreen&&!editId&&!ADD_SCREEN;
   document.getElementById('content').innerHTML=kpis+
-    (newScreenActive?'<div style="max-width:900px;margin:0 auto">'+form+'</div>':'')+
+    (newScreenActive?'<div class="newscreen-form">'+form+'</div>':'')+
     (modalEditId||newScreenIdle||newScreenActive?'':form)+
     (newScreenActive?'':list);
   if(modalEditId){
@@ -8411,6 +8430,7 @@ function assetViewOpen(id){
 function assetViewHtml(rec){
   const detail=(label,html)=>'<div><div class="hint" style="margin-bottom:3px">'+esc(label)+'</div><div style="font-size:14.5px;font-weight:600">'+(html||'<span style="opacity:.4">—</span>')+'</div></div>';
   const disp=assetDisposalDate(rec.acq,rec.life);
+  const stockqty=stockAvailable(rec.item);
   return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px;padding:2px 2px 22px;border-bottom:1px solid var(--line);margin-bottom:18px">'+
     detail('Asset code',esc(rec.code||''))+
     detail('Asset Tag Number',esc(rec.assettag||''))+
@@ -8419,6 +8439,7 @@ function assetViewHtml(rec){
     detail('Status','<span class="pill '+pillCls(rec.status)+'" style="font-size:13px">'+esc(rec.status||'—')+'</span>')+
     detail('Location / Custodian',esc(rec.loc||''))+
     detail('Item (from Item Master)',esc(rec.item||''))+
+    detail('Stock / Quantity',fmt(stockqty==null?0:stockqty))+
   '</div>'+
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px">'+
     detail('Acquisition date',esc(rec.acq||''))+
