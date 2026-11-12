@@ -140,7 +140,7 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 .newscreen-form .card-b{padding:22px 26px}
 /* ---------- Asset Register's grouped-by-item list ---------- */
 .asset-grp{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
-.asset-grp-h{display:grid;grid-template-columns:28px 1fr 2fr 1.2fr 1fr;gap:10px;align-items:center;padding:12px 14px;cursor:pointer;font-weight:600;font-size:13.5px}
+.asset-grp-h{display:grid;grid-template-columns:28px 1fr 2fr 1.2fr 1fr 1fr;gap:10px;align-items:center;padding:12px 14px;cursor:pointer;font-weight:600;font-size:13.5px}
 .asset-grp-h:hover{background:var(--hover,rgba(0,0,0,.03))}
 .asset-grp-car{font-size:11px;color:var(--faint,#98A2B3)}
 .asset-grp-b{border-top:1px solid var(--line);padding:4px 14px 10px}
@@ -865,16 +865,20 @@ function assetDisposalDate(acq,life){
   d.setFullYear(d.getFullYear()+(+life||0));
   return d.toISOString().slice(0,10);
 }
-// How many physical units of an Item Master item have already been given
-// their own Asset Register entry (asset tag), out of the item's total
-// Stock Transaction quantity -- "2/5" means 2 of the 5 units on hand are
-// tagged so far. Shown on the New Record form the moment an item is
-// picked, and on every already-saved asset, so the two never disagree.
-function assetStockQtyLabel(itemName){
-  if(!itemName)return '0/0';
-  const total=stockAvailable(itemName);
-  const registered=coll('assets').filter(a=>a.item===itemName).length;
-  return registered+'/'+(total==null?0:total);
+// Total Quantity: the item's whole Stock Transaction quantity. Tagged
+// Quantity: how many of those units already have their own Asset
+// Register entry (asset tag). Shown side by side on the New Record form
+// the moment an item is picked, on every already-saved asset, and as the
+// list's two grouping-header columns -- all four read off this one place
+// so they can never disagree.
+function assetTotalQty(itemName){
+  if(!itemName)return 0;
+  const v=stockAvailable(itemName);
+  return v==null?0:v;
+}
+function assetTaggedQty(itemName){
+  if(!itemName)return 0;
+  return coll('assets').filter(a=>a.item===itemName).length;
 }
 
 /* ============ field helpers ============ */
@@ -1191,7 +1195,7 @@ grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPd
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'stockqty',l:'Stock / Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetStockQtyLabel(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'totalqty',l:'Total Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTotalQty(r.item)},{k:'taggedqty',l:'Tagged Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTaggedQty(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 /* Where a job actually happened, named once instead of typed again on
@@ -8463,7 +8467,8 @@ function assetViewHtml(rec){
     detail('Status','<span class="pill '+pillCls(rec.status)+'" style="font-size:13px">'+esc(rec.status||'—')+'</span>')+
     detail('Location / Custodian',esc(rec.loc||''))+
     detail('Item (from Item Master)',esc(rec.item||''))+
-    detail('Stock / Quantity',esc(assetStockQtyLabel(rec.item)))+
+    detail('Total Quantity',fmt(assetTotalQty(rec.item)))+
+    detail('Tagged Quantity',fmt(assetTaggedQty(rec.item)))+
   '</div>'+
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px">'+
     detail('Acquisition date',esc(rec.acq||''))+
@@ -8498,13 +8503,13 @@ function assetListHtml(rows){
   const items=[...groups.keys()].sort((a,b)=>a.localeCompare(b));
   ASSET_LIST_ITEMS=items;
   return '<div class="asset-grp-h" style="cursor:default;font-size:12px;color:var(--faint,#98A2B3);font-weight:700;padding:4px 14px">'+
-      '<span></span><span>Item Code</span><span>Item Description</span><span>Category</span><span>Quantity / Stock</span></div>'+
+      '<span></span><span>Item Code</span><span>Item Description</span><span>Category</span><span>Total Quantity</span><span>Tagged Quantity</span></div>'+
     items.map((itemName,i)=>{
     const entries=groups.get(itemName).slice().sort((a,b)=>(a.assettag||'').localeCompare(b.assettag||''));
     const it=coll('items').find(x=>x.name===itemName);
-    // the registered/total figure always reflects EVERY saved asset
-    // against this item, not just the ones the search filter kept, so
-    // filtering down to one tag never makes its siblings look uncounted
+    // these always reflect EVERY saved asset against this item, not just
+    // the ones the search filter kept, so filtering down to one tag
+    // never makes its siblings look uncounted
     const totalReg=all.filter(a=>a.item===itemName).length;
     const totalStock=stockAvailable(itemName);
     const open=ASSET_GROUP_OPEN.has(itemName);
@@ -8514,7 +8519,8 @@ function assetListHtml(rows){
         '<span>'+esc(it?it.code:'')+'</span>'+
         '<span>'+esc(itemName||'—')+'</span>'+
         '<span>'+esc(it?it.cat:'')+'</span>'+
-        '<span>'+esc(totalReg+'/'+(totalStock==null?0:totalStock))+'</span>'+
+        '<span>'+fmt(totalStock==null?0:totalStock)+'</span>'+
+        '<span>'+fmt(totalReg)+'</span>'+
       '</div>'+
       (open?'<div class="asset-grp-b"><table><thead><tr><th>Asset code</th><th>Asset Tag Number</th><th>Asset description</th><th>Status</th><th>Location / custodian</th><th class="no-print">Actions</th></tr></thead><tbody>'+
         entries.map(r=>'<tr><td>'+esc(r.code||'')+'</td><td>'+esc(r.assettag||'')+'</td><td>'+esc(r.name||'')+'</td>'+
