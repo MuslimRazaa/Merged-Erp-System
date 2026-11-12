@@ -495,6 +495,22 @@ body.locked #app{display:none}
   <div id="smviewmodal-body"></div>
 </div></div>
 
+<div class="modal" id="asseteditmodal"><div class="box" style="max-width:none;width:70vw;max-height:70vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h3 style="margin:0">Edit — Asset</h3>
+    <button class="btn ghost small" onclick="editId=null;closeModal('asseteditmodal');render()">✕ Close</button>
+  </div>
+  <div id="asseteditmodal-body"></div>
+</div></div>
+
+<div class="modal" id="assetviewmodal"><div class="box" style="max-width:none;width:70vw;max-height:70vh">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h3 style="margin:0" id="assetviewmodal-title">Asset</h3>
+    <button class="btn ghost small" onclick="closeModal('assetviewmodal')">✕ Close</button>
+  </div>
+  <div id="assetviewmodal-body"></div>
+</div></div>
+
 <div class="modal" id="mtepickmodal"><div class="box" style="max-width:1020px;width:96vw">
   <h3>Choose equipment from the M&amp;TE register</h3>
   <p>Tick the instruments this report was inspected with. Everything the
@@ -826,7 +842,17 @@ function closeModal(id){const el=document.getElementById(id);if(el)el.classList.
 // Modules whose "editing an EXISTING record" form is shown inside a big
 // modal instead of inline at the top of the list (see renderModule()) --
 // keyed by module, value is that modal's element id.
-const MODAL_EDIT_ID={grns:'grnmodal',stockmoves:'smeditmodal'};
+const MODAL_EDIT_ID={grns:'grnmodal',stockmoves:'smeditmodal',assets:'asseteditmodal'};
+// Item Master categories that are fixed assets, not consumables — the only
+// ones the Asset Register's "Item (from Item Master)" picker offers, and
+// the ones Stock Reports leaves out (those live here instead).
+const ASSET_ITEM_CATS=['Tool','Equipment'];
+function assetDisposalDate(acq,life){
+  if(!acq||!life)return '';
+  const d=new Date(acq+'T00:00:00');
+  d.setFullYear(d.getFullYear()+(+life||0));
+  return d.toISOString().slice(0,10);
+}
 
 /* ============ field helpers ============ */
 const T=(k,l,ph)=>({k,l,t:'text',ph});
@@ -1142,7 +1168,7 @@ grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPd
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name'),T('assettag','Asset Tag Number'),T('name','Asset description'),S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),D('acq','Acquisition date'),N('cost','Cost'),S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),N('life','Useful life (years)'),N('salvage','Salvage value'),T('loc','Location / custodian'),S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),D('disp','Disposal date')],list:['code','item','name','cat','acq','cost','life','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 /* Where a job actually happened, named once instead of typed again on
@@ -1365,10 +1391,16 @@ if(r.startsWith('m_')&&modAdminOnly(r.slice(2))){alert('Administrator access req
    button, the sidebar, a jump to another module. After the checks above,
    so a refused move does not clear the form the person is still on. */
 if(route==='insp_report'&&r!=='insp_report'&&typeof irFormLeave==='function')irFormLeave();
-route=r;lsSet('ui_route',r);editId=null;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
+route=r;lsSet('ui_route',r);editId=null;ADD_SCREEN=false;nav();render();document.getElementById('sidebar').classList.remove('open');window.scrollTo(0,0);}
 
 /* ============ generic module screens ============ */
 let editId=null,filterQ='';
+// Modules flagged m.newScreen (e.g. Asset Register) show "+ New Record" on
+// the list instead of an inline add-form, and that button opens the form
+// as its own full screen, in place of the list, rather than squeezed above
+// it. True while that screen is open; reset whenever the module/route is
+// left or a save/cancel returns to the list.
+let ADD_SCREEN=false;
 function modKey(){return route.slice(2);}
 /* ================================================================
    AUTH & ROLE-BASED ACCESS
@@ -7445,7 +7477,7 @@ function renderModule(){
     (m.smlines?'<div id="sm-zone">'+smGrid(rec)+'</div>':'')+
     (m.grnlines?'<div id="grn-zone">'+grnGrid(rec)+'</div>':'')+
     (m.vblines?'<div id="vb-zone">'+vbGrid(rec)+'</div>':'')+
-    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\''+(MODAL_EDIT_ID[k]||'grnmodal')+'\');render()">Cancel</button>':'<button class="btn ghost" onclick="renderModule._lk=false;render()">Clear</button>')+
+    '<div class="actions"><button class="btn" onclick="saveRec()">'+(editId?'Update record':'Save record')+'</button>'+(editId?'<button class="btn ghost" onclick="editId=null;closeModal(\''+(MODAL_EDIT_ID[k]||'grnmodal')+'\');render()">Cancel</button>':(m.newScreen?'<button class="btn ghost" onclick="ADD_SCREEN=false;renderModule._lk=false;render()">← Back to list</button>':'<button class="btn ghost" onclick="renderModule._lk=false;render()">Clear</button>'))+
     (m.lines&&editId?'<span class="sp"></span><button class="btn ghost" onclick="quotePreview(\''+editId+'\')">⌘ Preview / Print</button><button class="btn ghost" onclick="quotePdf(\''+editId+'\')">↓ Download PDF</button><button class="btn ghost" onclick="quoteEmail(\''+editId+'\')">✉ Send by email</button>':'')+
     (DOCPDF[k]&&editId?'<span class="sp"></span><button class="btn ghost" onclick="docPdf(\''+k+'\',\''+editId+'\')">↓ Download PDF — '+DOCPDF[k].title.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())+'</button>':'')+
     '</div></div></div>'+
@@ -7460,6 +7492,7 @@ function renderModule(){
   const rows=data.filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
   if(m.sort)rows.sort(m.sort);
   const list=m.nolist?'':'<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
+    (m.newScreen?'<button class="btn" onclick="ADD_SCREEN=true;render()">+ New Record</button> ':'')+
     expBtns('list-zone',k)+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
     '<div class="tblwrap" id="list-zone">'+listTable(m,rows,k)+'</div></div></div>';
@@ -7472,7 +7505,16 @@ function renderModule(){
   // so every grnGrid()/grnPickPo()/saveRec() reference to `f-po` etc. still
   // resolves correctly with no change to any of that code.
   const modalEditId=MODAL_EDIT_ID[k]&&editId?MODAL_EDIT_ID[k]:null;
-  document.getElementById('content').innerHTML=kpis+(modalEditId?'':form)+list;
+  // m.newScreen modules (Asset Register): adding a NEW record replaces the
+  // list with the form as its own full screen instead of showing it inline
+  // above the list; until "+ New Record" is clicked the list stands alone,
+  // with no dead inline add-form sitting above it.
+  const newScreenActive=m.newScreen&&!editId&&ADD_SCREEN;
+  const newScreenIdle=m.newScreen&&!editId&&!ADD_SCREEN;
+  document.getElementById('content').innerHTML=kpis+
+    (newScreenActive?'<div style="max-width:900px;margin:0 auto">'+form+'</div>':'')+
+    (modalEditId||newScreenIdle||newScreenActive?'':form)+
+    (newScreenActive?'':list);
   if(modalEditId){
     document.getElementById(modalEditId+'-body').innerHTML=form;
     openModal(modalEditId);
@@ -7692,7 +7734,7 @@ async function saveRec(){
       await Promise.all(m.fields.filter(f=>f.t==='file').map(f=>fileFieldApplyStaged(k,saved.id,'f-'+f.k)));
       const cur=coll(k);const i=cur.findIndex(r=>r.id===saved.id);
       if(i>=0)cur[i]=saved;else cur.push(saved);
-      collSet(k,cur);REC_AT[k]=0;editId=null;if(MODAL_EDIT_ID[k])closeModal(MODAL_EDIT_ID[k]);render();toast('Saved.','ok');
+      collSet(k,cur);REC_AT[k]=0;editId=null;ADD_SCREEN=false;if(MODAL_EDIT_ID[k])closeModal(MODAL_EDIT_ID[k]);render();toast('Saved.','ok');
       // grnSyncPoStatus's PUT lands AFTER the render() above, so without a
       // follow-up refresh the PO's new receiving status (Partially received
       // / Received) — which both the GRN list's own Status column AND any
@@ -7717,13 +7759,13 @@ async function saveRec(){
       collSet(k,cur);
       obEnqueue({kind:'rec',module:k,recId:rec.id,
                  label:rec.no||rec.code||rec.name||rec.id,body:JSON.stringify(rec)});
-      editId=null;render();
+      editId=null;ADD_SCREEN=false;render();
       toast('No connection \u2014 saved on this machine and queued for the server.','info');
     }
     return;
   }
   if(wasNew)data.push(rec);
-  collSet(k,data);editId=null;render();
+  collSet(k,data);editId=null;ADD_SCREEN=false;render();
   // Confirm the save on screen — with the record number when the module is
   // auto-numbered, so the user sees which document was just filed and the
   // fresh form below already shows the next number.
@@ -8256,9 +8298,8 @@ function smAvailStyle(itemName){
    side by side, so it's obvious at a glance which items need reordering.
    Not a saved/editable record of its own, so it isn't one of MODULES —
    just a plain computed view + a PDF export, wired into EXTRA_NAV. */
-const STOCK_REPORT_ASSET_CATS=['Tool','Equipment']; // these live in the Asset Register, not Stock Reports
 function stockReportRows(){
-  return coll('items').filter(it=>!STOCK_REPORT_ASSET_CATS.includes(it.cat)).slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(it=>{
+  return coll('items').filter(it=>!ASSET_ITEM_CATS.includes(it.cat)).slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'')).map(it=>{
     const current=stockAvailable(it.name);
     const reorder=(it.reorder!=null&&it.reorder!=='')?+it.reorder:null;
     return {
@@ -8353,6 +8394,43 @@ function smViewHtml(rec){
   '<div class="actions" style="justify-content:flex-end;margin-top:18px">'+
    '<button class="btn ghost" onclick="closeModal(\'smviewmodal\')">Close</button>'+
    '<button class="btn" onclick="closeModal(\'smviewmodal\');smEditOpen(\''+rec.id+'\')">✎ Edit</button>'+
+  '</div>';
+}
+// Custom View / Edit for the Asset Register (see m.customView/m.customEdit
+// in MODULES.assets) -- same pattern as Stock Transactions above, just at
+// 70vw/70vh instead of 95vw/95vh. Edit reuses the exact top-of-page form
+// (see renderModule()'s modalEditId branch); View is a bespoke, read-only
+// card so just looking at an asset can never leave it mid-edit.
+function assetEditOpen(id){editId=id;renderModule._lk=false;render();}
+function assetViewOpen(id){
+  const rec=coll('assets').find(r=>r.id===id);if(!rec)return;
+  document.getElementById('assetviewmodal-title').textContent='Asset'+(rec.assettag?' — '+rec.assettag:'')+(rec.name?' — '+rec.name:'');
+  document.getElementById('assetviewmodal-body').innerHTML=assetViewHtml(rec);
+  openModal('assetviewmodal');
+}
+function assetViewHtml(rec){
+  const detail=(label,html)=>'<div><div class="hint" style="margin-bottom:3px">'+esc(label)+'</div><div style="font-size:14.5px;font-weight:600">'+(html||'<span style="opacity:.4">—</span>')+'</div></div>';
+  const disp=assetDisposalDate(rec.acq,rec.life);
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px;padding:2px 2px 22px;border-bottom:1px solid var(--line);margin-bottom:18px">'+
+    detail('Asset code',esc(rec.code||''))+
+    detail('Asset Tag Number',esc(rec.assettag||''))+
+    detail('Asset Description',esc(rec.name||''))+
+    detail('Category',esc(rec.cat||''))+
+    detail('Status','<span class="pill '+pillCls(rec.status)+'" style="font-size:13px">'+esc(rec.status||'—')+'</span>')+
+    detail('Location / Custodian',esc(rec.loc||''))+
+    detail('Item (from Item Master)',esc(rec.item||''))+
+  '</div>'+
+  '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px">'+
+    detail('Acquisition date',esc(rec.acq||''))+
+    detail('Useful life (years)',rec.life?fmt(+rec.life):'')+
+    detail('Disposal date',esc(disp||''))+
+    detail('Currency',esc(rec.cur||''))+
+    detail('Cost',rec.cost?fmt(+rec.cost):'')+
+    detail('Salvage value',rec.salvage?fmt(+rec.salvage):'')+
+  '</div>'+
+  '<div class="actions" style="justify-content:flex-end;margin-top:22px">'+
+   '<button class="btn ghost" onclick="closeModal(\'assetviewmodal\')">Close</button>'+
+   '<button class="btn" onclick="closeModal(\'assetviewmodal\');assetEditOpen(\''+rec.id+'\')">✎ Edit</button>'+
   '</div>';
 }
 /* ============ GRN (Goods Receipt) line grid ============================
