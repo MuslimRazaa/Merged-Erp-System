@@ -8548,8 +8548,8 @@ function assetListHtml(rows){
         '<span>'+fmt(totalStock==null?0:totalStock)+'</span>'+
         '<span>'+fmt(totalReg)+'</span>'+
       '</div>'+
-      (open?'<div class="asset-grp-b"><table><thead><tr><th>Item Code</th><th>Asset code</th><th>Asset Tag Number</th><th>Asset description</th><th>Status</th><th>Location / custodian</th><th class="no-print">Actions</th></tr></thead><tbody>'+
-        entries.map(r=>'<tr><td>'+esc(it?it.code:'')+'</td><td>'+esc(r.code||'')+'</td><td>'+esc(r.assettag||'')+'</td><td>'+esc(r.name||'')+'</td>'+
+      (open?'<div class="asset-grp-b"><table><thead><tr><th>Item Code</th><th>Asset code</th><th>Asset Tag Number</th><th>Item Description</th><th>Status</th><th>Location / custodian</th><th class="no-print">Actions</th></tr></thead><tbody>'+
+        entries.map(r=>'<tr><td>'+esc(it?it.code:'')+'</td><td>'+esc(r.code||'')+'</td><td>'+esc(r.assettag||'')+'</td><td>'+esc(itemName||'')+'</td>'+
           '<td><span class="pill '+pillCls(r.status)+'">'+esc(r.status||'—')+'</span></td><td>'+esc(r.loc||'')+'</td>'+
           '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View" onclick="event.stopPropagation();assetViewOpen(\''+r.id+'\')">👁</button> '+
           '<button class="btn ghost small" title="Edit" onclick="event.stopPropagation();assetEditOpen(\''+r.id+'\')">✎</button> '+
