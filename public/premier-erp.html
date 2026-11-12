@@ -7736,6 +7736,15 @@ async function saveRec(){
     const overRow=GRL.findIndex(l=>(+l.recvQty||0)>(+l.poQty||0)||(+l.rejQty||0)>(+l.poQty||0));
     if(overRow>=0)return toast('Receive Qty / Rejected Qty cannot exceed PO Qty (row '+(overRow+1)+').','err');
   }
+  // An item with zero (or negative) Total Quantity has no physical units
+  // on hand to put an asset tag against — block the save outright rather
+  // than letting a ghost asset get registered.
+  if(k==='assets'){
+    const itemEl=document.getElementById('f-item');
+    const itemVal=itemEl?itemEl.value:'';
+    if(itemVal&&assetTotalQty(itemVal)<=0)
+      return toast('"'+itemVal+'" has 0 stock quantity — it cannot be tagged in the Asset Register.','err');
+  }
   const wasNew=!editId;
   const existing=editId?data.find(r=>r.id===editId):null;
   // Server-backed modules edit a COPY: the cache must only change once the
