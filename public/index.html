@@ -145,6 +145,14 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 .asset-grp-car{font-size:11px;color:var(--faint,#98A2B3)}
 .asset-grp-b{border-top:1px solid var(--line);padding:4px 14px 10px}
 .asset-grp-b table{width:100%}
+/* ---------- Asset Register's View modal ---------- */
+.asset-view-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:0 0 18px;margin-bottom:18px;border-bottom:1px solid var(--line)}
+.asset-view-tag{font-size:20px;font-weight:800;letter-spacing:.2px}
+.asset-view-sub{margin-top:4px;font-size:12.5px;color:var(--faint,#98A2B3)}
+.asset-view-sec{margin-bottom:18px}
+.asset-view-sec-h{font-size:11.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--faint,#98A2B3);margin-bottom:10px;padding-bottom:6px;border-bottom:1px dashed var(--line)}
+.asset-view-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px 20px}
+.asset-view-f{min-width:0}
 .field.full{grid-column:1/-1}
 /* searchable dropdown */
 .selx{position:relative}
@@ -8483,28 +8491,36 @@ function assetViewOpen(id){
   openModal('assetviewmodal');
 }
 function assetViewHtml(rec){
-  const detail=(label,html)=>'<div><div class="hint" style="margin-bottom:3px">'+esc(label)+'</div><div style="font-size:14.5px;font-weight:600">'+(html||'<span style="opacity:.4">—</span>')+'</div></div>';
+  const detail=(label,html)=>'<div class="asset-view-f"><div class="hint" style="margin-bottom:3px">'+esc(label)+'</div><div style="font-size:14.5px;font-weight:600">'+(html||'<span style="opacity:.4">—</span>')+'</div></div>';
+  const section=(title,...fields)=>'<div class="asset-view-sec"><div class="asset-view-sec-h">'+esc(title)+'</div><div class="asset-view-grid">'+fields.join('')+'</div></div>';
   const disp=assetDisposalDate(rec.acq,rec.life);
-  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px;padding:2px 2px 22px;border-bottom:1px solid var(--line);margin-bottom:18px">'+
-    detail('Asset code',esc(rec.code||''))+
-    detail('Asset Tag Number',esc(rec.assettag||''))+
-    detail('Asset Description',esc(rec.name||''))+
-    detail('Category',esc(rec.cat||''))+
-    detail('Status','<span class="pill '+pillCls(rec.status)+'" style="font-size:13px">'+esc(rec.status||'—')+'</span>')+
-    detail('Location / Custodian',esc(rec.loc||''))+
-    detail('Item (from Item Master)',esc(rec.item||''))+
-    detail('Total Quantity',fmt(assetTotalQty(rec.item)))+
-    detail('Tagged Quantity',fmt(assetTaggedQty(rec.item)))+
+  return '<div class="asset-view-top">'+
+    '<div><div class="asset-view-tag">'+esc(rec.assettag||'—')+'</div>'+
+    '<div class="asset-view-sub">'+esc(rec.code||'')+(rec.item?' &nbsp;·&nbsp; '+esc(rec.item):'')+'</div></div>'+
+    '<span class="pill '+pillCls(rec.status)+'" style="font-size:13px">'+esc(rec.status||'—')+'</span>'+
   '</div>'+
-  '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px">'+
-    detail('Acquisition date',esc(rec.acq||''))+
-    detail('Useful life (years)',rec.life?fmt(+rec.life):'')+
-    detail('Disposal date',esc(disp||''))+
-    detail('Currency',esc(rec.cur||''))+
-    detail('Cost',rec.cost?fmt(+rec.cost):'')+
-    detail('Salvage value',rec.salvage?fmt(+rec.salvage):'')+
-  '</div>'+
-  '<div class="actions" style="justify-content:flex-end;margin-top:22px">'+
+  section('Identification',
+    detail('Asset code',esc(rec.code||'')),
+    detail('Asset Description',esc(rec.name||'')),
+    detail('Category',esc(rec.cat||'')),
+    detail('Location / Custodian',esc(rec.loc||''))
+  )+
+  section('Item & Stock',
+    detail('Item (from Item Master)',esc(rec.item||'')),
+    detail('Total Quantity',fmt(assetTotalQty(rec.item))),
+    detail('Tagged Quantity',fmt(assetTaggedQty(rec.item)))
+  )+
+  section('Lifecycle',
+    detail('Acquisition date',esc(rec.acq||'')),
+    detail('Useful life (years)',rec.life?fmt(+rec.life):''),
+    detail('Disposal date',esc(disp||''))
+  )+
+  section('Financial',
+    detail('Currency',esc(rec.cur||'')),
+    detail('Cost',rec.cost?fmt(+rec.cost):''),
+    detail('Salvage value',rec.salvage?fmt(+rec.salvage):'')
+  )+
+  '<div class="actions" style="justify-content:flex-end;margin-top:4px">'+
    '<button class="btn ghost" onclick="closeModal(\'assetviewmodal\')">Close</button>'+
    '<button class="btn" onclick="closeModal(\'assetviewmodal\');assetEditOpen(\''+rec.id+'\')">✎ Edit</button>'+
   '</div>';
