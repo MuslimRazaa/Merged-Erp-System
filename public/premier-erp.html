@@ -138,6 +138,13 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 .newscreen-form .field label{font-size:12px;margin-bottom:6px}
 .newscreen-form .field input,.newscreen-form .field select,.newscreen-form .field textarea{padding:11px 13px;font-size:14.5px;border-radius:9px}
 .newscreen-form .card-b{padding:22px 26px}
+/* ---------- Asset Register's grouped-by-item list ---------- */
+.asset-grp{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.asset-grp-h{display:grid;grid-template-columns:28px 1fr 2fr 1.2fr 1fr;gap:10px;align-items:center;padding:12px 14px;cursor:pointer;font-weight:600;font-size:13.5px}
+.asset-grp-h:hover{background:var(--hover,rgba(0,0,0,.03))}
+.asset-grp-car{font-size:11px;color:var(--faint,#98A2B3)}
+.asset-grp-b{border-top:1px solid var(--line);padding:4px 14px 10px}
+.asset-grp-b table{width:100%}
 .field.full{grid-column:1/-1}
 /* searchable dropdown */
 .selx{position:relative}
@@ -858,6 +865,17 @@ function assetDisposalDate(acq,life){
   d.setFullYear(d.getFullYear()+(+life||0));
   return d.toISOString().slice(0,10);
 }
+// How many physical units of an Item Master item have already been given
+// their own Asset Register entry (asset tag), out of the item's total
+// Stock Transaction quantity -- "2/5" means 2 of the 5 units on hand are
+// tagged so far. Shown on the New Record form the moment an item is
+// picked, and on every already-saved asset, so the two never disagree.
+function assetStockQtyLabel(itemName){
+  if(!itemName)return '0/0';
+  const total=stockAvailable(itemName);
+  const registered=coll('assets').filter(a=>a.item===itemName).length;
+  return registered+'/'+(total==null?0:total);
+}
 
 /* ============ field helpers ============ */
 const T=(k,l,ph)=>({k,l,t:'text',ph});
@@ -1173,7 +1191,7 @@ grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPd
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'stockqty',l:'Stock / Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>{const v=stockAvailable(r.item);return v==null?0:v;}},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'stockqty',l:'Stock / Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetStockQtyLabel(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 /* Where a job actually happened, named once instead of typed again on
@@ -1406,6 +1424,13 @@ let editId=null,filterQ='';
 // it. True while that screen is open; reset whenever the module/route is
 // left or a save/cancel returns to the list.
 let ADD_SCREEN=false;
+// Asset Register's list groups entries by Item (from Item Master); these
+// track which item-groups are currently expanded (by item name) and the
+// order the groups were last rendered in (so a group header's onclick can
+// toggle by plain numeric index instead of embedding the item name itself
+// in an HTML attribute, which free-text names make unsafe to do).
+let ASSET_GROUP_OPEN=new Set();
+let ASSET_LIST_ITEMS=[];
 function modKey(){return route.slice(2);}
 /* ================================================================
    AUTH & ROLE-BASED ACCESS
@@ -7514,7 +7539,7 @@ function renderModule(){
     (m.newScreen?'<button class="btn" onclick="ADD_SCREEN=true;render()">+ New Record</button> ':'')+
     expBtns('list-zone',k)+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
-    '<div class="tblwrap" id="list-zone">'+listTable(m,rows,k)+'</div></div></div>';
+    '<div class="tblwrap" id="list-zone">'+(m.customList?window[m.customList](rows,k):listTable(m,rows,k))+'</div></div></div>';
   // GRN specifically: editing an EXISTING record (not creating a new one)
   // opens this exact same form — fields, items grid, Payable panel, Save/
   // Cancel, all of it — inside a proper full-page modal instead of inline
@@ -7686,7 +7711,7 @@ function renderListOnly(){
   const q=filterQ.toLowerCase();
   const rows=coll(k).filter(r=>!q||JSON.stringify(r).toLowerCase().includes(q));
   if(m.sort)rows.sort(m.sort);
-  const z=document.getElementById('list-zone');if(z)z.innerHTML=listTable(m,rows,k);
+  const z=document.getElementById('list-zone');if(z)z.innerHTML=m.customList?window[m.customList](rows,k):listTable(m,rows,k);
 }
 async function saveRec(){
   const k=modKey(),m=MODULES[k];const data=coll(k);
@@ -8430,7 +8455,6 @@ function assetViewOpen(id){
 function assetViewHtml(rec){
   const detail=(label,html)=>'<div><div class="hint" style="margin-bottom:3px">'+esc(label)+'</div><div style="font-size:14.5px;font-weight:600">'+(html||'<span style="opacity:.4">—</span>')+'</div></div>';
   const disp=assetDisposalDate(rec.acq,rec.life);
-  const stockqty=stockAvailable(rec.item);
   return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px;padding:2px 2px 22px;border-bottom:1px solid var(--line);margin-bottom:18px">'+
     detail('Asset code',esc(rec.code||''))+
     detail('Asset Tag Number',esc(rec.assettag||''))+
@@ -8439,7 +8463,7 @@ function assetViewHtml(rec){
     detail('Status','<span class="pill '+pillCls(rec.status)+'" style="font-size:13px">'+esc(rec.status||'—')+'</span>')+
     detail('Location / Custodian',esc(rec.loc||''))+
     detail('Item (from Item Master)',esc(rec.item||''))+
-    detail('Stock / Quantity',fmt(stockqty==null?0:stockqty))+
+    detail('Stock / Quantity',esc(assetStockQtyLabel(rec.item)))+
   '</div>'+
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px">'+
     detail('Acquisition date',esc(rec.acq||''))+
@@ -8453,6 +8477,54 @@ function assetViewHtml(rec){
    '<button class="btn ghost" onclick="closeModal(\'assetviewmodal\')">Close</button>'+
    '<button class="btn" onclick="closeModal(\'assetviewmodal\');assetEditOpen(\''+rec.id+'\')">✎ Edit</button>'+
   '</div>';
+}
+// Asset Register's own list (see m.customList in MODULES.assets, and the
+// renderModule()/renderListOnly() branches that call it instead of the
+// generic listTable()) -- one item at a time: a header row with the Item
+// Code / Item Description / Category / Quantity-Stock the user asked for,
+// expanding on click into every individual asset-tagged entry registered
+// under that item, each with its own View/Edit/Delete.
+function assetGroupToggle(i){
+  const item=ASSET_LIST_ITEMS[i];
+  if(item==null)return;
+  if(ASSET_GROUP_OPEN.has(item))ASSET_GROUP_OPEN.delete(item);else ASSET_GROUP_OPEN.add(item);
+  render();
+}
+function assetListHtml(rows){
+  if(!rows.length)return '<div class="empty">No records yet — add the first one above.</div>';
+  const all=coll('assets');
+  const groups=new Map();
+  rows.forEach(r=>{const key=r.item||'';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);});
+  const items=[...groups.keys()].sort((a,b)=>a.localeCompare(b));
+  ASSET_LIST_ITEMS=items;
+  return '<div class="asset-grp-h" style="cursor:default;font-size:12px;color:var(--faint,#98A2B3);font-weight:700;padding:4px 14px">'+
+      '<span></span><span>Item Code</span><span>Item Description</span><span>Category</span><span>Quantity / Stock</span></div>'+
+    items.map((itemName,i)=>{
+    const entries=groups.get(itemName).slice().sort((a,b)=>(a.assettag||'').localeCompare(b.assettag||''));
+    const it=coll('items').find(x=>x.name===itemName);
+    // the registered/total figure always reflects EVERY saved asset
+    // against this item, not just the ones the search filter kept, so
+    // filtering down to one tag never makes its siblings look uncounted
+    const totalReg=all.filter(a=>a.item===itemName).length;
+    const totalStock=stockAvailable(itemName);
+    const open=ASSET_GROUP_OPEN.has(itemName);
+    return '<div class="asset-grp">'+
+      '<div class="asset-grp-h" onclick="assetGroupToggle('+i+')">'+
+        '<span class="asset-grp-car">'+(open?'▾':'▸')+'</span>'+
+        '<span>'+esc(it?it.code:'')+'</span>'+
+        '<span>'+esc(itemName||'—')+'</span>'+
+        '<span>'+esc(it?it.cat:'')+'</span>'+
+        '<span>'+esc(totalReg+'/'+(totalStock==null?0:totalStock))+'</span>'+
+      '</div>'+
+      (open?'<div class="asset-grp-b"><table><thead><tr><th>Asset code</th><th>Asset Tag Number</th><th>Asset description</th><th>Status</th><th>Location / custodian</th><th class="no-print">Actions</th></tr></thead><tbody>'+
+        entries.map(r=>'<tr><td>'+esc(r.code||'')+'</td><td>'+esc(r.assettag||'')+'</td><td>'+esc(r.name||'')+'</td>'+
+          '<td><span class="pill '+pillCls(r.status)+'">'+esc(r.status||'—')+'</span></td><td>'+esc(r.loc||'')+'</td>'+
+          '<td class="no-print" style="white-space:nowrap"><button class="btn ghost small" title="View" onclick="event.stopPropagation();assetViewOpen(\''+r.id+'\')">👁</button> '+
+          '<button class="btn ghost small" title="Edit" onclick="event.stopPropagation();assetEditOpen(\''+r.id+'\')">✎</button> '+
+          '<button class="del" title="Delete" onclick="event.stopPropagation();delRec(\''+r.id+'\')">🗑</button></td></tr>').join('')+
+      '</tbody></table></div>':'')+
+    '</div>';
+  }).join('');
 }
 /* ============ GRN (Goods Receipt) line grid ============================
    Picking a PO (above, in the main form) pulls its line items straight
