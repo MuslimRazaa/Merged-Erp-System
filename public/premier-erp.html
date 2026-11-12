@@ -1195,7 +1195,7 @@ grns:{g:'Procurement',ic:'⬈',name:'Goods Receipts',grnlines:true,rowPdf:'grnPd
 vendorbills:{g:'Procurement',ic:'▨',name:'Vendor Bills',vblines:true,fields:[{k:'no',l:'Bill no.',t:'computed',auto:1,fn:r=>r.no||(r.po?nextVendorBillNo((coll('purchaseorders').find(p=>p.no===r.po)||{}).potype):'')},D('date','Date'),REF('vendor','Vendor','vendors','name'),{...REF('po','PO ref','purchaseorders','no',r=>r.status==='Received'||r.status==='Partially received'),req:1},N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),{k:'status',l:'Status',t:'computed',auto:1,fn:vbStatus},D('due','Due date')],list:['no','date','vendor','po','amount','status','due'],badge:vbStatus,kpi:d=>[{n:fmt(d.reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Total Vendor Bills'}]},
 payments:{g:'Procurement',ic:'↑',name:'Payment Vouchers',fields:[T('no','Voucher no.','PV-2026-001'),D('date','Date'),REF('vendor','Payee / vendor','vendors','name'),REF('bill','Vendor bill ref','vendorbills','no'),N('amount','Amount'),T('cur','Currency','AED'),S('method','Method',['Bank transfer','Cheque','Cash','Card']),T('bankref','Bank / cheque ref'),T('approvedby','Approved by'),A('narr','Narration')],list:['no','date','vendor','bill','amount','method','approvedby'],badge:r=>r.method},
 /* ---------------- FIXED ASSETS ---------------- */
-assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'totalqty',l:'Total Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTotalQty(r.item)},{k:'taggedqty',l:'Tagged Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTaggedQty(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
+assets:{g:'Fixed Assets',ic:'⬢',name:'Asset Register',newScreen:1,customView:'assetViewOpen',customEdit:'assetEditOpen',customList:'assetListHtml',customReport:'assetReportPdf',fields:[{k:'code',l:'Asset code',t:'computed',auto:1,fn:r=>r.code||nextYearCode('assets','code','FA')},REF('item','Item (from Item Master)','items','name',r=>ASSET_ITEM_CATS.includes(r.cat)),{k:'totalqty',l:'Total Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTotalQty(r.item)},{k:'taggedqty',l:'Tagged Quantity',t:'computed',auto:1,watchOn:'item',fn:r=>assetTaggedQty(r.item)},{...T('assettag','Asset Tag Number'),req:1},{...T('name','Asset description'),req:1},{...S('cat','Category',['Plant & machinery','Inspection equipment','Vehicles','IT & office','Furniture','Buildings','Other']),req:1},{...D('acq','Acquisition date'),req:1},N('cost','Cost'),{...S('cur','Currency',['AED','PKR','USD','SAR','GBP','EUR','QAR','OMR']),req:1,auto:1,fn:()=>'PKR'},{...N('life','Useful life (years)'),req:1},N('salvage','Salvage value'),{...T('loc','Location / custodian'),req:1},{...S('status','Status',['In service','Under maintenance','Idle','Disposed','Written off']),req:1},{k:'disp',l:'Disposal date',t:'computed',auto:1,fn:r=>assetDisposalDate(r.acq,r.life)}],list:['code','assettag','name','cat','acq','life','disp','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='In service').length,l:'Assets in service'},{n:fmt(d.filter(r=>r.status!=='Disposed').reduce((s,r)=>s+(+r.cost||0),0)),l:'Gross book value'}]},
 maintenance:{g:'Fixed Assets',ic:'⚙',name:'Maintenance Log',fields:[D('date','Date'),REF('asset','Asset','assets','name'),S('type','Type',['Preventive','Corrective','Calibration','Statutory']),A('work','Work performed'),N('cost','Cost'),T('by','By / vendor'),D('next','Next due')],list:['date','asset','type','cost','by','next'],badge:r=>r.type},
 /* ---------------- HR ---------------- */
 /* Where a job actually happened, named once instead of typed again on
@@ -7541,7 +7541,11 @@ function renderModule(){
   if(m.sort)rows.sort(m.sort);
   const list=m.nolist?'':'<div class="card"><div class="card-h">'+m.name+' <span class="pill b">'+data.length+'</span><span class="sp"></span>'+
     (m.newScreen?'<button class="btn" onclick="ADD_SCREEN=true;render()">+ New Record</button> ':'')+
-    expBtns('list-zone',k)+'</div><div class="card-b">'+
+    // the generic CSV/Excel/PDF export buttons read a single flat <table>
+    // out of #list-zone (see tblFrom()/expT()) -- a customList module's
+    // grouped, expand-on-click markup isn't that, so it gets its own
+    // bespoke report button (m.customReport) instead.
+    (m.customReport?'<button class="btn ghost small" title="Download PDF" onclick="'+m.customReport+'()">↓ Download PDF</button>':expBtns('list-zone',k))+'</div><div class="card-b">'+
     '<div class="searchrow no-print"><input type="search" placeholder="Filter…" value="'+esc(filterQ)+'" oninput="filterQ=this.value;renderListOnly()"></div>'+
     '<div class="tblwrap" id="list-zone">'+(m.customList?window[m.customList](rows,k):listTable(m,rows,k))+'</div></div></div>';
   // GRN specifically: editing an EXISTING record (not creating a new one)
@@ -7742,8 +7746,21 @@ async function saveRec(){
   if(k==='assets'){
     const itemEl=document.getElementById('f-item');
     const itemVal=itemEl?itemEl.value:'';
-    if(itemVal&&assetTotalQty(itemVal)<=0)
-      return toast('"'+itemVal+'" has 0 stock quantity — it cannot be tagged in the Asset Register.','err');
+    if(itemVal){
+      const totalQty=assetTotalQty(itemVal);
+      if(totalQty<=0)
+        return toast('"'+itemVal+'" has 0 stock quantity — it cannot be tagged in the Asset Register.','err');
+      // Tagged Quantity can never pass Total Quantity. A record already
+      // registered against this SAME item already counts toward today's
+      // Tagged Quantity, so re-saving it (status change, etc.) needs no
+      // extra room; only a brand-new tag, or moving an existing one onto
+      // a different item, needs a free slot below the total.
+      const already=assetTaggedQty(itemVal);
+      const curRec=editId?data.find(r=>r.id===editId):null;
+      const sameItem=curRec&&curRec.item===itemVal;
+      if(!sameItem&&already>=totalQty)
+        return toast('"'+itemVal+'" already has all '+totalQty+' unit(s) tagged — Tagged Quantity cannot exceed Total Quantity.','err');
+    }
   }
   const wasNew=!editId;
   const existing=editId?data.find(r=>r.id===editId):null;
@@ -8540,6 +8557,33 @@ function assetListHtml(rows){
       '</tbody></table></div>':'')+
     '</div>';
   }).join('');
+}
+// Asset Register's own downloadable report (see m.customReport in
+// MODULES.assets, and the renderModule() list-header branch that shows
+// this button instead of the generic CSV/Excel/PDF ones — those read a
+// single flat table out of the page, which the grouped list above isn't).
+// One section per item, same Item Code / Description / Category / Total
+// Quantity / Tagged Quantity the on-screen group header shows, followed
+// by a table of every asset tag registered under it.
+function assetReportPdf(){
+  const all=coll('assets');
+  if(!all.length)return toast('No assets registered yet.','err');
+  const groups=new Map();
+  all.forEach(r=>{const key=r.item||'';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);});
+  const items=[...groups.keys()].sort((a,b)=>a.localeCompare(b));
+  const doc=new PdfDoc({landscape:true});
+  doc.header('ASSET REGISTER REPORT',items.length+' item(s)  ·  '+all.length+' tagged asset(s)  ·  As of '+today());
+  items.forEach(itemName=>{
+    const entries=groups.get(itemName).slice().sort((a,b)=>(a.assettag||'').localeCompare(b.assettag||''));
+    const it=coll('items').find(x=>x.name===itemName);
+    doc.need(26);
+    doc.text(doc.mL,doc.y,(it&&it.code?it.code+' — ':'')+(itemName||'—')+'   |   Category: '+(it&&it.cat?it.cat:'—')+
+      '   |   Total Quantity: '+assetTotalQty(itemName)+'   |   Tagged Quantity: '+assetTaggedQty(itemName),9.5,true,'0.10 0.16 0.30');
+    doc.y-=14;
+    doc.table(['Asset code','Asset Tag Number','Asset Description','Status','Location / Custodian','Acquisition Date'],
+      entries.map(r=>[r.code||'',r.assettag||'',r.name||'',r.status||'',r.loc||'',r.acq||'']));
+  });
+  doc.out('Asset-Register-Report-'+today());
 }
 /* ============ GRN (Goods Receipt) line grid ============================
    Picking a PO (above, in the main form) pulls its line items straight
