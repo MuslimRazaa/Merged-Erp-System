@@ -14012,30 +14012,48 @@ function irIsPdf(f){
    fetched. One not filed yet has them only here, waiting on the entry card -
    and those are used only for that report: printing a saved report must not
    pick up what is staged for the draft someone is typing. */
+/* Nothing in here throws. The documents live on the server and the report
+   lives on this machine, so the server being out of reach is a fact about
+   the documents and not about the report: it comes back as `away`, and the
+   report prints without them.
+
+   It was thrown before, which meant an inspector in the field asking to
+   see their own report was told there was no connection to the server and
+   handed nothing at all. */
 async function irAttachBytes(id,staged){
-  const out=[];
+  const out=[],missed=[];
   if(id){
-    let list=[];
+    let list=null;
     try{ list=await api('/api/records/'+IR_LIB+'/'+encodeURIComponent(id)+'/files'); }
-    catch(e){ throw new Error('its attached documents could not be listed \u2014 '+e.message); }
+    catch(e){ return {docs:out,missed:missed,away:true}; }
     for(const f of (list||[]).filter(irIsPdf)){
-      const r=await fetch('/api/records/'+IR_LIB+'/'+encodeURIComponent(id)+'/files/'+f.id+'/download',
-        {headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
-      if(!r.ok)throw new Error('"'+f.name+'" could not be downloaded');
-      out.push({name:f.name,bytes:new Uint8Array(await r.arrayBuffer())});
+      /* One that will not come down is named and left out, rather than
+         taking the other documents and the report down with it. */
+      try{
+        const r=await fetch('/api/records/'+IR_LIB+'/'+encodeURIComponent(id)+'/files/'+f.id+'/download',
+          {headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
+        if(!r.ok)throw new Error(r.status);
+        out.push({name:f.name,bytes:new Uint8Array(await r.arrayBuffer())});
+      }catch(e){ missed.push(f.name); }
     }
   }else{
-    for(const f of (staged||[]).filter(irIsPdf))
-      out.push({name:f.name,bytes:new Uint8Array(await f.arrayBuffer())});
+    for(const f of (staged||[]).filter(irIsPdf)){
+      try{ out.push({name:f.name,bytes:new Uint8Array(await f.arrayBuffer())}); }
+      catch(e){ missed.push(f.name); }
+    }
   }
-  return out;
+  return {docs:out,missed:missed,away:false};
 }
 /* The report's pages, with the pages of every document filed with it after
    them, as one file. Returns the joined bytes and the name of anything that
    would not open, so a download and a preview can say the same about it. */
 async function irJoinBytes(bytes,id,staged){
-  const docs=await irAttachBytes(id,staged);
-  if(!docs.length)return {bytes:bytes,joined:0,refused:[]};
+  const got=await irAttachBytes(id,staged);
+  const docs=got.docs;
+  /* What could not be had travels with what could, so whoever is looking
+     at the report is told what is not on it. */
+  const note={joined:0,refused:[],missed:got.missed,away:got.away};
+  if(!docs.length)return Object.assign({bytes:bytes},note);
   const PDFLib=await pdfLibLoad();
   const merged=await PDFLib.PDFDocument.create();
   const report=await PDFLib.PDFDocument.load(bytes);
@@ -14050,7 +14068,7 @@ async function irJoinBytes(bytes,id,staged){
       joined++;
     }catch(e){ refused.push(d.name); }
   }
-  return {bytes:await merged.save(),joined:joined,refused:refused};
+  return Object.assign({bytes:await merged.save()},note,{joined:joined,refused:refused});
 }
 /* Hands the browser the report with its documents after it. Returns true
    always: the download is this function's job from here on. */
@@ -14062,6 +14080,13 @@ function irPdfJoin(bytes,fname,id,staged){
     if(j.joined)toast('The report was downloaded with '+j.joined+' attached document(s) after it.','ok');
     if(j.refused.length)toast('Could not be joined on: '+j.refused.join(', ')+
       ' \u2014 downloaded separately from Saved Reports instead.','err');
+    /* Offline the documents simply are not reachable. The report went down
+       all the same, so this says what is missing from it rather than
+       sounding like the download failed. */
+    if(j.away)toast('The report was downloaded on its own \u2014 its attached '+
+      'documents are on the server and this machine has no connection.','err');
+    if(j.missed.length)toast('Downloaded without '+j.missed.join(', ')+
+      ' \u2014 they could not be fetched from the server.','err');
   }).catch(e=>{
     dlBlob(bytes,'application/pdf',fname);
     toast('The report was downloaded, but '+e.message+
@@ -15594,7 +15619,7 @@ function irLibRows(){
    builds it: the certified sheet, then any document filed against it.
    IR_PDF_AFTER is the hook printing already uses to take the finished bytes
    before they reach the browser. */
-function irOneBytes(r){
+function irOneBytes(r,note){
   return (async()=>{
     let got=null;
     await irWith(r.id,()=>{
@@ -15603,17 +15628,23 @@ function irOneBytes(r){
     });
     if(!got)throw new Error('nothing was printed for '+((r.fields||{}).docId||r.id));
     return got;
-  })().then(bytes=>irJoinBytes(bytes,r.id,null).then(j=>j.bytes));
+  })().then(bytes=>irJoinBytes(bytes,r.id,null).then(j=>{
+    /* Gathered rather than announced one report at a time: a search of
+       forty reports printed offline would otherwise raise forty of the
+       same message. */
+    if(note){ if(j.away)note.away=true; (j.missed||[]).forEach(m=>note.missed.push(m)); }
+    return j.bytes;
+  }));
 }
 /* Every report the search found, joined into one file in the order the list
    shows them. The same form filled in twice is two sets of pages in that
    file, not two downloads. */
-async function irLibMergedBytes(rows){
-  if(rows.length===1)return irOneBytes(rows[0]);
+async function irLibMergedBytes(rows,note){
+  if(rows.length===1)return irOneBytes(rows[0],note);
   const PDFLib=await pdfLibLoad();
   const all=await PDFLib.PDFDocument.create();
   for(const r of rows){
-    const one=await irOneBytes(r);
+    const one=await irOneBytes(r,note);
     const src=await PDFLib.PDFDocument.load(one,{ignoreEncryption:true});
     (await all.copyPages(src,src.getPageIndices())).forEach(p=>all.addPage(p));
   }
@@ -15628,8 +15659,17 @@ function irAllThen(what,fn){
   const rows=irLibRows();
   if(!rows.length){toast('Nothing to '+what+' \u2014 search for some reports first.','err');return;}
   toast('Building '+rows.length+' report'+(rows.length>1?'s':'')+' into one file\u2026','ok');
-  irLibMergedBytes(rows).then(bytes=>fn(bytes,rows))
-    .catch(e=>toast('Could not build the file \u2014 '+e.message,'err'));
+  /* One note for the whole build: what could not be fetched is said once,
+     after the file is in front of them, and never instead of it. */
+  const note={away:false,missed:[]};
+  irLibMergedBytes(rows,note).then(bytes=>{
+    fn(bytes,rows);
+    if(note.away)toast('Built without the attached documents \u2014 they are on '+
+      'the server and this machine has no connection. The reports themselves '+
+      'are complete.','err');
+    if(note.missed.length)toast('Built without '+[...new Set(note.missed)].join(', ')+
+      ' \u2014 they could not be fetched from the server.','err');
+  }).catch(e=>toast('Could not build the file \u2014 '+e.message,'err'));
 }
 function irDownloadAll(){
   irAllThen('download',(bytes,rows)=>
