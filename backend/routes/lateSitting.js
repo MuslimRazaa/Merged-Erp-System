@@ -171,6 +171,68 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
   }
 });
 
+// POST /api/late-sittings/backdated — HR/Admin only. Lets HR log a Work
+// From Home entry on an EMPLOYEE'S BEHALF for a date that's already in the
+// past (the self-service route above only ever allows today/yesterday, read
+// live off the submitter's own clock — this is for catching up entries that
+// were missed at the time, e.g. filed through Leave Request by mistake).
+// Written into the exact same two tables, under the chosen employee's own
+// id, with the exact same audit action — so it shows up identically in
+// Overtime's "My Late Sittings" / the HR audit list, with nothing marking
+// it as HR-entered rather than self-logged.
+router.post('/backdated', requireHr, async (req, res) => {
+  const employeeId = +req.body.employeeId;
+  if (!Number.isFinite(employeeId)) return res.status(400).json({ error: 'Pick an employee.' });
+  const [empRows] = await pool.query('SELECT id, employee_id, full_name FROM employees WHERE id = ?', [employeeId]);
+  if (!empRows.length) return res.status(404).json({ error: 'Employee not found.' });
+  const emp = empRows[0];
+
+  const workDate = String(req.body.workDate || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return res.status(400).json({ error: 'workDate must be YYYY-MM-DD.' });
+
+  const outTime = new Date(String(req.body.outTime || ''));
+  if (isNaN(outTime.getTime())) return res.status(400).json({ error: 'outTime is not a valid date/time.' });
+  const now = new Date();
+  if (outTime.getTime() - now.getTime() > 10 * 60 * 1000) {
+    return res.status(400).json({ error: 'That time is in the future — check it and try again.' });
+  }
+  if (ymdLocal(outTime) !== workDate) {
+    return res.status(400).json({ error: 'The checkout time must fall on the selected date.' });
+  }
+
+  const workMode = 'Work From Home';
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    let logId;
+    try {
+      const [logResult] = await conn.query(
+        `INSERT INTO erp_attendance_logs (device_user_id, device_user_name, employee_id, punch_time, verify_mode, in_out_mode, source)
+         VALUES (?,?,?,?,?,?,?)`,
+        [emp.employee_id, emp.full_name, emp.id, outTime, null, 5, 'late-sitting']
+      );
+      logId = logResult.insertId;
+    } catch (e) {
+      if (e.code === 'ER_DUP_ENTRY') { await conn.rollback(); return res.status(409).json({ error: 'This employee already has a late sitting logged at this exact time.' }); }
+      throw e;
+    }
+    const [result] = await conn.query(
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id)
+       VALUES (?,?,?,?,?)`,
+      [emp.id, workDate, outTime, workMode, logId]
+    );
+    await conn.commit();
+    await audit(emp.employee_id, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)} (${workMode})`);
+    res.status(201).json({ id: result.insertId, workDate, outTime, workMode, hasAttachment: false, submittedAt: new Date() });
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+});
+
 // GET /api/late-sittings/:id/attachment — the proof screenshot, if one was
 // attached. The employee who logged it, or HR/Admin, only.
 router.get('/:id/attachment', async (req, res) => {

@@ -3032,9 +3032,14 @@ async function renderLeaveRequests(){
      '<div class="field"><label>Leave Request Type</label><select id="lv-reqtype">'+LV_REQUEST_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
      '<div class="field"><label>Current Status</label><input id="lv-status" value="InProcess" disabled></div>'+
      '<div class="field"><label>Document No.</label><input id="lv-docno" value="Assigned on save" disabled></div>'+
-     '<div class="field"><label>Type of Leave</label><select id="lv-type" onchange="lvFbHint()">'+LV_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
-     '<div class="field"><label>From Date</label><input id="lv-from" type="date" onchange="lvFbHint()"></div>'+
-     '<div class="field"><label>To Date</label><input id="lv-to" type="date"></div>'+
+     // "Work From Home" is HR-only and, unlike every other type here, never
+     // becomes a leave request at all — see lvFbHint()/lvSubmitWfh() below.
+     // Added 2026-11-13 purely so HR can backfill some missed WFH entries
+     // straight into Overtime; remove it from this list again once that's done.
+     '<div class="field"><label>Type of Leave</label><select id="lv-type" onchange="lvFbHint()">'+(hasHr?LV_TYPES.concat(['Work From Home']):LV_TYPES).map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+     '<div class="field" id="lv-from-field"><label id="lv-from-label">From Date</label><input id="lv-from" type="date" onchange="lvFbHint()"></div>'+
+     '<div class="field" id="lv-to-field"><label>To Date</label><input id="lv-to" type="date"></div>'+
+     '<div class="field" id="lv-wfh-time-field" style="display:none"><label>Checkout Time</label><input id="lv-wfh-time" type="time"></div>'+
      '<div class="field"><label>Request Date</label><input id="lv-reqdate" type="date" value="'+today()+'"></div>'+
     '</div>'+
     '<div class="hint" id="lv-fb-hint" style="display:none;margin-top:8px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>'+
@@ -3045,7 +3050,7 @@ async function renderLeaveRequests(){
     '<div class="hint" id="lv-decision-info" style="display:none;margin-top:8px;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>'+
     '<div class="lerr" id="lv-err" style="display:none"></div>'+
     '<div class="actions" style="margin-top:10px">'+
-     '<button class="btn" onclick="lvSubmit()">Save for Approval</button>'+
+     '<button class="btn" id="lv-submit-btn" onclick="lvSubmit()">Save for Approval</button>'+
      '<button class="btn ghost" onclick="lvTogglePrevious()">View Previous Leaves</button>'+
     '</div>'+
    '</div></div>'+
@@ -3426,6 +3431,26 @@ async function lvSave(){await lvSaveInternal();}
 async function lvFbHint(){
   const box=document.getElementById('lv-fb-hint');if(!box)return;
   const type=(document.getElementById('lv-type')||{}).value;
+  // Work From Home swaps the From/To Date range for a single WFH date (the
+  // From Date field, relabelled) + a checkout time, and never saves a leave
+  // request at all — lvSubmit() branches to lvSubmitWfh() instead, which
+  // posts straight to Overtime's backdated-entry endpoint.
+  const fromField=document.getElementById('lv-from-field'),fromLabel=document.getElementById('lv-from-label'),
+    toField=document.getElementById('lv-to-field'),wfhField=document.getElementById('lv-wfh-time-field'),
+    submitBtn=document.getElementById('lv-submit-btn');
+  if(type==='Work From Home'){
+    if(toField)toField.style.display='none';
+    if(wfhField)wfhField.style.display='';
+    if(fromLabel)fromLabel.textContent='Work From Home Date';
+    if(submitBtn)submitBtn.textContent='Log as Overtime (Work From Home)';
+    box.style.display='block';
+    box.innerHTML='<b>Note:</b> this will NOT create a Leave Request. It logs straight into the Overtime tab as a Work From Home entry for the selected employee — exactly as if they had logged it themselves.';
+    return;
+  }
+  if(toField)toField.style.display='';
+  if(wfhField)wfhField.style.display='none';
+  if(fromLabel)fromLabel.textContent='From Date';
+  if(submitBtn)submitBtn.textContent='Save for Approval';
   if(type!=='Field Break'){box.style.display='none';return;}
   const empEl=document.getElementById('lv-emp');
   const empId=empEl&&empEl.value?empEl.value:(SESSION?SESSION.uid:null);
@@ -3445,8 +3470,29 @@ async function lvFbHint(){
 // flow was confusing enough in practice that requests were getting left
 // stuck at InProcess, never reaching HR at all.
 async function lvSubmit(){
+  if((document.getElementById('lv-type')||{}).value==='Work From Home'){await lvSubmitWfh();return;}
   const row=await lvSaveInternal();
   if(row)await lvChangeStatus(row.id,'ReleasedForApproval');
+}
+// Work From Home never touches /api/leave — it posts straight to Overtime's
+// HR-only backdated-entry endpoint, under the chosen employee's own id, so
+// it shows up in their Overtime tab exactly like something they logged
+// themselves (and counts toward Attendance/Payroll the same way too).
+async function lvSubmitWfh(){
+  const err=document.getElementById('lv-err');err.style.display='none';
+  const v=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  const empEl=document.getElementById('lv-emp');
+  const employeeId=empEl?empEl.value:(SESSION?SESSION.uid:'');
+  if(!employeeId){err.textContent='Pick an employee.';err.style.display='block';return;}
+  const workDate=v('lv-from');
+  if(!workDate){err.textContent='Pick the Work From Home date.';err.style.display='block';return;}
+  const timeVal=v('lv-wfh-time');
+  if(!timeVal){err.textContent='Enter the checkout time.';err.style.display='block';return;}
+  try{
+    await api('/api/late-sittings/backdated',{method:'POST',body:JSON.stringify({employeeId,workDate,outTime:workDate+'T'+timeVal+':00'})});
+    toast('Logged as a Work From Home overtime entry — it will not appear in Leave Requests.','ok');
+    lvNewForm();
+  }catch(e){err.textContent=e.message;err.style.display='block';}
 }
 async function lvRelease(){await lvChangeStatus(LV_EDIT&&LV_EDIT.id,'ReleasedForApproval');}
 async function lvCancelReq(){if(LV_EDIT&&confirm('Cancel this leave request?'))await lvChangeStatus(LV_EDIT.id,'Cancelled');}
