@@ -8417,17 +8417,33 @@ function stockAvailable(itemName){
   return found?total:null;
 }
 function smAvailText(itemName){const v=stockAvailable(itemName);return v==null?'N/A':fmt(v);}
-// A line only risks over-drawing stock on the two transaction types that
-// actually subtract from it (see stockAvailable()'s own sign logic above) —
-// Transfer/PR/Receipt/Adjustment + never need this warning. N/A (never
-// seen on a Stock Transaction before) is left alone too: there's no real
-// number to compare against, so flagging it would just be noise.
-const STOCK_DECREASE_TYPES=['Issue','Adjustment -'];
+// A line risks over-drawing stock on Issue/Adjustment - (the two types that
+// actually subtract from stockAvailable()'s running total) AND on Transfer:
+// a transfer nets to zero system-wide (stockAvailable() gives it sign 0 —
+// it's just moving stock between locations, see that function's own
+// comment), but you still can't physically move more units out of a
+// location than are on hand right now, so it needs the same check even
+// though it doesn't change the total itself. Receipt/Adjustment +/PR never
+// need this warning. N/A (never seen on a Stock Transaction before) is left
+// alone too: there's no real number to compare against, so flagging it
+// would just be noise.
+const STOCK_DECREASE_TYPES=['Issue','Adjustment -','Transfer'];
 function smLineOver(l,type){
   if(!l||!l.item||!STOCK_DECREASE_TYPES.includes(type))return false;
   const avail=stockAvailable(l.item);
   if(avail==null)return false;
   return (+l.qty||0)>avail;
+}
+// Stock Transaction quantities are whole units, never fractional and never
+// negative — "Issue"/"Adjustment -" in the Type dropdown is already how a
+// decrease gets expressed, so the Quantity box itself has no business
+// accepting a "-" or a ".". Strips anything else typed, right in the input
+// event, before SML[i].qty ever sees it.
+function smQtyInput(el,i){
+  const cleaned=el.value.replace(/[^0-9]/g,'');
+  if(cleaned!==el.value)el.value=cleaned;
+  SML[i].qty=cleaned;
+  smCheckLine(i);
 }
 // Re-checks one line in place (border + the small red note under the
 // Quantity box) without re-rendering the whole grid — called on every
@@ -8521,7 +8537,7 @@ function smGrid(rec){
    return '<tr><td class="num">'+(i+1)+'</td>'+
    '<td>'+selx('sm-item-'+i,l.item||'',itemNames,(v)=>smPickItem(i,v),'Select item…')+'</td>'+
    '<td class="num" id="sm-avail-'+i+'" style="'+smAvailStyle(l.item)+'">'+smAvailText(l.item)+'</td>'+
-   '<td><input id="sm-qty-'+i+'" type="number" step="0.01" class="nospin-num" style="'+(over?'border:1.5px solid #DC2626':'')+'" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value;smCheckLine('+i+')">'+
+   '<td><input id="sm-qty-'+i+'" type="number" step="1" min="0" class="nospin-num" style="'+(over?'border:1.5px solid #DC2626':'')+'" value="'+esc(l.qty||'')+'" oninput="smQtyInput(this,'+i+')">'+
     '<div id="sm-qty-warn-'+i+'" class="hint" style="color:#DC2626;margin-top:2px;'+(over?'':'display:none')+'">Exceeds available stock</div></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
    '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>';
