@@ -16,12 +16,15 @@ const { canAccess } = require('../roles');
 const router = express.Router();
 router.use(requireAuth);
 
-const CATEGORIES = ['Photo', 'Signature', 'CV', 'ID / Passport', 'Education', 'Certificate', 'Contract', 'Other'];
+// Sign and Stamp are two separate things an employee can have on file, each
+// uploaded and edited independently (see signCard/stampCard on the front
+// end) — not one combined "Sign/Stamp" item.
+const CATEGORIES = ['Photo', 'Signature', 'Stamp', 'CV', 'ID / Passport', 'Education', 'Certificate', 'Contract', 'Other'];
 // Categories that behave like a profile photo rather than a pile of
 // documents: image-only, one at a time (uploading a new one replaces the
-// old), and each gets its own dedicated GET .../photo or .../signature
-// route below instead of living only in the generic file list.
-const SINGLETON_IMAGE_CATEGORIES = ['Photo', 'Signature'];
+// old), and each gets its own dedicated GET .../photo, .../signature or
+// .../stamp route below instead of living only in the generic file list.
+const SINGLETON_IMAGE_CATEGORIES = ['Photo', 'Signature', 'Stamp'];
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_BYTES, files: 10 } });
@@ -75,16 +78,29 @@ router.get('/:employeeId/photo', async (req, res) => {
   res.send(rows[0].file_data);
 });
 
-// GET /api/employee-files/:employeeId/signature — the current sign/stamp
-// (a background-removed PNG, see empSignOpenEditor() on the front end), or
-// 404. Same shape as /photo above — this is what any report/PDF that needs
-// to stamp an employee's signature onto a document should call.
+// GET /api/employee-files/:employeeId/signature — the current signature (a
+// background-removed PNG, see signEditOpen() on the front end), or 404.
+// Same shape as /photo above — this is what any report/PDF that needs to
+// put an employee's signature onto a document should call.
 router.get('/:employeeId/signature', async (req, res) => {
   const [rows] = await pool.query(
     "SELECT mime_type, file_data FROM erp_employee_files WHERE employee_id = ? AND category = 'Signature' ORDER BY id DESC LIMIT 1",
     [req.params.employeeId]
   );
-  if (!rows.length) return res.status(404).json({ error: 'No sign/stamp.' });
+  if (!rows.length) return res.status(404).json({ error: 'No signature.' });
+  res.setHeader('Content-Type', rows[0].mime_type || 'image/png');
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+  res.send(rows[0].file_data);
+});
+
+// GET /api/employee-files/:employeeId/stamp — the current stamp, same
+// shape as /signature above but a separate, independently-uploaded item.
+router.get('/:employeeId/stamp', async (req, res) => {
+  const [rows] = await pool.query(
+    "SELECT mime_type, file_data FROM erp_employee_files WHERE employee_id = ? AND category = 'Stamp' ORDER BY id DESC LIMIT 1",
+    [req.params.employeeId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'No stamp.' });
   res.setHeader('Content-Type', rows[0].mime_type || 'image/png');
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
   res.send(rows[0].file_data);
@@ -98,7 +114,7 @@ router.post('/:employeeId', requireWrite, upload.array('files', 10), handleUploa
   if (!files.length) return res.status(400).json({ error: 'No file received.' });
   const category = CATEGORIES.includes(req.body.category) ? req.body.category : 'Other';
   if (SINGLETON_IMAGE_CATEGORIES.includes(category)) {
-    const label = category === 'Photo' ? 'photo' : 'sign/stamp';
+    const label = category === 'Photo' ? 'photo' : category === 'Signature' ? 'signature' : 'stamp';
     if (files.length > 1) return res.status(400).json({ error: `Upload one ${label} at a time.` });
     if (!/^image\//.test(files[0].mimetype)) return res.status(400).json({ error: `The ${label} must be an image file.` });
     if (files[0].size > MAX_PHOTO_BYTES) return res.status(413).json({ error: `The ${label} is larger than ${MAX_PHOTO_BYTES / 1024 / 1024} MB.` });
