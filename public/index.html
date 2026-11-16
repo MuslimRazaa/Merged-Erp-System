@@ -515,6 +515,33 @@ body.locked #app{display:none}
   <div id="smviewmodal-body"></div>
 </div></div>
 
+<!-- Employees -> Photo & Documents (and the per-employee View tab): Sign /
+     Stamp editor. Whatever photo of a physical signature the user uploads
+     opens here first — drag a crop box over just the signature, slide the
+     background-removal threshold until the paper disappears, then it's
+     saved as a transparent PNG. Shared by both upload entry points (see
+     empPickSign()/evPickSign() below) via signEditOpen(file, onSave). -->
+<div class="modal" id="signeditmodal"><div class="box" style="max-width:640px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <h3 style="margin:0">Edit Sign / Stamp</h3>
+    <button class="btn ghost small" onclick="signEditCancel()">✕ Close</button>
+  </div>
+  <div class="hint" style="margin-bottom:10px">Drag on the image to crop to just the signature/stamp, then slide the background removal until the paper disappears and only the ink is left.</div>
+  <div id="sign-canvas-wrap" style="background:repeating-conic-gradient(#d9dde3 0% 25%, #fff 0% 50%) 0 0/16px 16px;border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;justify-content:center;overflow:auto;max-height:50vh">
+    <canvas id="sign-canvas" style="max-width:100%;cursor:crosshair" onmousedown="signDragStart(event)" onmousemove="signDragMove(event)" onmouseup="signDragEnd(event)" onmouseleave="signDragEnd(event)"></canvas>
+  </div>
+  <div class="fgrid" style="margin-top:14px">
+    <div class="field"><label>Remove background up to brightness</label>
+     <input type="range" id="sign-threshold" min="0" max="255" value="200" oninput="signRedraw()" style="width:100%"></div>
+    <div class="field" style="align-self:end"><button type="button" class="btn ghost small" onclick="signResetCrop()">Reset crop</button></div>
+  </div>
+  <div class="lerr" id="sign-err" style="display:none"></div>
+  <div class="actions" style="margin-top:14px">
+   <button class="btn" onclick="signEditApply()">Use this Sign / Stamp</button>
+   <button class="btn ghost" onclick="signEditCancel()">Cancel</button>
+  </div>
+</div></div>
+
 <div class="modal" id="asseteditmodal"><div class="box" style="max-width:none;width:70vw;max-height:70vh">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
     <h3 style="margin:0">Edit — Asset</h3>
@@ -4138,21 +4165,124 @@ function empSectionHtml(k){
   if(k==='docs')return '<div id="emp-docs-box">'+empDocsFormHtml()+'</div>';
   return '';
 }
+/* ---- Sign / Stamp editor (shared by the Add/Edit Employee form's
+   "Photo & Documents" tab and the Employee View's "Documents" tab) ----
+   signEditOpen(file,onSave) loads whatever image was picked onto the
+   canvas, lets the user drag-crop it and slide a brightness threshold that
+   turns every pixel at or above it transparent (plain paper is bright;
+   ink/stamp ink is not) — a deliberately simple approach with no server or
+   third-party dependency, good enough for a scanned/photographed signature
+   on a plain sheet. onSave(blob) fires with the final cropped, background-
+   removed PNG once the user clicks "Use this Sign / Stamp". */
+let SIGN_EDIT={imgData:null,w:0,h:0,crop:null,dragStart:null,onSave:null};
+function signEditOpen(file,onSave){
+  if(!file)return;
+  if(!/^image\//.test(file.type)){toast('The sign/stamp must be an image file.','err');return;}
+  const img=new Image(),u=URL.createObjectURL(file);
+  img.onload=()=>{
+    URL.revokeObjectURL(u);
+    const sc=Math.min(1,1200/Math.max(img.width,img.height));
+    const w=Math.round(img.width*sc),h=Math.round(img.height*sc);
+    const cv=document.getElementById('sign-canvas');cv.width=w;cv.height=h;
+    const ctx=cv.getContext('2d');ctx.drawImage(img,0,0,w,h);
+    SIGN_EDIT={imgData:ctx.getImageData(0,0,w,h),w,h,crop:null,dragStart:null,onSave};
+    document.getElementById('sign-threshold').value=200;
+    document.getElementById('sign-err').style.display='none';
+    signRedraw();
+    openModal('signeditmodal');
+  };
+  img.onerror=()=>{URL.revokeObjectURL(u);toast('That file is not a readable image.','err');};
+  img.src=u;
+}
+// Luminance-based cutoff: paper (bright) -> alpha 0, ink/stamp (dark) ->
+// alpha 255. Shared by the live preview and the final export below so they
+// never disagree on what the slider actually does.
+function signMaskedData(src,th){
+  const out=new ImageData(src.width,src.height);
+  for(let p=0;p<src.data.length;p+=4){
+    const r=src.data[p],g=src.data[p+1],b=src.data[p+2];
+    out.data[p]=r;out.data[p+1]=g;out.data[p+2]=b;
+    out.data[p+3]=(0.299*r+0.587*g+0.114*b)>=th?0:255;
+  }
+  return out;
+}
+function signRedraw(){
+  if(!SIGN_EDIT.imgData)return;
+  const cv=document.getElementById('sign-canvas'),ctx=cv.getContext('2d');
+  const th=+document.getElementById('sign-threshold').value;
+  ctx.putImageData(signMaskedData(SIGN_EDIT.imgData,th),0,0);
+  const c=SIGN_EDIT.crop;
+  if(c){
+    ctx.save();ctx.fillStyle='rgba(0,0,0,.45)';
+    ctx.fillRect(0,0,cv.width,c.y);ctx.fillRect(0,c.y+c.h,cv.width,cv.height-(c.y+c.h));
+    ctx.fillRect(0,c.y,c.x,c.h);ctx.fillRect(c.x+c.w,c.y,cv.width-(c.x+c.w),c.h);
+    ctx.strokeStyle='#2563EB';ctx.lineWidth=2;ctx.strokeRect(c.x+1,c.y+1,Math.max(0,c.w-2),Math.max(0,c.h-2));
+    ctx.restore();
+  }
+}
+function signCanvasPos(e){
+  const cv=document.getElementById('sign-canvas'),r=cv.getBoundingClientRect();
+  return {x:Math.round((e.clientX-r.left)*(cv.width/r.width)),y:Math.round((e.clientY-r.top)*(cv.height/r.height))};
+}
+function signDragStart(e){
+  if(!SIGN_EDIT.imgData)return;
+  SIGN_EDIT.dragStart=signCanvasPos(e);
+  SIGN_EDIT.crop={x:SIGN_EDIT.dragStart.x,y:SIGN_EDIT.dragStart.y,w:0,h:0};
+}
+function signDragMove(e){
+  if(!SIGN_EDIT.dragStart)return;
+  const p=signCanvasPos(e),x0=SIGN_EDIT.dragStart.x,y0=SIGN_EDIT.dragStart.y;
+  SIGN_EDIT.crop={x:Math.max(0,Math.min(x0,p.x)),y:Math.max(0,Math.min(y0,p.y)),
+    w:Math.min(SIGN_EDIT.w,Math.abs(p.x-x0)),h:Math.min(SIGN_EDIT.h,Math.abs(p.y-y0))};
+  signRedraw();
+}
+function signDragEnd(){SIGN_EDIT.dragStart=null;}
+function signResetCrop(){SIGN_EDIT.crop=null;signRedraw();}
+function signEditApply(){
+  if(!SIGN_EDIT.imgData)return;
+  const err=document.getElementById('sign-err');err.style.display='none';
+  const full={x:0,y:0,w:SIGN_EDIT.w,h:SIGN_EDIT.h};
+  const c=(SIGN_EDIT.crop&&SIGN_EDIT.crop.w>4&&SIGN_EDIT.crop.h>4)?SIGN_EDIT.crop:full;
+  const th=+document.getElementById('sign-threshold').value;
+  const masked=signMaskedData(SIGN_EDIT.imgData,th);
+  const out=document.createElement('canvas');out.width=c.w;out.height=c.h;
+  const octx=out.getContext('2d'),od=octx.createImageData(c.w,c.h);
+  for(let yy=0;yy<c.h;yy++)for(let xx=0;xx<c.w;xx++){
+    const sp=((yy+c.y)*masked.width+(xx+c.x))*4,dp=(yy*c.w+xx)*4;
+    od.data[dp]=masked.data[sp];od.data[dp+1]=masked.data[sp+1];od.data[dp+2]=masked.data[sp+2];od.data[dp+3]=masked.data[sp+3];
+  }
+  octx.putImageData(od,0,0);
+  out.toBlob(blob=>{
+    if(!blob){err.textContent='Could not process the image.';err.style.display='block';return;}
+    const onSave=SIGN_EDIT.onSave;
+    closeModal('signeditmodal');
+    SIGN_EDIT={imgData:null,w:0,h:0,crop:null,dragStart:null,onSave:null};
+    if(onSave)onSave(blob);
+  },'image/png');
+}
+function signEditCancel(){
+  closeModal('signeditmodal');
+  SIGN_EDIT={imgData:null,w:0,h:0,crop:null,dragStart:null,onSave:null};
+}
 /* ---- Add/Edit Employee form: "Photo & Documents" tab ----
    Files picked here wait in the browser and are uploaded right after the
    employee itself is saved (a brand-new employee has no id until then).
    For an existing employee, files already on the server are listed too —
    removing one of those takes effect immediately. */
-let EMP_Q={photo:null,photoUrl:null,docs:[]},EMP_SAVED=[],EMP_SAVED_PHOTO_URL=null;
+let EMP_Q={photo:null,photoUrl:null,sign:null,signUrl:null,docs:[]},EMP_SAVED=[],EMP_SAVED_PHOTO_URL=null,EMP_SAVED_SIGN_URL=null;
 function empQReset(){
   if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
+  if(EMP_Q.signUrl)URL.revokeObjectURL(EMP_Q.signUrl);
   if(EMP_SAVED_PHOTO_URL)URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);
-  EMP_Q={photo:null,photoUrl:null,docs:[]};EMP_SAVED=[];EMP_SAVED_PHOTO_URL=null;
+  if(EMP_SAVED_SIGN_URL)URL.revokeObjectURL(EMP_SAVED_SIGN_URL);
+  EMP_Q={photo:null,photoUrl:null,sign:null,signUrl:null,docs:[]};EMP_SAVED=[];EMP_SAVED_PHOTO_URL=null;EMP_SAVED_SIGN_URL=null;
 }
 function empDocsFormHtml(){
   const pic=EMP_Q.photoUrl||EMP_SAVED_PHOTO_URL;
   const savedPhoto=EMP_SAVED.find(f=>f.category==='Photo');
-  const savedDocs=EMP_SAVED.filter(f=>f.category!=='Photo');
+  const sign=EMP_Q.signUrl||EMP_SAVED_SIGN_URL;
+  const savedSign=EMP_SAVED.find(f=>f.category==='Signature');
+  const savedDocs=EMP_SAVED.filter(f=>f.category!=='Photo'&&f.category!=='Signature');
   const photoCard='<div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">'+
     '<div style="width:110px;height:110px;border-radius:10px;background:var(--soft) center/cover no-repeat;'+(pic?'background-image:url('+pic+');':'')+'display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">'+(pic?'':'No photo')+'</div>'+
     '<div><div style="font-weight:700;margin-bottom:4px">Photograph</div>'+
@@ -4161,13 +4291,21 @@ function empDocsFormHtml(){
      (EMP_Q.photo?'<button type="button" class="btn ghost small" onclick="empClearQueuedPhoto()">Undo</button> ':'')+
      (!EMP_Q.photo&&savedPhoto?'<button type="button" class="btn ghost small" style="color:#b42318" onclick="empSavedDocDelete('+savedPhoto.id+')">Remove</button>':'')+
      '<input type="file" id="emp-photo-file" accept="image/*" style="display:none" onchange="empPickPhoto(this.files)"></div></div>';
+  const signCard='<div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">'+
+    '<div style="width:110px;height:110px;border-radius:10px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;'+(sign?'background:repeating-conic-gradient(#e3e6ea 0% 25%, #fff 0% 50%) 0 0/14px 14px':'background:var(--soft)')+'">'+(sign?'<img src="'+sign+'" style="max-width:100%;max-height:100%;object-fit:contain">':'No sign')+'</div>'+
+    '<div><div style="font-weight:700;margin-bottom:4px">Sign / Stamp</div>'+
+     '<div class="hint" style="margin-bottom:8px">A photo of a signature/stamp — background is removed before saving'+(EMP_Q.sign?' · <b>will be saved when you click Save employee</b>':'')+'</div>'+
+     '<button type="button" class="btn ghost small" onclick="document.getElementById(\'emp-sign-file\').click()">'+(sign?'Change sign / stamp':'Choose sign / stamp')+'</button> '+
+     (EMP_Q.sign?'<button type="button" class="btn ghost small" onclick="empClearQueuedSign()">Undo</button> ':'')+
+     (!EMP_Q.sign&&savedSign?'<button type="button" class="btn ghost small" style="color:#b42318" onclick="empSavedDocDelete('+savedSign.id+')">Remove</button>':'')+
+     '<input type="file" id="emp-sign-file" accept="image/*" style="display:none" onchange="empPickSign(this.files)"></div></div>';
   const rowSaved=f=>'<tr><td><b>'+esc(f.name)+'</b></td><td><span class="pill b">'+esc(f.category)+'</span></td><td class="num">'+attSize(f.size)+'</td><td>Saved</td>'+
     '<td><button type="button" class="btn ghost small" onclick="empSavedDocDownload('+f.id+')">↓ Download</button> <button type="button" class="del" onclick="empSavedDocDelete('+f.id+')">✕</button></td></tr>';
   const rowQ=(d,i)=>'<tr><td><b>'+esc(d.file.name)+'</b></td><td><span class="pill b">'+esc(d.category)+'</span></td><td class="num">'+attSize(d.file.size)+'</td><td><span class="pill a">On Save</span></td>'+
     '<td><button type="button" class="del" onclick="empQRemoveDoc('+i+')">✕</button></td></tr>';
   const all=savedDocs.map(rowSaved).concat(EMP_Q.docs.map(rowQ));
   const table=all.length?'<table><thead><tr><th>File</th><th>Category</th><th class="num">Size</th><th>Status</th><th></th></tr></thead><tbody>'+all.join('')+'</tbody></table>':'<div class="empty">No documents added yet.</div>';
-  return photoCard+'<div style="font-weight:700;margin-bottom:8px">CV & Documents</div>'+
+  return photoCard+signCard+'<div style="font-weight:700;margin-bottom:8px">CV & Documents</div>'+
     '<div class="fgrid" style="margin-bottom:10px"><div class="field"><label>Category</label><select id="emp-doc-cat">'+EMP_DOC_CATEGORIES.map(c=>'<option>'+esc(c)+'</option>').join('')+'</select></div>'+
     '<div class="field" style="align-self:end"><button type="button" class="btn ghost" onclick="document.getElementById(\'emp-doc-file\').click()">+ Add file(s)</button><input type="file" id="emp-doc-file" multiple style="display:none" onchange="empPickDocs(this.files)"></div></div>'+
     '<div class="hint" style="margin-bottom:8px">PDF, Word, images or any file — up to 15 MB each. New files are uploaded when you click <b>Save employee</b>.</div>'+
@@ -4190,6 +4328,19 @@ function empClearQueuedPhoto(){
   if(EMP_Q.photoUrl)URL.revokeObjectURL(EMP_Q.photoUrl);
   EMP_Q.photo=null;EMP_Q.photoUrl=null;empDocsRefreshForm();
 }
+function empPickSign(list){
+  const f=list&&list[0];if(!f)return;
+  signEditOpen(f,blob=>{
+    if(EMP_Q.signUrl)URL.revokeObjectURL(EMP_Q.signUrl);
+    EMP_Q.sign=blob;EMP_Q.signUrl=URL.createObjectURL(blob);
+    empDocsRefreshForm();
+  });
+  document.getElementById('emp-sign-file').value='';
+}
+function empClearQueuedSign(){
+  if(EMP_Q.signUrl)URL.revokeObjectURL(EMP_Q.signUrl);
+  EMP_Q.sign=null;EMP_Q.signUrl=null;empDocsRefreshForm();
+}
 function empPickDocs(list){
   const cat=(document.getElementById('emp-doc-cat')||{}).value||'Other';
   const files=Array.from(list||[]);
@@ -4208,6 +4359,11 @@ async function empLoadSavedFiles(){
       if(EMP_SAVED_PHOTO_URL)URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);
       EMP_SAVED_PHOTO_URL=URL.createObjectURL(b);
     }
+    if(EMP_SAVED.some(f=>f.category==='Signature')){
+      const b=await evFetchBlob('/api/employee-files/'+EMP_EDIT.id+'/signature');
+      if(EMP_SAVED_SIGN_URL)URL.revokeObjectURL(EMP_SAVED_SIGN_URL);
+      EMP_SAVED_SIGN_URL=URL.createObjectURL(b);
+    }
   }catch(e){console.warn('employee files load failed:',e.message);}
   empDocsRefreshForm();
 }
@@ -4223,9 +4379,10 @@ async function empSavedDocDelete(fid){
   if(!confirm('Delete this saved file? This takes effect immediately.'))return;
   try{await api('/api/employee-files/'+EMP_EDIT.id+'/'+fid,{method:'DELETE'});}
   catch(err){toast('NOT deleted — '+err.message,'err');return;}
-  const wasPhoto=(EMP_SAVED.find(f=>f.id===fid)||{}).category==='Photo';
+  const cat=(EMP_SAVED.find(f=>f.id===fid)||{}).category;
   EMP_SAVED=EMP_SAVED.filter(f=>f.id!==fid);
-  if(wasPhoto&&EMP_SAVED_PHOTO_URL){URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);EMP_SAVED_PHOTO_URL=null;}
+  if(cat==='Photo'&&EMP_SAVED_PHOTO_URL){URL.revokeObjectURL(EMP_SAVED_PHOTO_URL);EMP_SAVED_PHOTO_URL=null;}
+  if(cat==='Signature'&&EMP_SAVED_SIGN_URL){URL.revokeObjectURL(EMP_SAVED_SIGN_URL);EMP_SAVED_SIGN_URL=null;}
   empDocsRefreshForm();toast('Deleted.','ok');
 }
 /* Runs after the employee row exists. Returns the list of things that
@@ -4239,6 +4396,12 @@ async function empUploadPending(id){
       const fd=new FormData();fd.append('category','Photo');fd.append('files',blob,(EMP_Q.photo.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
       await api('/api/employee-files/'+id,{method:'POST',body:fd});
     }catch(e){failed.push('photo ('+e.message+')');}
+  }
+  if(EMP_Q.sign){
+    try{
+      const fd=new FormData();fd.append('category','Signature');fd.append('files',EMP_Q.sign,'signature.png');
+      await api('/api/employee-files/'+id,{method:'POST',body:fd});
+    }catch(e){failed.push('sign/stamp ('+e.message+')');}
   }
   const byCat={};
   EMP_Q.docs.forEach(d=>{(byCat[d.category]=byCat[d.category]||[]).push(d.file);});
@@ -4946,7 +5109,7 @@ function empViewSwitchTab(tab){EMP_VIEW_TAB=tab;render();}
 
 /* ---- Employee View: Documents tab (photo, CV, ID, certificates... saved on the server) ---- */
 const EMP_DOC_CATEGORIES=['CV','ID / Passport','Education','Certificate','Contract','Other'];
-let EMP_FILES=[],EMP_PHOTO_URL=null;
+let EMP_FILES=[],EMP_PHOTO_URL=null,EMP_SIGN_URL=null;
 async function evFetchBlob(path){
   const res=await fetch(path,{headers:{Authorization:'Bearer '+localStorage.getItem('erp_jwt')}});
   if(!res.ok)throw new Error((await res.json().catch(()=>({}))).error||res.statusText);
@@ -4963,10 +5126,22 @@ async function evLoadAvatar(empId){
     if(el&&String(EMP_VIEW_ID)===String(empId)){el.style.backgroundImage='url('+EMP_PHOTO_URL+')';el.textContent='';}
   }catch(e){EMP_PHOTO_URL=null;} // no photo yet — initials stay
 }
+/* The saved Sign/Stamp's own blob — a plain fetch rather than a header
+   element to drive (nothing else on this page shows it live), mirrors
+   evLoadAvatar() above. */
+async function evLoadSignature(empId){
+  try{
+    const blob=await evFetchBlob('/api/employee-files/'+empId+'/signature');
+    if(EMP_SIGN_URL)URL.revokeObjectURL(EMP_SIGN_URL);
+    EMP_SIGN_URL=URL.createObjectURL(blob);
+  }catch(e){EMP_SIGN_URL=null;} // no sign/stamp yet
+}
 function evDocsHtml(){
   const photo=EMP_FILES.find(f=>f.category==='Photo');
-  const docs=EMP_FILES.filter(f=>f.category!=='Photo');
+  const sign=EMP_FILES.find(f=>f.category==='Signature');
+  const docs=EMP_FILES.filter(f=>f.category!=='Photo'&&f.category!=='Signature');
   const hasPic=!!(EMP_PHOTO_URL&&photo);
+  const hasSign=!!(EMP_SIGN_URL&&sign);
   const photoCard='<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px">'+
     '<div style="font-weight:700;margin-bottom:12px">Photograph</div>'+
     '<div style="display:flex;align-items:center;gap:16px">'+
@@ -4975,6 +5150,15 @@ function evDocsHtml(){
       '<button class="btn ghost small" onclick="document.getElementById(\'ev-photo-file\').click()">'+(photo?'Replace photo':'Upload photo')+'</button> '+
       (photo?'<button class="btn ghost small" style="color:#b42318" onclick="evDocDelete('+photo.id+')">Remove</button>':'')+
       '<input type="file" id="ev-photo-file" accept="image/*" style="display:none" onchange="evPhotoUpload(this.files)"></div>'+
+    '</div></div>';
+  const signCard='<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px">'+
+    '<div style="font-weight:700;margin-bottom:12px">Sign / Stamp</div>'+
+    '<div style="display:flex;align-items:center;gap:16px">'+
+     '<div style="width:110px;height:110px;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:12px;'+(hasSign?'background:repeating-conic-gradient(#e3e6ea 0% 25%, #fff 0% 50%) 0 0/14px 14px':'background:var(--soft)')+'">'+(hasSign?'<img src="'+EMP_SIGN_URL+'" style="max-width:100%;max-height:100%;object-fit:contain">':'No sign')+'</div>'+
+     '<div><div class="hint" style="margin-bottom:8px">A photo of a signature/stamp — background is removed automatically before saving. Used wherever this employee\'s sign/stamp needs to go on a document.</div>'+
+      '<button class="btn ghost small" onclick="document.getElementById(\'ev-sign-file\').click()">'+(sign?'Replace sign / stamp':'Upload sign / stamp')+'</button> '+
+      (sign?'<button class="btn ghost small" style="color:#b42318" onclick="evDocDelete('+sign.id+')">Remove</button>':'')+
+      '<input type="file" id="ev-sign-file" accept="image/*" style="display:none" onchange="evPickSign(this.files)"></div>'+
     '</div></div>';
   const rows=docs.length?'<table><thead><tr><th>File</th><th>Category</th><th class="num">Size</th><th>Uploaded</th><th></th></tr></thead><tbody>'+
     docs.map(f=>'<tr><td><b>'+esc(f.name)+'</b></td><td><span class="pill b">'+esc(f.category)+'</span></td><td class="num">'+attSize(f.size)+'</td><td>'+esc(String(f.at||'').slice(0,10))+'</td>'+
@@ -4989,13 +5173,14 @@ function evDocsHtml(){
     '</div>'+
     '<div class="hint" style="margin-bottom:8px">PDF, Word, images or any file — up to 15 MB each.</div>'+
     '<div class="tblwrap">'+rows+'</div></div>';
-  return photoCard+docCard;
+  return photoCard+signCard+docCard;
 }
 async function evDocsInit(e){
   const box=document.getElementById('ev-docs');
   try{
     EMP_FILES=await api('/api/employee-files/'+e.id);
     if(EMP_FILES.some(f=>f.category==='Photo')&&!EMP_PHOTO_URL)await evLoadAvatar(e.id);
+    if(EMP_FILES.some(f=>f.category==='Signature')&&!EMP_SIGN_URL)await evLoadSignature(e.id);
     box.innerHTML=evDocsHtml();
   }catch(err){box.innerHTML='<div class="empty">Could not load documents — '+esc(err.message)+'</div>';}
 }
@@ -5050,10 +5235,24 @@ async function evDocDelete(fid){
   if(!confirm('Delete this file?'))return;
   try{await api('/api/employee-files/'+EMP_VIEW_ID+'/'+fid,{method:'DELETE'});}
   catch(err){toast('NOT deleted — '+err.message,'err');return;}
-  const wasPhoto=(EMP_FILES.find(f=>f.id===fid)||{}).category==='Photo';
+  const cat=(EMP_FILES.find(f=>f.id===fid)||{}).category;
   EMP_FILES=EMP_FILES.filter(f=>f.id!==fid);
-  if(wasPhoto){EMP_PHOTO_URL=null;const el=document.getElementById('ev-avatar');if(el){el.style.backgroundImage='';el.textContent=el.dataset.ini||'';}}
+  if(cat==='Photo'){EMP_PHOTO_URL=null;const el=document.getElementById('ev-avatar');if(el){el.style.backgroundImage='';el.textContent=el.dataset.ini||'';}}
+  if(cat==='Signature'&&EMP_SIGN_URL){URL.revokeObjectURL(EMP_SIGN_URL);EMP_SIGN_URL=null;}
   evDocsRefresh();toast('Deleted.','ok');
+}
+async function evPickSign(list){
+  const f=list&&list[0];if(!f)return;
+  signEditOpen(f,async blob=>{
+    try{
+      const fd=new FormData();fd.append('category','Signature');fd.append('files',blob,'signature.png');
+      EMP_FILES=await api('/api/employee-files/'+EMP_VIEW_ID,{method:'POST',body:fd});
+      EMP_SIGN_URL=null;await evLoadSignature(EMP_VIEW_ID);
+      toast('Sign / Stamp saved.','ok');
+    }catch(err){toast('NOT saved — '+err.message,'err');}
+    evDocsRefresh();
+  });
+  document.getElementById('ev-sign-file').value='';
 }
 
 /* ---- Employee View: Attendance tab (this-month KPIs + own date-range report + PDF/Excel/CSV) ---- */
