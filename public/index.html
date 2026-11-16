@@ -8417,6 +8417,35 @@ function stockAvailable(itemName){
   return found?total:null;
 }
 function smAvailText(itemName){const v=stockAvailable(itemName);return v==null?'N/A':fmt(v);}
+// A line only risks over-drawing stock on the two transaction types that
+// actually subtract from it (see stockAvailable()'s own sign logic above) —
+// Transfer/PR/Receipt/Adjustment + never need this warning. N/A (never
+// seen on a Stock Transaction before) is left alone too: there's no real
+// number to compare against, so flagging it would just be noise.
+const STOCK_DECREASE_TYPES=['Issue','Adjustment -'];
+function smLineOver(l,type){
+  if(!l||!l.item||!STOCK_DECREASE_TYPES.includes(type))return false;
+  const avail=stockAvailable(l.item);
+  if(avail==null)return false;
+  return (+l.qty||0)>avail;
+}
+// Re-checks one line in place (border + the small red note under the
+// Quantity box) without re-rendering the whole grid — called on every
+// keystroke in that line's Quantity field, so it can't afford to cost a
+// full smRefresh() and the typing cursor with it.
+function smCheckLine(i){
+  const l=SML[i];if(!l)return;
+  const qtyEl=document.getElementById('sm-qty-'+i),warnEl=document.getElementById('sm-qty-warn-'+i);
+  if(!qtyEl)return;
+  const typeEl=document.getElementById('f-type');
+  const over=smLineOver(l,typeEl?typeEl.value:'');
+  qtyEl.style.border=over?'1.5px solid #DC2626':'';
+  if(warnEl)warnEl.style.display=over?'':'none';
+}
+// Type is a plain selx() dropdown (see SELX_CB['f-type'] below) — switching
+// it can turn every already-typed quantity into an over-draw (or clear one),
+// so every line needs re-checking, not just the one being edited.
+function smTypeChanged(){SML.forEach((_,i)=>smCheckLine(i));}
 // Negative on-hand stock is worth a glance of red; N/A stays a plain
 // faint grey (it's a "don't know", not a problem). Shared by the grid
 // and the View modal so the two never disagree on what counts as low.
@@ -8474,22 +8503,37 @@ function smPickItem(i,v){
   SML[i].item=v;
   const el=document.getElementById('sm-avail-'+i);
   if(el){el.textContent=smAvailText(v);el.style.cssText=smAvailStyle(v);}
+  smCheckLine(i);
 }
 function smGrid(rec){
   const itemNames=coll('items').map(x=>x.name).filter(Boolean);
+  // f-type doesn't exist yet the very first time this runs (it's part of the
+  // same innerHTML string as the rest of the form) — rec.type covers that
+  // one case; every re-render after that (smRefresh/smTypeChanged) has it.
+  const typeEl=document.getElementById('f-type');
+  const type=typeEl?typeEl.value:((rec&&rec.type)||'');
   return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Items<span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick items from Item Master, one line per item — Available Stock updates as you pick</span></div>'+
   '<div class="tblwrap sm-lines-wrap pogrid"><table><thead><tr>'+
     '<th style="width:26px">#</th><th style="width:280px">Item</th><th style="width:130px" class="num">Available Stock</th><th style="width:110px">Quantity</th><th>Note</th><th style="width:36px"></th>'+
   '</tr></thead><tbody>'+
-  SML.map((l,i)=>'<tr><td class="num">'+(i+1)+'</td>'+
+  SML.map((l,i)=>{
+   const over=smLineOver(l,type);
+   return '<tr><td class="num">'+(i+1)+'</td>'+
    '<td>'+selx('sm-item-'+i,l.item||'',itemNames,(v)=>smPickItem(i,v),'Select item…')+'</td>'+
    '<td class="num" id="sm-avail-'+i+'" style="'+smAvailStyle(l.item)+'">'+smAvailText(l.item)+'</td>'+
-   '<td><input type="number" step="0.01" class="nospin-num" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value"></td>'+
+   '<td><input id="sm-qty-'+i+'" type="number" step="0.01" class="nospin-num" style="'+(over?'border:1.5px solid #DC2626':'')+'" value="'+esc(l.qty||'')+'" oninput="SML['+i+'].qty=this.value;smCheckLine('+i+')">'+
+    '<div id="sm-qty-warn-'+i+'" class="hint" style="color:#DC2626;margin-top:2px;'+(over?'':'display:none')+'">Exceeds available stock</div></td>'+
    '<td><input value="'+esc(l.note||'')+'" oninput="SML['+i+'].note=this.value"></td>'+
-   '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>').join('')+
+   '<td><button class="del" onclick="SML.splice('+i+',1);smRefresh()">✕</button></td></tr>';
+  }).join('')+
   '</tbody></table></div>'+
   '<button class="btn ghost small" style="margin-top:8px" onclick="SML.push({});smRefresh()">+ Add item</button>';
 }
+// Guarded like assetPickItem/poSyncCapex above it — "type" is also a field
+// name on CRM Activities and Maintenance, both of which share this same
+// idPrefix-'f-' element id, so this must only fire while Stock Transactions
+// is actually the open module.
+SELX_CB['f-type']=function(){if(modKey()==='stockmoves')smTypeChanged();};
 function smRefresh(){renderModule._lk=true;const z=document.getElementById('sm-zone');if(z)z.innerHTML=smGrid(null);}
 // Custom View / Edit for Stock Transactions (see m.customView/m.customEdit
 // in MODULES.stockmoves, and the generic listTable() branch that reads
@@ -8519,10 +8563,13 @@ function smViewHtml(rec){
   '</div>'+
   '<div style="font-weight:700;font-size:13.5px;margin-bottom:8px">Items</div>'+
   '<div class="tblwrap pogrid"><table><thead><tr><th>Item</th><th class="num">Available Stock</th><th class="num">Quantity</th><th>Note</th></tr></thead><tbody>'+
-   (lines.length?lines.map(l=>'<tr><td>'+esc(l.item||'—')+'</td>'+
+   (lines.length?lines.map(l=>{
+     const over=smLineOver(l,rec.type);
+     return '<tr><td>'+esc(l.item||'—')+'</td>'+
      '<td class="num" style="'+smAvailStyle(l.item)+'">'+smAvailText(l.item)+'</td>'+
-     '<td class="num">'+(l.qty?fmt(+l.qty):'—')+'</td>'+
-     '<td>'+esc(l.note||'')+'</td></tr>').join(''):
+     '<td class="num" style="'+(over?'color:#DC2626;font-weight:700':'')+'">'+(l.qty?fmt(+l.qty):'—')+(over?' <span class="hint" style="color:#DC2626">(exceeded)</span>':'')+'</td>'+
+     '<td>'+esc(l.note||'')+'</td></tr>';
+   }).join(''):
     '<tr><td colspan="4" class="hint">No items on this transaction.</td></tr>')+
   '</tbody></table></div>'+
   '<div class="actions" style="justify-content:flex-end;margin-top:18px">'+
