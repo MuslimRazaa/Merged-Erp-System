@@ -3018,6 +3018,10 @@ let PO_PENDING_COUNT=0;
 let APPR_PENDING_COUNT=0,APPR_PENDING=[];
 let LV_MINE=[],LV_QUEUE=[],LV_EDIT=null; // LV_EDIT = the leave row currently loaded in the form, or null = new
 const LV_TYPES=['Annual Leave','Casual Leave','Medical Leave','Field Break','Leave Without Pay','Field Shift','Compensatory Leave','Maternity Leave'];
+// Set to true to bring the HR-only "Work From Home" option back into the
+// Type of Leave dropdown below — the feature itself (lvFbHint()/
+// lvSubmitWfh()/POST /api/late-sittings/backdated) stays wired up either way.
+let LV_SHOW_WFH_OPTION=false;
 const LV_REQUEST_TYPES=['Full Day','Half Day'];
 const LV_DECISIONS=['Approved','Rejected','Leave Without Pay','Cancelled','No Order','Valid for Reporting'];
 async function renderLeaveRequests(){
@@ -3034,9 +3038,11 @@ async function renderLeaveRequests(){
      '<div class="field"><label>Document No.</label><input id="lv-docno" value="Assigned on save" disabled></div>'+
      // "Work From Home" is HR-only and, unlike every other type here, never
      // becomes a leave request at all — see lvFbHint()/lvSubmitWfh() below.
-     // Added 2026-11-13 purely so HR can backfill some missed WFH entries
-     // straight into Overtime; remove it from this list again once that's done.
-     '<div class="field"><label>Type of Leave</label><select id="lv-type" onchange="lvFbHint()">'+(hasHr?LV_TYPES.concat(['Work From Home']):LV_TYPES).map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+     // Added 2026-11-13 so HR can backfill missed WFH entries straight into
+     // Overtime. Hidden from the dropdown again on 2026-11-16 per request
+     // (LV_SHOW_WFH_OPTION toggle below) while not in use — flip it back to
+     // true to bring the option back; nothing else needs to change.
+     '<div class="field"><label>Type of Leave</label><select id="lv-type" onchange="lvFbHint()">'+((hasHr&&LV_SHOW_WFH_OPTION)?LV_TYPES.concat(['Work From Home']):LV_TYPES).map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
      '<div class="field" id="lv-from-field"><label id="lv-from-label">From Date</label><input id="lv-from" type="date" onchange="lvFbHint()"></div>'+
      '<div class="field" id="lv-to-field"><label>To Date</label><input id="lv-to" type="date"></div>'+
      '<div class="field" id="lv-wfh-time-field" style="display:none"><label>Checkout Time</label><input id="lv-wfh-time" type="time"></div>'+
