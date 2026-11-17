@@ -6891,27 +6891,57 @@ function crmPdfTerms(doc,html,x,maxW){
   });
 }
 // wrapping table: cols=[{label,w,align}], rows=[[cell,...]]
+// Same word-wrap as crmPdfWrap, but measured with the real Helvetica glyph
+// widths (doc.twx) instead of the crude length*size*0.5 estimate — that
+// estimate under-measures bold capitals enough that a header like
+// "Equipment Type" was overflowing into the next column instead of
+// wrapping. Table-only: crmPdfWrap/crmPdfPara (Terms text) are untouched.
+function crmPdfWrapX(doc,str,maxW,size,bold){
+  const out=[];
+  String(str==null?'':str).split('\n').forEach(raw=>{
+    if(raw===''){out.push('');return;}
+    const words=raw.split(/\s+/);let line='';
+    words.forEach(w=>{
+      const test=line?line+' '+w:w;
+      if(doc.twx(test,size,bold)>maxW&&line){out.push(line);line=w;}
+      else line=test;
+    });
+    if(line!=='')out.push(line);
+  });
+  return out;
+}
 function crmPdfTable(doc,cols,rows,size){
   size=size||8;const lh=size+4;const avail=cols.reduce((a,c)=>a+c.w,0);
+  // Header labels wrap to as many lines as they need instead of spilling
+  // into the next column, and the header band grows to fit.
+  const headWrapped=cols.map(c=>crmPdfWrapX(doc,c.label,c.w-6,size,true));
+  const headLines=Math.max(1,...headWrapped.map(w=>w.length));
   const drawHead=()=>{
-    if(doc.need(lh+14))crmPdfPageTop(doc);
+    if(doc.need(headLines*lh+14))crmPdfPageTop(doc);
     const ry=doc.y;
-    doc.rect(doc.mL,ry-4,avail,lh+3,'0.90 0.92 0.95');
+    const lastLineY=ry-(headLines-1)*lh;
+    doc.rect(doc.mL,lastLineY-4,avail,headLines*lh+3,'0.90 0.92 0.95');
     let cx=doc.mL+3;
-    cols.forEach(c=>{doc.text(cx,ry,c.label,size,true);cx+=c.w;});
-    doc.line(doc.mL,ry-6,doc.mL+avail,ry-6);
-    doc.y=ry-lh-8;                 // clear gap before first row's text
+    cols.forEach((c,i)=>{
+      headWrapped[i].forEach((ln,li)=>{
+        const tx=c.align==='right'?cx+(c.w-6)-doc.twx(ln,size,true):cx;
+        doc.text(tx,ry-li*lh,ln,size,true);
+      });
+      cx+=c.w;
+    });
+    doc.line(doc.mL,lastLineY-6,doc.mL+avail,lastLineY-6);
+    doc.y=lastLineY-lh-8;           // clear gap before first row's text
   };
   drawHead();
   rows.forEach(r=>{
-    const wrapped=cols.map((c,i)=>crmPdfWrap(doc,r[i],c.w-6,size));
+    const wrapped=cols.map((c,i)=>crmPdfWrapX(doc,r[i],c.w-6,size));
     const nLines=Math.max(1,...wrapped.map(w=>w.length));
     if(doc.need(nLines*lh+14))drawHead();
     const ry=doc.y;
     let cx=doc.mL+3;
     cols.forEach((c,i)=>{
       wrapped[i].forEach((ln,li)=>{
-        const tx=c.align==='right'?cx+(c.w-6)-doc.tw(ln,size):cx;
+        const tx=c.align==='right'?cx+(c.w-6)-doc.twx(ln,size):cx;
         doc.text(tx,ry-li*lh,ln,size);
       });
       cx+=c.w;
@@ -6935,23 +6965,26 @@ function crmBuildQuotationPdf(q,termsHtml){
   doc.y=doc.h-420;
   const svc=(q.serviceType||'').trim();
   const t1='Quotation For '+(svc||'')+(svc?' Service':'');
-  doc.text((doc.w-doc.tw(t1,17))/2,doc.y,t1,17,true,'0.10 0.28 0.55');
+  doc.textC(doc.w/2,doc.y,t1,17,true,'0.10 0.28 0.55');
   doc.y-=48;
   doc.line(CL+90,doc.y+16,CR-90,doc.y+16);
-  doc.text((doc.w-doc.tw(cust,13))/2,doc.y,cust,13,true);
+  doc.textC(doc.w/2,doc.y,cust,13,true);
   doc.line(CL+90,doc.y-8,CR-90,doc.y-8);
 
   /* ---- Page 2: cover letter ---- */
   doc.newPage();crmPdfHeaderBand(doc);
   doc.y-=6;
   doc.text(CL,doc.y,cust,10,true);
-  if(q.clientReferenceNo)doc.text(CR-doc.tw(q.clientReferenceNo,9),doc.y,q.clientReferenceNo,9);
+  if(q.clientReferenceNo)doc.textR(CR,doc.y,q.clientReferenceNo,9);
   doc.y-=14;
   addrLines.forEach(l=>{doc.text(CL,doc.y,l,9);doc.y-=12;});
   doc.y-=16;
   doc.text(CL,doc.y,'Attention:',9,true);doc.text(CL+62,doc.y,q.attentionName||'',9,true);doc.y-=15;
   doc.text(CL,doc.y,'Subject:',9,true);
-  crmPdfPara(doc,CL+62,(q.subject||'')+(q.rfqNo?'  ('+q.rfqNo+')':''),CW-62,9,13,true);
+  // The Quotation's own serial (e.g. "2026-27/005"), not the RFQ's — the
+  // two run on separate counters and can land on different numbers.
+  const qtnSuffix=String(q.quotationNo||'').replace(/^QTN-/,'');
+  crmPdfPara(doc,CL+62,(q.subject||'')+(qtnSuffix?'  ('+qtnSuffix+')':''),CW-62,9,13,true);
   doc.y-=10;
   [
    'We wish to thank you for the kind courtesy extended to us by inviting us to quote for your esteemed organization.',
@@ -6979,9 +7012,9 @@ function crmBuildQuotationPdf(q,termsHtml){
   crmPdfTable(doc,cols,rows,7.5);
   doc.y-=6;
   const rx=CR-190;
-  doc.text(rx,doc.y,'Total Cost',9,true);doc.text(CR-doc.tw(money(q.totalCost),9),doc.y,money(q.totalCost),9);doc.y-=13;
-  doc.text(rx,doc.y,'SRB '+q.srbPercent+'%',9,true);doc.text(CR-doc.tw(money(q.srbAmount),9),doc.y,money(q.srbAmount),9);doc.y-=14;
-  doc.text(rx,doc.y,'GRAND TOTAL ('+(q.currency||'')+')',10,true);doc.text(CR-doc.tw(money(q.grandTotal),10),doc.y,money(q.grandTotal),10,true);
+  doc.text(rx,doc.y,'Total Cost',9,true);doc.textR(CR,doc.y,money(q.totalCost),9);doc.y-=13;
+  doc.text(rx,doc.y,'SRB '+q.srbPercent+'%',9,true);doc.textR(CR,doc.y,money(q.srbAmount),9);doc.y-=14;
+  doc.text(rx,doc.y,'GRAND TOTAL ('+(q.currency||'')+')',10,true);doc.textR(CR,doc.y,money(q.grandTotal),10,true);
 
   /* ---- Terms (single flowing section, 1+ pages) ---- */
   doc.newPage();crmPdfHeaderBand(doc);doc.y-=6;
