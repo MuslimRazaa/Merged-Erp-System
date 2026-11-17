@@ -853,7 +853,7 @@ function shapeQuotation(q, items) {
     id: q.id, quotationNo: q.quotation_no, rfqId: q.rfq_id, rfqNo: q.rfq_no, rfqSubject: q.rfq_subject,
     revision: q.revision, quotationDate: dstr(q.quotation_date), serviceType: q.service_type,
     clientReferenceNo: q.client_reference_no, attentionName: q.attention_name, subject: q.subject,
-    currency: q.currency, srbPercent, status: q.status,
+    currency: q.currency, srbPercent, status: q.status, paymentTerms: q.payment_terms,
     customerId: q.customer_id, customerName: q.customer_name, customerCode: q.customer_code,
     customerAddress: q.customer_address, customerCity: q.customer_city, customerCountry: q.customer_country,
     customerContact: q.customer_contact,
@@ -947,11 +947,11 @@ router.post('/rfq-quotation', upload.array('attachments', 10), handleUploadError
   const quotationDate = String(b.quotationDate || receivedDate).trim();
   const [qtnRes] = await pool.query(
     `INSERT INTO erp_crm_quotations
-       (rfq_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, status, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+       (rfq_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, payment_terms, status, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [rfqId, 0, quotationDate, b.serviceType || null, clientRef, b.attentionName || null,
      b.subject || null, b.currency || 'PKR',
-     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, 'Draft', req.erpUser.id]
+     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, b.paymentTerms || null, 'Draft', req.erpUser.id]
   );
   const quotationId = qtnRes.insertId;
   const quotationNo = await nextQuotationSerial(quotationDate);
@@ -994,7 +994,7 @@ router.get('/quotations/:id', async (req, res) => {
 const QUOTATION_FIELD_MAP = {
   quotationDate: 'quotation_date', serviceType: 'service_type', clientReferenceNo: 'client_reference_no',
   attentionName: 'attention_name', subject: 'subject', currency: 'currency', srbPercent: 'srb_percent',
-  status: 'status', revision: 'revision',
+  status: 'status', revision: 'revision', paymentTerms: 'payment_terms',
 };
 router.put('/quotations/:id', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });

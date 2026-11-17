@@ -253,6 +253,15 @@ tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
 .modal{position:fixed;inset:0;background:rgba(8,14,25,.5);display:none;align-items:center;justify-content:center;z-index:100}
 .modal.open{display:flex}
 .modal .box{background:#fff;border-radius:14px;max-width:520px;width:92%;padding:22px 24px;box-shadow:0 24px 70px rgba(0,0,0,.35);max-height:88vh;overflow:auto}
+/* Wide CRM RFQ/Quotation add-edit modals: taller, roomier, bigger type so
+   the multi-column line-item grids stay legible at 90vw. */
+#crmrfqmodal .box,#crmrfqqmodal .box,#crmqtnmodal .box{max-height:92vh;margin:auto}
+#crmrfqmodal h3,#crmrfqqmodal h3,#crmqtnmodal h3{font-size:19px}
+#crmrfqmodal .field label,#crmrfqqmodal .field label,#crmqtnmodal .field label{font-size:12px}
+#crmrfqmodal .field input,#crmrfqmodal .field select,#crmrfqmodal .field textarea,
+#crmrfqqmodal .field input,#crmrfqqmodal .field select,#crmrfqqmodal .field textarea,
+#crmqtnmodal .field input,#crmqtnmodal .field select,#crmqtnmodal .field textarea{font-size:14.5px;padding:10px 12px}
+#crmrfqmodal .hint,#crmrfqqmodal .hint,#crmqtnmodal .hint{font-size:12.5px}
 .crm-dd-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;max-height:220px;overflow:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.15);margin-top:2px}
 .crm-dd-item{padding:7px 10px;cursor:pointer;font-size:13px}
 .crm-dd-item:hover{background:var(--soft)}
@@ -698,6 +707,7 @@ body.locked #app{display:none}
     <div class="field" style="grid-column:span 2"><label>Customer *</label><select id="rq-customer" style="width:100%"></select></div>
     <div class="field"><label>Currency</label><select id="qt-currency"></select></div>
     <div class="field"><label>SRB %</label><input id="qt-srb" type="number" step="0.01" value="15"></div>
+    <div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="qt-paymentterms"></select></div>
     <div class="field" style="grid-column:span 2"><label>Attention</label><input id="qt-attention" placeholder="e.g. Ms. Kanza Nasim"></div>
     <div class="field" style="grid-column:span 2"><label>Subject <span class="hint">(RFQ + Quotation)</span></label><input id="rq-subject" style="width:100%" placeholder="e.g. Quotation of Calibration Services"></div>
   </div>
@@ -725,6 +735,7 @@ body.locked #app{display:none}
     <div class="field"><label>Attention</label><input id="qe-attention"></div>
     <div class="field"><label>Currency</label><select id="qe-currency"></select></div>
     <div class="field"><label>SRB %</label><input id="qe-srb" type="number" step="0.01"></div>
+    <div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="qe-paymentterms"></select></div>
     <div class="field"><label>Status</label><select id="qe-status"><option>Draft</option><option>Sent</option><option>Won</option><option>Lost</option><option>Revised</option></select></div>
     <div class="field"><label>Revision</label><input id="qe-revision" type="number" step="1"></div>
     <div class="field" style="grid-column:span 2"><label>Subject</label><input id="qe-subject" style="width:100%"></div>
@@ -6475,6 +6486,7 @@ async function crmOpenRfqQuotation(){
   document.getElementById('qt-attention').value='';
   document.getElementById('qt-srb').value='15';
   document.getElementById('qt-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]==='PKR'?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
+  document.getElementById('qt-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option>'+esc(t)+'</option>').join('');
   CRM_RQ_PENDING_ATTACHMENTS=[];
   CRM_QT_ITEMS=[crmQtBlankItem()];
   crmRenderRqAttachments();crmRenderQtItems('qt');
@@ -6575,6 +6587,7 @@ async function crmSaveRfqQuotation(){
   fd.append('attentionName',document.getElementById('qt-attention').value.trim());
   fd.append('currency',(document.getElementById('qt-currency').value||'').split(' — ')[0]);
   fd.append('srbPercent',document.getElementById('qt-srb').value||'15');
+  fd.append('paymentTerms',document.getElementById('qt-paymentterms').value);
   fd.append('quotationItems',JSON.stringify(crmQtItemsPayload(CRM_QT_ITEMS)));
   CRM_RQ_PENDING_ATTACHMENTS.forEach(f=>fd.append('attachments',f,f.name));
   try{
@@ -6656,6 +6669,7 @@ async function renderCrmQuotationView(){
        evField('Quotation Date',q.quotationDate)+evField('Customer',q.customerName)+
        evField('Service Type',q.serviceType)+evField('Currency',q.currency)+
        evField('Attention',q.attentionName)+evField('Client Reference No.',q.clientReferenceNo)+
+       evField('Payment Terms',q.paymentTerms)+
        '<div style="grid-column:1/-1">'+evField('Subject',q.subject)+'</div>'+
       '</div>'+
       '<div style="margin:-8px 0 14px"><button class="btn ghost small" onclick="crmOpenRfqViewById('+q.rfqId+')">Open linked RFQ: '+esc(q.rfqNo||'')+' ›</button></div>'+
@@ -6716,6 +6730,7 @@ async function crmOpenQtnEdit(id){
   document.getElementById('qe-attention').value=q.attentionName||'';
   document.getElementById('qe-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]===(q.currency||'PKR')?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
   document.getElementById('qe-srb').value=q.srbPercent;
+  document.getElementById('qe-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option'+(t===(q.paymentTerms||'')?' selected':'')+'>'+esc(t)+'</option>').join('');
   document.getElementById('qe-status').value=q.status||'Draft';
   document.getElementById('qe-revision').value=q.revision;
   document.getElementById('qe-subject').value=q.subject||'';
@@ -6730,6 +6745,7 @@ async function crmQtnSave(){
     quotationDate:document.getElementById('qe-date').value,serviceType:document.getElementById('qe-servicetype').value,
     clientReferenceNo:document.getElementById('qe-clientref').value.trim(),attentionName:document.getElementById('qe-attention').value.trim(),
     currency:(document.getElementById('qe-currency').value||'').split(' — ')[0],srbPercent:document.getElementById('qe-srb').value||'15',
+    paymentTerms:document.getElementById('qe-paymentterms').value,
     status:document.getElementById('qe-status').value,revision:document.getElementById('qe-revision').value||'0',
     subject:document.getElementById('qe-subject').value.trim(),
     items:crmQtItemsPayload(CRM_QE_ITEMS),
@@ -6824,6 +6840,31 @@ function crmPdfPara(doc,x,str,maxW,size,lh,bold){
 // is entirely bold (or a heading) prints as a bold heading with a little
 // air around it. Uses crmPdfPara for the actual wrapping so line spacing
 // stays consistent and page breaks are handled.
+// The one sentence the Payment Terms dropdown controls, inside General
+// Terms and Conditions. "Term N Days" plugs N into the default wording;
+// the other options read as their own short clause.
+function crmPaymentTermsLine(term){
+  const m=/^Term\s+(\d+)\s+Days$/i.exec(String(term||'').trim());
+  if(m)return 'All payments to PTIS shall be made by direct transfer within '+m[1]+' days from the day of the submission of all invoices.';
+  const map={
+    'BALANCE AFTER DELIVERY AND INSPECTION':'All payments to PTIS shall be made by direct transfer, with the balance due after delivery and inspection.',
+    'BALANCE PAYMENT AFTER DELIVERY':'All payments to PTIS shall be made by direct transfer, with the balance payment due after delivery.',
+    'DELIVERY AGAINST PAYMENT':'Delivery shall be made against payment to PTIS by direct transfer.',
+    'Advance Payment':'All payments to PTIS shall be made by direct transfer in advance, prior to commencement of service.',
+    'SERVICE AGAINST PAYMENT':'Service shall be rendered against payment to PTIS by direct transfer.',
+  };
+  return map[String(term||'').trim()]||'';
+}
+// Swaps the old "All payments to PTIS shall be made by direct transfer
+// within N days from the day of the submission of all invoices." sentence
+// inside the terms HTML for the chosen term's line — used only when
+// building this one quotation's PDF, never saved back into the template.
+function crmApplyPaymentTermsToHtml(html,term){
+  const line=crmPaymentTermsLine(term);
+  if(!line)return html||'';
+  const re=/All payments to PTIS shall be made by direct transfer[^.<]*\./i;
+  return re.test(html||'')?html.replace(re,line):(html||'');
+}
 function crmPdfTerms(doc,html,x,maxW){
   const root=document.createElement('div');
   root.innerHTML=(html||'').replace(/<br\s*\/?>/gi,'</p><p>');
@@ -6952,7 +6993,8 @@ async function crmDownloadQuotationPdf(id){
   try{
     await crmLoadLogoJpeg();
     const q=await api('/api/crm/quotations/'+id);
-    const doc=crmBuildQuotationPdf(q,(q.termsHtml||(CRM_CFG&&CRM_CFG.quotationTermsHtml)||''));
+    const termsHtml=crmApplyPaymentTermsToHtml(q.termsHtml||(CRM_CFG&&CRM_CFG.quotationTermsHtml)||'',q.paymentTerms);
+    const doc=crmBuildQuotationPdf(q,termsHtml);
     doc.out('Quotation_'+(q.quotationNo||id).replace(/[^\w-]/g,'_'));
   }catch(e){toast(e.message,'err');}
 }
@@ -6961,7 +7003,7 @@ function crmQuotationXlsx(q){
   const grid=[
    ['Quotation No.',q.quotationNo||''],['Revision',q.revision],['Date',q.quotationDate||''],
    ['Customer',q.customerName||''],['RFQ No.',q.rfqNo||''],['Service Type',q.serviceType||''],
-   ['Client Reference No.',q.clientReferenceNo||''],['Attention',q.attentionName||''],['Subject',q.subject||''],
+   ['Client Reference No.',q.clientReferenceNo||''],['Attention',q.attentionName||''],['Payment Terms',q.paymentTerms||''],['Subject',q.subject||''],
    ['Currency',q.currency||''],['Status',q.status||''],[],
    ['Sr#','Equipment Type','Category','Inspection Description','Size','Unit','Spec / Remarks','Scope','Qty','Rate','Total'],
   ];
@@ -6981,6 +7023,10 @@ async function crmDownloadQuotationXlsx(id){
 
 /* ---------- Service Catalogue: Equipment -> Standard -> Item Description ---------- */
 const CRM_CURRENCIES=[['AED','UAE Dirham'],['USD','US Dollar'],['PKR','Pakistani Rupee'],['SAR','Saudi Riyal'],['QAR','Qatari Riyal'],['KWD','Kuwaiti Dinar'],['BHD','Bahraini Dinar'],['OMR','Omani Rial'],['EUR','Euro'],['GBP','British Pound'],['INR','Indian Rupee'],['CNY','Chinese Yuan'],['JPY','Japanese Yen'],['CAD','Canadian Dollar'],['AUD','Australian Dollar'],['CHF','Swiss Franc'],['SGD','Singapore Dollar'],['MYR','Malaysian Ringgit'],['IDR','Indonesian Rupiah'],['THB','Thai Baht'],['PHP','Philippine Peso'],['VND','Vietnamese Dong'],['BDT','Bangladeshi Taka'],['LKR','Sri Lankan Rupee'],['NPR','Nepalese Rupee'],['AFN','Afghan Afghani'],['IRR','Iranian Rial'],['IQD','Iraqi Dinar'],['TRY','Turkish Lira'],['EGP','Egyptian Pound'],['JOD','Jordanian Dinar'],['LBP','Lebanese Pound'],['ILS','Israeli Shekel'],['ZAR','South African Rand'],['NGN','Nigerian Naira'],['KES','Kenyan Shilling'],['GHS','Ghanaian Cedi'],['MAD','Moroccan Dirham'],['DZD','Algerian Dinar'],['TND','Tunisian Dinar'],['LYD','Libyan Dinar'],['SDG','Sudanese Pound'],['RUB','Russian Ruble'],['KZT','Kazakhstani Tenge'],['UZS','Uzbekistani Som'],['AZN','Azerbaijani Manat'],['GEL','Georgian Lari'],['UAH','Ukrainian Hryvnia'],['PLN','Polish Zloty'],['CZK','Czech Koruna'],['HUF','Hungarian Forint'],['RON','Romanian Leu'],['SEK','Swedish Krona'],['NOK','Norwegian Krone'],['DKK','Danish Krone'],['NZD','New Zealand Dollar'],['HKD','Hong Kong Dollar'],['KRW','South Korean Won'],['TWD','New Taiwan Dollar'],['BRL','Brazilian Real'],['MXN','Mexican Peso'],['ARS','Argentine Peso'],['CLP','Chilean Peso'],['COP','Colombian Peso'],['PEN','Peruvian Sol']];
+// Picking one of these on a Quotation swaps the payment-days sentence inside
+// the (shared) Terms Template for THIS quotation's PDF only — see
+// crmApplyPaymentTermsToHtml() — the saved template itself is untouched.
+const CRM_PAYMENT_TERMS=['Term 60 Days','Term 90 Days','BALANCE AFTER DELIVERY AND INSPECTION','BALANCE PAYMENT AFTER DELIVERY','DELIVERY AGAINST PAYMENT','Term 30 Days','Term 15 Days','Advance Payment','Term 45 Days','Term 70 Days','SERVICE AGAINST PAYMENT'];
 let CRM_EQUIPMENT=[],CRM_STANDARDS=[],CRM_ITEMDESCS=[];
 async function crmLoadCatalogRef(){
   const ref=await api('/api/crm/equipment-catalog');

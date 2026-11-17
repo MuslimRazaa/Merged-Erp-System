@@ -574,6 +574,7 @@ async function migrate() {
   for (const [table, col] of [
     ['erp_crm_rfqs', 'deleted_at TIMESTAMP NULL'],
     ['erp_crm_quotations', 'deleted_at TIMESTAMP NULL'],
+    ['erp_crm_quotations', 'payment_terms VARCHAR(60) NULL'],
     ['erp_crm_quotation_items', 'spec VARCHAR(500) NULL'],
     ['erp_crm_quotation_items', "scope VARCHAR(20) NULL"],
   ]) {
