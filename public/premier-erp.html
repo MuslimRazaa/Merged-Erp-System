@@ -226,6 +226,8 @@ tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
 .pill.a{background:var(--amber-t);color:var(--amber)}
 .pill.r{background:var(--rose-t);color:var(--rose)}
 .pill.v{background:var(--violet-t);color:var(--violet)}
+.pill.lg{background:#ECFDF3;color:#16A34A}
+.pill.lr{background:#FDEDEB;color:#DC6B61}
 .del{color:var(--rose);font-size:13px;padding:2px 7px;border-radius:6px}
 /* Toast notifications — see toast() in the script below */
 #toast-wrap{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:360px}
@@ -6632,8 +6634,15 @@ async function crmTermsSave(){
 
 /* ================= CRM: Quotations screen ================= */
 let CRM_QUOTATIONS=[],CRM_QT_VIEW_ID=null,CRM_QE_ITEMS=[],CRM_QE_EDIT=null;
-const CRM_QT_STATUS_PILL=s=>s==='Won'?'g':s==='Lost'||s==='Rejected'?'r':s==='Sent'?'b':'';
+const CRM_QT_STATUS_PILL=s=>s==='Won'?'g':s==='Lost'?'r':s==='Revised'?'lr':s==='Sent'?'lg':s==='Draft'?'a':'';
 const CRM_QT_STATUSES=['Draft','Sent','Won','Lost','Revised'];
+// Won green, Lost red, Revised light red, Sent light green, Draft yellow —
+// same palette on both the pill (Quotation view) and this inline <select>.
+const CRM_QT_STATUS_COLOR={Draft:['#FEF6E7','#B45309'],Sent:['#ECFDF3','#16A34A'],Won:['#E6F7F5','#0D9488'],Lost:['#FCECEA','#C2372B'],Revised:['#FDEDEB','#DC6B61']};
+function crmQtSelectStyle(status){
+  const c=CRM_QT_STATUS_COLOR[status]||['#fff','#333'];
+  return 'padding:4px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px;font-weight:700;background:'+c[0]+';color:'+c[1];
+}
 async function renderCrmQuotations(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">Quotations'+
@@ -6654,7 +6663,7 @@ function crmFilterQuotations(){
   const rows=CRM_QUOTATIONS.filter(r=>!q||[r.quotationNo,r.customerName,r.serviceType,r.subject].some(v=>(v||'').toLowerCase().includes(q)));
   // Status changes right here in the list — not inside Edit any more (see
   // crmQtnStatusChange()).
-  const statusSel=r=>'<select onclick="event.stopPropagation()" onchange="event.stopPropagation();crmQtnStatusChange('+r.id+',this.value)" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px">'+
+  const statusSel=r=>'<select onclick="event.stopPropagation()" onchange="event.stopPropagation();crmQtnStatusChange('+r.id+',this.value,this)" style="'+crmQtSelectStyle(r.status)+'">'+
    CRM_QT_STATUSES.map(s=>'<option'+(s===r.status?' selected':'')+'>'+s+'</option>').join('')+'</select>';
   const body='<table><thead><tr><th>Quotation No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>Service</th><th class="num">Grand Total</th><th>Status</th></tr></thead><tbody>'+
    rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenQuotationView('+r.id+')"><td><b>'+esc(r.quotationNo||'—')+'</b></td><td>'+r.revision+'</td><td>'+esc(r.quotationDate||'')+'</td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.serviceType||'')+'</td><td class="num">'+crmMoney(r.grandTotal)+' '+esc(r.currency||'')+'</td>'+
@@ -6662,7 +6671,8 @@ function crmFilterQuotations(){
    '</tbody></table>';
   const el=document.getElementById('crmqt-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No quotations yet — use "+ Add Quotation".</div>';
 }
-async function crmQtnStatusChange(id,status){
+async function crmQtnStatusChange(id,status,selEl){
+  if(selEl)selEl.setAttribute('style',crmQtSelectStyle(status));
   try{
     await api('/api/crm/quotations/'+id,{method:'PUT',body:JSON.stringify({status})});
     const r=CRM_QUOTATIONS.find(x=>x.id===id);if(r)r.status=status;
