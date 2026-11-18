@@ -46,6 +46,53 @@ function requireWrite(req, res, next) {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   next();
 }
+/* ---- the two marks that have to leave Human Resources ---------------
+
+   The signature and the stamp are the only things on an employee's file
+   that are not HR's business alone: they print on the certificates the
+   inspectors issue, so the inspector's own browser has to be able to
+   fetch them. Both routes are registered BEFORE the HR gate below for
+   exactly that reason.
+
+   Everything else on this router stays HR-only - the file list, the
+   photograph, the CV and the rest, uploading and deleting. These two are
+   read-only, return one image each, and are asked for by report id, not
+   browsable. A signature is printed on every certificate the company
+   issues, so a signed-in colleague seeing one discloses nothing; a report
+   printed without one is a certificate nobody signed.
+
+   Still behind requireAuth at the top of the file: a signed-in ERP user,
+   never the open internet. */
+
+// GET /api/employee-files/:employeeId/signature — the current signature (a
+// background-removed PNG, see signEditOpen() on the front end), or 404.
+// This is what any report/PDF that needs to put an employee's signature
+// onto a document should call.
+router.get('/:employeeId/signature', async (req, res) => {
+  const [rows] = await pool.query(
+    "SELECT mime_type, file_data FROM erp_employee_files WHERE employee_id = ? AND category = 'Signature' ORDER BY id DESC LIMIT 1",
+    [req.params.employeeId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'No signature.' });
+  res.setHeader('Content-Type', rows[0].mime_type || 'image/png');
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+  res.send(rows[0].file_data);
+});
+
+// GET /api/employee-files/:employeeId/stamp — the current stamp, same
+// shape as /signature above but a separate, independently-uploaded item.
+router.get('/:employeeId/stamp', async (req, res) => {
+  const [rows] = await pool.query(
+    "SELECT mime_type, file_data FROM erp_employee_files WHERE employee_id = ? AND category = 'Stamp' ORDER BY id DESC LIMIT 1",
+    [req.params.employeeId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'No stamp.' });
+  res.setHeader('Content-Type', rows[0].mime_type || 'image/png');
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+  res.send(rows[0].file_data);
+});
+
+/* Everything below here is Human Resources only. */
 router.use(requireHr);
 
 router.param('employeeId', async (req, res, next, id) => {
@@ -74,34 +121,6 @@ router.get('/:employeeId/photo', async (req, res) => {
   );
   if (!rows.length) return res.status(404).json({ error: 'No photo.' });
   res.setHeader('Content-Type', rows[0].mime_type || 'image/jpeg');
-  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-  res.send(rows[0].file_data);
-});
-
-// GET /api/employee-files/:employeeId/signature — the current signature (a
-// background-removed PNG, see signEditOpen() on the front end), or 404.
-// Same shape as /photo above — this is what any report/PDF that needs to
-// put an employee's signature onto a document should call.
-router.get('/:employeeId/signature', async (req, res) => {
-  const [rows] = await pool.query(
-    "SELECT mime_type, file_data FROM erp_employee_files WHERE employee_id = ? AND category = 'Signature' ORDER BY id DESC LIMIT 1",
-    [req.params.employeeId]
-  );
-  if (!rows.length) return res.status(404).json({ error: 'No signature.' });
-  res.setHeader('Content-Type', rows[0].mime_type || 'image/png');
-  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-  res.send(rows[0].file_data);
-});
-
-// GET /api/employee-files/:employeeId/stamp — the current stamp, same
-// shape as /signature above but a separate, independently-uploaded item.
-router.get('/:employeeId/stamp', async (req, res) => {
-  const [rows] = await pool.query(
-    "SELECT mime_type, file_data FROM erp_employee_files WHERE employee_id = ? AND category = 'Stamp' ORDER BY id DESC LIMIT 1",
-    [req.params.employeeId]
-  );
-  if (!rows.length) return res.status(404).json({ error: 'No stamp.' });
-  res.setHeader('Content-Type', rows[0].mime_type || 'image/png');
   res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
   res.send(rows[0].file_data);
 });
