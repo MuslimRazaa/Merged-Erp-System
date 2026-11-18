@@ -6665,11 +6665,25 @@ function crmFilterQuotations(){
   // crmQtnStatusChange()).
   const statusSel=r=>'<select onclick="event.stopPropagation()" onchange="event.stopPropagation();crmQtnStatusChange('+r.id+',this.value,this)" style="'+crmQtSelectStyle(r.status)+'">'+
    CRM_QT_STATUSES.map(s=>'<option'+(s===r.status?' selected':'')+'>'+s+'</option>').join('')+'</select>';
-  const body='<table><thead><tr><th>Quotation No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>Service</th><th class="num">Grand Total</th><th>Status</th></tr></thead><tbody>'+
+  const body='<table><thead><tr><th>Quotation No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>Service</th><th class="num">Grand Total</th><th>Status</th><th class="no-print"></th></tr></thead><tbody>'+
    rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenQuotationView('+r.id+')"><td><b>'+esc(r.quotationNo||'—')+'</b></td><td>'+r.revision+'</td><td>'+esc(r.quotationDate||'')+'</td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.serviceType||'')+'</td><td class="num">'+crmMoney(r.grandTotal)+' '+esc(r.currency||'')+'</td>'+
-    '<td>'+statusSel(r)+'</td></tr>').join('')+
+    '<td>'+statusSel(r)+'</td>'+
+    '<td class="no-print" style="white-space:nowrap">'+
+     '<button class="btn ghost small" onclick="event.stopPropagation();crmOpenQuotationView('+r.id+')">View</button> '+
+     '<button class="btn ghost small" onclick="event.stopPropagation();crmOpenQuotationEditPage('+r.id+')">Edit</button> '+
+     '<button class="btn ghost small" style="color:#b42318" onclick="event.stopPropagation();crmQtnQuickDelete('+r.id+',\''+esc(r.quotationNo||'').replace(/\x27/g,"")+'\')">Delete</button>'+
+    '</td></tr>').join('')+
    '</tbody></table>';
   const el=document.getElementById('crmqt-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No quotations yet — use "+ Add Quotation".</div>';
+}
+async function crmQtnQuickDelete(id,quotationNo){
+  if(!confirm('Delete Quotation '+(quotationNo||'')+'? You can restore it from the Recycle Bin.'))return;
+  try{
+    await api('/api/crm/quotations/'+id,{method:'DELETE'});
+    toast('Moved to Recycle Bin.','ok');
+    CRM_QUOTATIONS=CRM_QUOTATIONS.filter(r=>r.id!==id);
+    crmFilterQuotations();
+  }catch(e){toast(e.message,'err');}
 }
 async function crmQtnStatusChange(id,status,selEl){
   if(selEl)selEl.setAttribute('style',crmQtSelectStyle(status));
