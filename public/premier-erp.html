@@ -1010,6 +1010,22 @@ function nextAutoCode(mk,field,prefix){
   return prefix+'-'+yy+'/'+String(maxSeq+1).padStart(3,'0');
 }
 const AUTOCODE=(k,l,mk,prefix)=>({k,l,t:'computed',auto:1,fn:r=>r[k]||nextAutoCode(mk,k,prefix)});
+// Same idea as AUTOCODE, but financial-year scoped (Jul-Jun) like the CRM
+// RFQ/Quotation serials, e.g. "SO-2026-27/001" -> "SO-2026-27/002" ...
+// then "SO-2027-28/001" once July turns over. Mirrors
+// backend/routes/crm.js's financialYearLabel()/nextQuotationSerial().
+function financialYearLabelJs(){
+  const d=new Date(),y=d.getFullYear(),m=d.getMonth()+1;
+  const startYear=m>=7?y:y-1;
+  return startYear+'-'+String(startYear+1).slice(-2);
+}
+function nextFyAutoCode(mk,field,prefix){
+  const fy=financialYearLabelJs();
+  const re=new RegExp('^'+prefix+'-'+fy+'\\/(\\d+)$');
+  const maxSeq=coll(mk).reduce((mx,r)=>{const mt=re.exec(r[field]||'');return mt?Math.max(mx,+mt[1]):mx;},0);
+  return prefix+'-'+fy+'/'+String(maxSeq+1).padStart(3,'0');
+}
+const FYAUTOCODE=(k,l,mk,prefix)=>({k,l,t:'computed',auto:1,fn:r=>r[k]||nextFyAutoCode(mk,k,prefix)});
 // Asset Register / GRN's own code format — PREFIX<full year>/<4-digit
 // seq>, e.g. "FA2026/0001" or "GRN2026/0001" — different from AUTOCODE's
 // "PREFIX-YY/NNN" shape (2-digit year, 3-digit seq), and the year rolls
@@ -1175,7 +1191,7 @@ const INSP_LOCATIONS=["Karachi","Hussain Sharif","Muhammad Akram","Rizwan Bashir
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
-salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[T('no','SO no.','SO-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
+salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[FYAUTOCODE('no','SO no.','salesorders','SO'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no',r=>r.status!=='Draft'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
 activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type','Type',['Call','Meeting','Email','Site visit','Follow-up']),REF('customer','Customer','customers','name'),T('who','By'),A('notes','Summary / outcome'),D('next','Next follow-up')],list:['date','type','customer','who','next'],badge:r=>r.type},
 /* ---------------- SALES / AR ---------------- */
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
@@ -5667,7 +5683,21 @@ async function crmLoadCustomers(){
    local 'quotes' collection (its old home, long since replaced by the CRM
    Quotations screen), so mirror the real, server-side quotations into it. */
 function crmMirrorQuotationsToLocalStorage(){
-  lsSet('quotes',CRM_QUOTATIONS.map(q=>({id:'crmq'+q.id,no:q.quotationNo,customer:q.customerName,amount:q.grandTotal,status:q.status,date:q.quotationDate})));
+  lsSet('quotes',CRM_QUOTATIONS.map(q=>({id:'crmq'+q.id,no:q.quotationNo,customer:q.customerName,amount:q.grandTotal,currency:q.currency,status:q.status,date:q.quotationDate})));
+}
+// Sales Order's "Quotation ref" field, picked: pull that quote's own
+// customer/amount/currency/status straight onto the Sales Order form —
+// Customer and Status are selx() widgets (see fieldInput's t:'select'/'ref'
+// cases), so they're set through selxPick, not .value.
+function soApplyQuoteRef(idPrefix){
+  const h=document.getElementById(idPrefix+'quote');
+  const no=h?h.value:'';
+  const q=coll('quotes').find(r=>r.no===no);
+  if(!q)return;
+  selxPick(idPrefix+'customer',q.customer||'');
+  selxPick(idPrefix+'status',q.status||'');
+  const amtEl=document.getElementById(idPrefix+'amount');if(amtEl)amtEl.value=q.amount!=null?q.amount:'';
+  const curEl=document.getElementById(idPrefix+'cur');if(curEl)curEl.value=q.currency||'';
 }
 async function crmLoadQuotationRefs(){
   CRM_QUOTATIONS=await api('/api/crm/quotations');
@@ -7964,7 +7994,7 @@ function renderModule(){
     '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-f-'+f.k+'"><label>'+f.l+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+
       // auto-numbered fields preview the number this record will get; a
       // file field gets the record's id instead of a value (see fieldInput)
-      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null)+'</div>').join('')+'</div>'+
+      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',(k==='salesorders'&&f.k==='quote')?()=>soApplyQuoteRef('f-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null))+'</div>').join('')+'</div>'+
     (m.lines?'<div id="ql-zone">'+qlGrid(rec)+'</div>':'')+
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
@@ -8101,7 +8131,7 @@ function editRecModalNow(id){
   m.fields.forEach(f=>{if(f.narrowOn)watchedFields.add(f.narrowOn);});
   const mlk=APPR_MODS.has(k)&&apprLocked(r);
   document.getElementById('recedit-body').className=mlk?'appr-locked':'';
-  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null)+'</div>').join('')+'</div>'+
+  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',(k==='salesorders'&&f.k==='quote')?()=>soApplyQuoteRef('mf-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null))+'</div>').join('')+'</div>'+
     filePreviewHtml(id,m);
   document.getElementById('recedit-err').style.display='none';
   if(watchedFields.size)applyConditionalFields(m,'mf-');
