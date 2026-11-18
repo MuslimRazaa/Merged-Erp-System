@@ -255,13 +255,11 @@ tr.tot td{font-weight:700;border-top:2px solid var(--line);background:#FAFBFD}
 .modal .box{background:#fff;border-radius:14px;max-width:520px;width:92%;padding:22px 24px;box-shadow:0 24px 70px rgba(0,0,0,.35);max-height:88vh;overflow:auto}
 /* Wide CRM RFQ/Quotation add-edit modals: taller, roomier, bigger type so
    the multi-column line-item grids stay legible at 90vw. */
-#crmrfqmodal .box,#crmrfqqmodal .box,#crmqtnmodal .box{max-height:92vh;margin:auto}
-#crmrfqmodal h3,#crmrfqqmodal h3,#crmqtnmodal h3{font-size:19px}
-#crmrfqmodal .field label,#crmrfqqmodal .field label,#crmqtnmodal .field label{font-size:12px}
-#crmrfqmodal .field input,#crmrfqmodal .field select,#crmrfqmodal .field textarea,
-#crmrfqqmodal .field input,#crmrfqqmodal .field select,#crmrfqqmodal .field textarea,
-#crmqtnmodal .field input,#crmqtnmodal .field select,#crmqtnmodal .field textarea{font-size:14.5px;padding:10px 12px}
-#crmrfqmodal .hint,#crmrfqqmodal .hint,#crmqtnmodal .hint{font-size:12.5px}
+#crmrfqmodal .box{max-height:92vh;margin:auto}
+#crmrfqmodal h3{font-size:19px}
+#crmrfqmodal .field label{font-size:12px}
+#crmrfqmodal .field input,#crmrfqmodal .field select,#crmrfqmodal .field textarea{font-size:14.5px;padding:10px 12px}
+#crmrfqmodal .hint{font-size:12.5px}
 .crm-dd-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;max-height:220px;overflow:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.15);margin-top:2px}
 .crm-dd-item{padding:7px 10px;cursor:pointer;font-size:13px}
 .crm-dd-item:hover{background:var(--soft)}
@@ -692,60 +690,6 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:space-between">
     <button class="btn ghost" id="rf-delete-btn" style="color:#b42318" onclick="crmDeleteRfq()">Delete</button>
     <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmrfqmodal')">Cancel</button><button class="btn" onclick="crmSaveRfq()">Save RFQ</button></span>
-  </div>
-</div></div>
-
-<div class="modal" id="crmrfqqmodal"><div class="box" style="max-width:90vw;width:90vw">
-  <h3>New RFQ / Quotation</h3>
-  <div class="hint" style="margin-bottom:10px">Fill this once — on save it creates an <b>RFQ</b> and a linked <b>Quotation</b> as two separate records. The RFQ's items are taken from the line items below.</div>
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-    <div class="field"><label>RFQ-Quotation Date *</label><input id="rq-date" type="date"></div>
-    <div class="field"><label>Source</label><select id="rq-source"><option>Call</option><option>Email</option><option>Document</option></select></div>
-    <div class="field"><label>Service Type <span class="hint">(cover page)</span></label>
-     <select id="qt-servicetype"><option value="">— choose —</option><option>Inspection</option><option>Calibration</option><option>Painting</option></select></div>
-    <div class="field"><label>Client Reference No. <span class="hint">(auto)</span></label><input id="qt-clientref" placeholder="FOT-100926-1190"></div>
-    <div class="field" style="grid-column:span 2"><label>Customer *</label><select id="rq-customer" style="width:100%"></select></div>
-    <div class="field"><label>Currency</label><select id="qt-currency"></select></div>
-    <div class="field"><label>SRB %</label><input id="qt-srb" type="number" step="0.01" value="15"></div>
-    <div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="qt-paymentterms"></select></div>
-    <div class="field" style="grid-column:span 2"><label>Attention</label><input id="qt-attention" placeholder="e.g. Ms. Kanza Nasim"></div>
-    <div class="field" style="grid-column:span 2"><label>Subject <span class="hint">(RFQ + Quotation)</span></label><input id="rq-subject" style="width:100%" placeholder="e.g. Quotation of Calibration Services"></div>
-  </div>
-  <div class="field" style="margin-top:12px"><label>Line Items</label><div id="qt-items"></div></div>
-  <div id="qt-totals" style="text-align:right;font-size:12.5px;margin-top:8px"></div>
-  <div class="field" style="margin-top:12px"><label>Attachments <span class="hint">(original email / PDF / scanned document)</span></label>
-   <input type="file" id="rq-attach-file" multiple style="display:none" onchange="crmRqAttachPicked(event)">
-   <div id="rq-attachments"></div>
-   <button type="button" class="btn ghost small" style="margin-top:6px" onclick="document.getElementById('rq-attach-file').click()">+ Add attachment</button>
-  </div>
-  <div class="field" style="margin-top:9px"><label>RFQ Remarks (optional)</label><textarea id="rq-notes" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit"></textarea></div>
-  <div class="lerr" id="crmrfqq-err" style="display:none"></div>
-  <div class="actions" style="justify-content:flex-end">
-    <button class="btn ghost" onclick="closeModal('crmrfqqmodal')">Cancel</button>
-    <button class="btn" onclick="crmSaveRfqQuotation()">Save RFQ + Quotation</button>
-  </div>
-</div></div>
-
-<div class="modal" id="crmqtnmodal"><div class="box" style="max-width:90vw;width:90vw">
-  <h3 id="crmqtn-modal-title">Edit Quotation</h3>
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-    <div class="field"><label>Quotation Date</label><input id="qe-date" type="date"></div>
-    <div class="field"><label>Service Type</label><select id="qe-servicetype"><option value="">— choose —</option><option>Inspection</option><option>Calibration</option><option>Painting</option></select></div>
-    <div class="field"><label>Client Reference No.</label><input id="qe-clientref"></div>
-    <div class="field"><label>Attention</label><input id="qe-attention"></div>
-    <div class="field"><label>Currency</label><select id="qe-currency"></select></div>
-    <div class="field"><label>SRB %</label><input id="qe-srb" type="number" step="0.01"></div>
-    <div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="qe-paymentterms"></select></div>
-    <div class="field"><label>Status</label><select id="qe-status"><option>Draft</option><option>Sent</option><option>Won</option><option>Lost</option><option>Revised</option></select></div>
-    <div class="field"><label>Revision</label><input id="qe-revision" type="number" step="1"></div>
-    <div class="field" style="grid-column:span 2"><label>Subject</label><input id="qe-subject" style="width:100%"></div>
-  </div>
-  <div class="field" style="margin-top:12px"><label>Line Items</label><div id="qe-items"></div></div>
-  <div id="qe-totals" style="text-align:right;font-size:12.5px;margin-top:8px"></div>
-  <div class="lerr" id="crmqtn-err" style="display:none"></div>
-  <div class="actions" style="justify-content:space-between">
-    <button class="btn ghost" style="color:#b42318" onclick="crmQtnDelete()">Delete (recycle RFQ + Quotation)</button>
-    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal('crmqtnmodal')">Cancel</button><button class="btn" onclick="crmQtnSave()">Save</button></span>
   </div>
 </div></div>
 
@@ -1357,8 +1301,11 @@ function calibMigrate(){
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
   'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Overtime'}],
-  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations',children:[{id:'crm_rfqs',ic:'✉',name:'RFQ'}]}],
+  'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations'}],
   'Inventory':[{id:'inv_stock_report',ic:'📊',name:'Stock Reports'}],
+  // RFQ used to live under CRM > Quotations — now its own Procurement
+  // screen. Not linked to Quotations for now (decided separately, later).
+  'Procurement':[{id:'crm_rfqs',ic:'✉',name:'RFQ'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
   'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
@@ -6228,7 +6175,7 @@ async function crmDeleteCustomer(){
 let CRM_RFQS=[],CRM_RFQ_EDIT=null,CRM_RFQ_ITEMS=[];
 async function renderCrmRfqs(){
   const c=document.getElementById('content');
-  c.innerHTML='<div class="card"><div class="card-h">RFQs<span class="hint" style="font-weight:400"> — generated automatically from Quotations</span>'+
+  c.innerHTML='<div class="card"><div class="card-h">RFQs<span class="hint" style="font-weight:400"> — Procurement</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmrfq-search" placeholder="Search RFQ no., customer or subject" oninput="crmFilterRfqs()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px"></span></div>'+
    '<div class="card-b"><div id="crmrfq-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
@@ -6460,8 +6407,9 @@ async function renderCrmRfqView(){
   }
 }
 
-/* ================= CRM: combined RFQ + Quotation ================= */
-let CRM_RQ_PENDING_ATTACHMENTS=[],CRM_QT_ITEMS=[],CRM_CFG=null;
+/* ================= CRM: Quotation (standalone, own full page now — no
+   RFQ required; see the module header note in backend/routes/crm.js) ================= */
+let CRM_QT_ITEMS=[],CRM_CFG=null,CRM_QE_EDIT_ID=null;
 function crmMoney(n){n=+n||0;return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 async function crmLoadConfig(){try{CRM_CFG=await api('/api/crm/config');}catch(e){CRM_CFG={lastClientRef:'',quotationTermsHtml:''};}return CRM_CFG;}
 // "FOT-100926-1190" -> "FOT-100926-1191"
@@ -6470,44 +6418,140 @@ function crmNextClientRef(prev){
   if(!m)return '';
   return m[1]+String(parseInt(m[2],10)+1).padStart(m[2].length,'0')+m[3];
 }
+function crmQtBlankItem(){return{equipmentId:'',standardId:'',itemDescriptionId:'',size:'',unit:'',spec:'',scope:'Scope',qty:'',rate:''};}
 
-async function crmOpenRfqQuotation(){
+// Searchable Customer field for Add/Edit Quotation — same reasoning as the
+// Service Catalogue combos below: this list can run into the hundreds, so
+// a plain <select> stops being usable. Type to filter, click a row to pick.
+function crmQCustFilter(pfx){
+  const q=(document.getElementById(pfx+'-customer-q').value||'').trim().toLowerCase();
+  const all=CRM_CUSTOMERS.map(c=>({id:c.id,label:c.name+(c.code?' ('+c.code+')':'')}));
+  const matches=(q?all.filter(o=>o.label.toLowerCase().includes(q)):all).slice(0,200);
+  const listEl=document.getElementById(pfx+'-customer-list');
+  listEl.innerHTML=matches.length
+   ?matches.map(o=>'<div class="crm-dd-item" onmousedown="crmQCustPick(\''+pfx+'\','+o.id+',\''+esc(o.label).replace(/'/g,"\\'")+'\')">'+esc(o.label)+'</div>').join('')
+   :'<div class="crm-dd-item hint" style="cursor:default">No matches.</div>';
+  listEl.style.display='block';
+}
+function crmQCustHide(pfx){setTimeout(()=>{const el=document.getElementById(pfx+'-customer-list');if(el)el.style.display='none';},150);}
+function crmQCustPick(pfx,id,label){
+  document.getElementById(pfx+'-customer').value=id;
+  document.getElementById(pfx+'-customer-q').value=label;
+  document.getElementById(pfx+'-customer-list').style.display='none';
+}
+
+// Status is deliberately NOT a field on this form any more — it's changed
+// from the Quotations list table instead (see crmQtnStatusChange()).
+const CRM_SERVICE_TYPES=['Inspection','Calibration','Services'];
+function crmQuotationFormHtml(pfx,q,isEdit){
+  const custLabel=q.customerId?(q.customerName+(q.customerCode?' ('+q.customerCode+')':'')):'';
+  return '<div class="card"><div class="card-h">'+(isEdit?'Edit Quotation '+esc(q.quotationNo||''):'Add Quotation')+
+   '<span style="margin-left:auto"><button class="btn ghost small" onclick="crmQuotationFormCancel()">‹ Back</button></span></div>'+
+   '<div class="card-b">'+
+    '<div class="field" style="max-width:420px"><label>Customer *</label>'+
+     '<div style="position:relative">'+
+      '<input type="text" id="'+pfx+'-customer-q" placeholder="Search customer…" autocomplete="off" style="width:100%" value="'+esc(custLabel)+'" oninput="crmQCustFilter(\''+pfx+'\')" onfocus="crmQCustFilter(\''+pfx+'\')" onblur="crmQCustHide(\''+pfx+'\')">'+
+      '<input type="hidden" id="'+pfx+'-customer" value="'+(q.customerId||'')+'">'+
+      '<div id="'+pfx+'-customer-list" class="crm-dd-list" style="display:none"></div>'+
+     '</div></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:9px">'+
+     '<div class="field"><label>Quotation Date *</label><input id="'+pfx+'-date" type="date" value="'+esc(q.quotationDate||today())+'"></div>'+
+     '<div class="field"><label>Service Type <span class="hint">(cover page)</span></label><select id="'+pfx+'-servicetype"><option value="">— choose —</option>'+CRM_SERVICE_TYPES.map(o=>'<option'+((q.serviceType||'')===o?' selected':'')+'>'+o+'</option>').join('')+'</select></div>'+
+     '<div class="field"><label>Client Reference No. <span class="hint">(auto)</span></label><input id="'+pfx+'-clientref" placeholder="FOT-100926-1190" value="'+esc(q.clientReferenceNo||'')+'"></div>'+
+     '<div class="field"><label>Currency</label><select id="'+pfx+'-currency"></select></div>'+
+     '<div class="field"><label>SRB %</label><input id="'+pfx+'-srb" type="number" step="0.01" value="'+esc(q.srbPercent!=null?q.srbPercent:15)+'"></div>'+
+     '<div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="'+pfx+'-paymentterms"></select></div>'+
+     '<div class="field" style="grid-column:span 2"><label>Attention</label><input id="'+pfx+'-attention" placeholder="e.g. Ms. Kanza Nasim" value="'+esc(q.attentionName||'')+'"></div>'+
+    '</div>'+
+    '<div class="field" style="margin-top:9px"><label>Subject</label><input id="'+pfx+'-subject" style="width:100%" value="'+esc(q.subject||'')+'"></div>'+
+    '<div class="field" style="margin-top:12px"><label>Line Items</label><div id="'+pfx+'-items"></div></div>'+
+    '<div id="'+pfx+'-totals" style="text-align:right;font-size:12.5px;margin-top:8px"></div>'+
+    '<div class="lerr" id="crmqf-err" style="display:none"></div>'+
+    '<div class="actions" style="justify-content:'+(isEdit?'space-between':'flex-end')+'">'+
+     (isEdit?'<button class="btn ghost" style="color:#b42318" onclick="crmQuotationFormDelete()">Delete</button>':'')+
+     '<span style="display:flex;gap:8px"><button class="btn ghost" onclick="crmQuotationFormCancel()">Cancel</button><button class="btn" onclick="crmQuotationFormSave(\''+pfx+'\')">Save Quotation</button></span>'+
+    '</div>'+
+   '</div></div>';
+}
+function crmQuotationFormCancel(){
+  if(CRM_QE_EDIT)crmOpenQuotationView(CRM_QE_EDIT.id);
+  else go('crm_quotations');
+}
+function crmOpenQuotationAdd(){route='crm_quotation_add';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);}
+async function renderCrmQuotationAdd(){
+  const c=document.getElementById('content');
   try{await crmLoadCustomers();}catch(e){}
   try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
   await crmLoadConfig();
-  document.getElementById('crmrfqq-err').style.display='none';
-  document.getElementById('rq-date').value=today();
-  document.getElementById('rq-source').value='Email';
-  document.getElementById('rq-customer').innerHTML='<option value="">— choose —</option>'+CRM_CUSTOMERS.map(c=>'<option value="'+c.id+'">'+esc(c.name)+' ('+esc(c.code)+')</option>').join('');
-  document.getElementById('rq-subject').value='';
-  document.getElementById('rq-notes').value='';
-  document.getElementById('qt-servicetype').value='';
-  document.getElementById('qt-clientref').value=crmNextClientRef(CRM_CFG.lastClientRef)||'';
-  document.getElementById('qt-attention').value='';
-  document.getElementById('qt-srb').value='15';
-  document.getElementById('qt-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]==='PKR'?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
-  document.getElementById('qt-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option>'+esc(t)+'</option>').join('');
-  CRM_RQ_PENDING_ATTACHMENTS=[];
+  CRM_QE_EDIT=null;
   CRM_QT_ITEMS=[crmQtBlankItem()];
-  crmRenderRqAttachments();crmRenderQtItems('qt');
-  openModal('crmrfqqmodal');
+  const q={clientReferenceNo:crmNextClientRef(CRM_CFG.lastClientRef)||'',quotationDate:today(),srbPercent:15};
+  c.innerHTML=crmQuotationFormHtml('qt',q,false);
+  document.getElementById('qt-currency').innerHTML=CRM_CURRENCIES.map(c2=>'<option'+(c2[0]==='PKR'?' selected':'')+'>'+c2[0]+' — '+c2[1]+'</option>').join('');
+  document.getElementById('qt-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option>'+esc(t)+'</option>').join('');
+  crmRenderQtItems('qt');
 }
-function crmQtBlankItem(){return{equipmentId:'',standardId:'',itemDescriptionId:'',size:'',unit:'',spec:'',scope:'Scope',qty:'',rate:''};}
-function crmRenderRqAttachments(){
-  const wrap=document.getElementById('rq-attachments');
-  wrap.innerHTML=CRM_RQ_PENDING_ATTACHMENTS.map((f,i)=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0"><span>📎 '+esc(f.name)+' <span class="hint">('+crmFmtBytes(f.size)+')</span></span>'+
-    '<button type="button" class="btn ghost small" style="color:#b42318" onclick="crmRqRemoveAttachment('+i+')">Remove</button></div>').join('')||'<div class="hint">No attachments.</div>';
+function crmOpenQuotationEditPage(id){
+  CRM_QE_EDIT_ID=id;route='crm_quotation_edit';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);
 }
-function crmRqAttachPicked(ev){
-  [...(ev.target.files||[])].forEach(f=>{
-    if(f.size>CRM_MAX_ATTACHMENT_BYTES){toast('"'+f.name+'" is too large (max 15MB).','err');return;}
-    CRM_RQ_PENDING_ATTACHMENTS.push(f);
-  });
-  ev.target.value='';crmRenderRqAttachments();
+async function renderCrmQuotationEdit(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  try{
+    try{await crmLoadCustomers();}catch(e){}
+    try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
+    const q=await api('/api/crm/quotations/'+CRM_QE_EDIT_ID);
+    CRM_QE_EDIT=q;
+    CRM_QE_ITEMS=q.items.length?q.items.map(it=>({equipmentId:it.equipmentId||'',standardId:it.standardId||'',itemDescriptionId:it.itemDescriptionId||'',size:it.size||'',unit:it.unit||'',spec:it.spec||'',scope:it.scope||'Scope',qty:it.qty==null?'':it.qty,rate:it.rate==null?'':it.rate})):[crmQtBlankItem()];
+    c.innerHTML=crmQuotationFormHtml('qe',q,true);
+    document.getElementById('qe-currency').innerHTML=CRM_CURRENCIES.map(c2=>'<option'+(c2[0]===(q.currency||'PKR')?' selected':'')+'>'+c2[0]+' — '+c2[1]+'</option>').join('');
+    document.getElementById('qe-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option'+(t===(q.paymentTerms||'')?' selected':'')+'>'+esc(t)+'</option>').join('');
+    crmRenderQtItems('qe');
+  }catch(err){
+    c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
+  }
 }
-function crmRqRemoveAttachment(i){CRM_RQ_PENDING_ATTACHMENTS.splice(i,1);crmRenderRqAttachments();}
+async function crmQuotationFormSave(pfx){
+  const err=document.getElementById('crmqf-err');err.style.display='none';
+  const customerId=+document.getElementById(pfx+'-customer').value||null;
+  const quotationDate=document.getElementById(pfx+'-date').value;
+  if(!customerId)return showErrEl(err,'Please select a customer.');
+  if(!quotationDate)return showErrEl(err,'Quotation Date is required.');
+  const body={
+    customerId,quotationDate,
+    serviceType:document.getElementById(pfx+'-servicetype').value,
+    clientReferenceNo:document.getElementById(pfx+'-clientref').value.trim(),
+    attentionName:document.getElementById(pfx+'-attention').value.trim(),
+    currency:(document.getElementById(pfx+'-currency').value||'').split(' — ')[0],
+    srbPercent:document.getElementById(pfx+'-srb').value||'15',
+    paymentTerms:document.getElementById(pfx+'-paymentterms').value,
+    subject:document.getElementById(pfx+'-subject').value.trim(),
+  };
+  try{
+    if(pfx==='qe'&&CRM_QE_EDIT){
+      body.items=crmQtItemsPayload(CRM_QE_ITEMS);
+      await api('/api/crm/quotations/'+CRM_QE_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
+      toast('Quotation saved.','ok');
+      crmOpenQuotationView(CRM_QE_EDIT.id);
+    }else{
+      body.quotationItems=crmQtItemsPayload(CRM_QT_ITEMS);
+      const res=await api('/api/crm/quotations',{method:'POST',body:JSON.stringify(body)});
+      toast('Quotation '+res.quotationNo+' created.','ok');
+      crmOpenQuotationView(res.id);
+    }
+  }catch(e){showErrEl(err,e.message);}
+}
+async function crmQuotationFormDelete(){
+  if(!CRM_QE_EDIT)return;
+  if(!confirm('Delete Quotation '+(CRM_QE_EDIT.quotationNo||'')+'? You can restore it from the Recycle Bin.'))return;
+  try{
+    await api('/api/crm/quotations/'+CRM_QE_EDIT.id,{method:'DELETE'});
+    toast('Moved to Recycle Bin.','ok');
+    go('crm_quotations');
+  }catch(e){toast(e.message,'err');}
+}
 
-/* ----- quotation line items (shared by create modal 'qt' and edit modal 'qe') ----- */
+/* ----- quotation line items (shared by the Add page 'qt' and Edit page 'qe') ----- */
 function crmQtItemsRef(pfx){return pfx==='qe'?CRM_QE_ITEMS:CRM_QT_ITEMS;}
 function crmEqOpt(sel){return '<option value="">—</option>'+CRM_EQUIPMENT.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e=>'<option value="'+e.id+'"'+(+sel===e.id?' selected':'')+'>'+esc(e.name)+'</option>').join('');}
 function crmStdOpt(equipmentId,sel){return '<option value="">—</option>'+CRM_STANDARDS.filter(s=>s.equipmentId===+equipmentId).map(s=>'<option value="'+s.id+'"'+(+sel===s.id?' selected':'')+'>'+esc(s.name)+'</option>').join('');}
@@ -6569,35 +6613,6 @@ function crmQtItemsPayload(arr){
     qty:it.qty===''?null:it.qty,rate:it.rate===''?null:it.rate}));
 }
 
-async function crmSaveRfqQuotation(){
-  const err=document.getElementById('crmrfqq-err');err.style.display='none';
-  const customerId=+document.getElementById('rq-customer').value||null;
-  const receivedDate=document.getElementById('rq-date').value;
-  if(!customerId)return showErrEl(err,'Please select a customer.');
-  if(!receivedDate)return showErrEl(err,'RFQ-Quotation Date is required.');
-  const fd=new FormData();
-  fd.append('customerId',customerId);
-  fd.append('receivedDate',receivedDate);
-  fd.append('quotationDate',receivedDate);
-  fd.append('source',document.getElementById('rq-source').value);
-  fd.append('subject',document.getElementById('rq-subject').value.trim());
-  fd.append('notes',document.getElementById('rq-notes').value.trim());
-  fd.append('serviceType',document.getElementById('qt-servicetype').value);
-  fd.append('clientReferenceNo',document.getElementById('qt-clientref').value.trim());
-  fd.append('attentionName',document.getElementById('qt-attention').value.trim());
-  fd.append('currency',(document.getElementById('qt-currency').value||'').split(' — ')[0]);
-  fd.append('srbPercent',document.getElementById('qt-srb').value||'15');
-  fd.append('paymentTerms',document.getElementById('qt-paymentterms').value);
-  fd.append('quotationItems',JSON.stringify(crmQtItemsPayload(CRM_QT_ITEMS)));
-  CRM_RQ_PENDING_ATTACHMENTS.forEach(f=>fd.append('attachments',f,f.name));
-  try{
-    const res=await api('/api/crm/rfq-quotation',{method:'POST',body:fd});
-    closeModal('crmrfqqmodal');
-    toast('Created RFQ '+res.rfq.rfqNo+' + Quotation '+res.quotation.quotationNo+'.','ok');
-    await renderCrmRfqs();
-  }catch(e){showErrEl(err,e.message);}
-}
-
 /* ----- Quotation terms template (shared, rich HTML) ----- */
 async function crmOpenTermsEditor(){
   await crmLoadConfig();
@@ -6618,13 +6633,14 @@ async function crmTermsSave(){
 /* ================= CRM: Quotations screen ================= */
 let CRM_QUOTATIONS=[],CRM_QT_VIEW_ID=null,CRM_QE_ITEMS=[],CRM_QE_EDIT=null;
 const CRM_QT_STATUS_PILL=s=>s==='Won'?'g':s==='Lost'||s==='Rejected'?'r':s==='Sent'?'b':'';
+const CRM_QT_STATUSES=['Draft','Sent','Won','Lost','Revised'];
 async function renderCrmQuotations(){
   const c=document.getElementById('content');
-  c.innerHTML='<div class="card"><div class="card-h">Quotations<span class="hint" style="font-weight:400"> — always linked to an RFQ</span>'+
-   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmqt-search" placeholder="Search quotation no., customer, RFQ…" oninput="crmFilterQuotations()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:200px">'+
+  c.innerHTML='<div class="card"><div class="card-h">Quotations'+
+   '<span style="margin-left:auto;display:flex;gap:8px"><input id="crmqt-search" placeholder="Search quotation no., customer…" oninput="crmFilterQuotations()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:200px">'+
    '<button class="btn ghost" onclick="crmOpenTermsEditor()">Terms Template</button>'+
-   '<button class="btn ghost" onclick="go(\'crm_recyclebin\')">🗑 Recycle Bin</button>'+
-   '<button class="btn" onclick="crmOpenRfqQuotation()">+ RFQ / Quotation</button></span></div>'+
+   '<button class="btn ghost" onclick="go(\'crm_quotation_recyclebin\')">🗑 Recycle Bin</button>'+
+   '<button class="btn" onclick="crmOpenQuotationAdd()">+ Add Quotation</button></span></div>'+
    '<div class="card-b"><div id="crmqt-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
     if(!CRM_EQUIPMENT.length){try{await crmLoadCatalogRef();}catch(e){}}
@@ -6635,12 +6651,23 @@ async function renderCrmQuotations(){
 }
 function crmFilterQuotations(){
   const qEl=document.getElementById('crmqt-search');const q=qEl?qEl.value.trim().toLowerCase():'';
-  const rows=CRM_QUOTATIONS.filter(r=>!q||[r.quotationNo,r.customerName,r.rfqNo,r.serviceType,r.subject].some(v=>(v||'').toLowerCase().includes(q)));
-  const body='<table><thead><tr><th>Quotation No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>RFQ No.</th><th>Service</th><th class="num">Grand Total</th><th>Status</th></tr></thead><tbody>'+
-   rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenQuotationView('+r.id+')"><td><b>'+esc(r.quotationNo||'—')+'</b></td><td>'+r.revision+'</td><td>'+esc(r.quotationDate||'')+'</td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.rfqNo||'')+'</td><td>'+esc(r.serviceType||'')+'</td><td class="num">'+crmMoney(r.grandTotal)+' '+esc(r.currency||'')+'</td>'+
-    '<td><span class="pill '+CRM_QT_STATUS_PILL(r.status)+'">'+esc(r.status||'')+'</span></td></tr>').join('')+
+  const rows=CRM_QUOTATIONS.filter(r=>!q||[r.quotationNo,r.customerName,r.serviceType,r.subject].some(v=>(v||'').toLowerCase().includes(q)));
+  // Status changes right here in the list — not inside Edit any more (see
+  // crmQtnStatusChange()).
+  const statusSel=r=>'<select onclick="event.stopPropagation()" onchange="event.stopPropagation();crmQtnStatusChange('+r.id+',this.value)" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px">'+
+   CRM_QT_STATUSES.map(s=>'<option'+(s===r.status?' selected':'')+'>'+s+'</option>').join('')+'</select>';
+  const body='<table><thead><tr><th>Quotation No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>Service</th><th class="num">Grand Total</th><th>Status</th></tr></thead><tbody>'+
+   rows.map(r=>'<tr style="cursor:pointer" onclick="crmOpenQuotationView('+r.id+')"><td><b>'+esc(r.quotationNo||'—')+'</b></td><td>'+r.revision+'</td><td>'+esc(r.quotationDate||'')+'</td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.serviceType||'')+'</td><td class="num">'+crmMoney(r.grandTotal)+' '+esc(r.currency||'')+'</td>'+
+    '<td>'+statusSel(r)+'</td></tr>').join('')+
    '</tbody></table>';
-  const el=document.getElementById('crmqt-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No quotations yet — use "+ RFQ / Quotation".</div>';
+  const el=document.getElementById('crmqt-list');if(el)el.innerHTML=rows.length?body:'<div class="empty">No quotations yet — use "+ Add Quotation".</div>';
+}
+async function crmQtnStatusChange(id,status){
+  try{
+    await api('/api/crm/quotations/'+id,{method:'PUT',body:JSON.stringify({status})});
+    const r=CRM_QUOTATIONS.find(x=>x.id===id);if(r)r.status=status;
+    toast('Status updated.','ok');
+  }catch(e){toast(e.message,'err');crmFilterQuotations();}
 }
 function crmOpenQuotationView(id){
   CRM_QT_VIEW_ID=id;route='crm_quotation_view';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);
@@ -6655,7 +6682,7 @@ async function renderCrmQuotationView(){
     c.innerHTML='<div class="card"><div class="card-h">'+
       '<button class="btn ghost small" onclick="go(\'crm_quotations\')">‹ Quotations</button>'+
       '<span style="margin-left:auto;display:flex;gap:8px">'+
-       '<button class="btn ghost" onclick="crmOpenQtnEdit('+q.id+')">✎ Edit</button>'+
+       '<button class="btn ghost" onclick="crmOpenQuotationEditPage('+q.id+')">✎ Edit</button>'+
        '<button class="btn ghost" onclick="crmDownloadQuotationXlsx('+q.id+')">⬇ Excel</button>'+
        '<button class="btn" onclick="crmDownloadQuotationPdf('+q.id+')">⬇ Quotation PDF</button>'+
       '</span></div>'+
@@ -6672,7 +6699,7 @@ async function renderCrmQuotationView(){
        evField('Payment Terms',q.paymentTerms)+
        '<div style="grid-column:1/-1">'+evField('Subject',q.subject)+'</div>'+
       '</div>'+
-      '<div style="margin:-8px 0 14px"><button class="btn ghost small" onclick="crmOpenRfqViewById('+q.rfqId+')">Open linked RFQ: '+esc(q.rfqNo||'')+' ›</button></div>'+
+      (q.rfqId?'<div style="margin:-8px 0 14px"><button class="btn ghost small" onclick="crmOpenRfqViewById('+q.rfqId+')">Open linked RFQ: '+esc(q.rfqNo||'')+' ›</button></div>':'')+
       '<div class="tblwrap"><table><thead><tr><th>#</th><th>Equipment</th><th>Standard</th><th>Item Description</th><th>Size</th><th>Unit</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead><tbody>'+
        (itemsBody||'<tr><td colspan="9"><span class="hint">No line items.</span></td></tr>')+'</tbody></table></div>'+
       '<div style="text-align:right;margin-top:12px;font-size:13px">'+
@@ -6689,13 +6716,13 @@ async function crmOpenRfqViewById(rfqId){
   CRM_RFQ_VIEW_ID=rfqId;route='crm_rfq_view';lsSet('ui_route',route);nav();render();window.scrollTo(0,0);
 }
 
-/* ================= CRM: Recycle Bin ================= */
+/* ================= Procurement: RFQ Recycle Bin ================= */
 async function renderCrmRecycleBin(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">'+
-   '<button class="btn ghost small" onclick="go(\'crm_quotations\')">‹ Quotations</button>'+
+   '<button class="btn ghost small" onclick="go(\'crm_rfqs\')">‹ RFQs</button>'+
    '<span style="margin-left:8px;font-weight:700">Recycle Bin</span>'+
-   '<span class="hint" style="font-weight:400;margin-left:8px">— deleted RFQ + Quotation units. Restore, or delete permanently.</span></div>'+
+   '<span class="hint" style="font-weight:400;margin-left:8px">— deleted RFQs. Restore, or delete permanently.</span></div>'+
    '<div class="card-b"><div id="crm-rb-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
     const rows=await api('/api/crm/recycle-bin');
@@ -6719,51 +6746,34 @@ async function crmRbPurge(rfqId,label){
   catch(e){toast(e.message,'err');}
 }
 
-async function crmOpenQtnEdit(id){
-  try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
-  const q=await api('/api/crm/quotations/'+id);
-  CRM_QE_EDIT=q;
-  document.getElementById('crmqtn-modal-title').textContent='Edit Quotation '+(q.quotationNo||'');
-  document.getElementById('qe-date').value=q.quotationDate||today();
-  document.getElementById('qe-servicetype').value=q.serviceType||'';
-  document.getElementById('qe-clientref').value=q.clientReferenceNo||'';
-  document.getElementById('qe-attention').value=q.attentionName||'';
-  document.getElementById('qe-currency').innerHTML=CRM_CURRENCIES.map(c=>'<option'+(c[0]===(q.currency||'PKR')?' selected':'')+'>'+c[0]+' — '+c[1]+'</option>').join('');
-  document.getElementById('qe-srb').value=q.srbPercent;
-  document.getElementById('qe-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option'+(t===(q.paymentTerms||'')?' selected':'')+'>'+esc(t)+'</option>').join('');
-  document.getElementById('qe-status').value=q.status||'Draft';
-  document.getElementById('qe-revision').value=q.revision;
-  document.getElementById('qe-subject').value=q.subject||'';
-  CRM_QE_ITEMS=q.items.length?q.items.map(it=>({equipmentId:it.equipmentId||'',standardId:it.standardId||'',itemDescriptionId:it.itemDescriptionId||'',size:it.size||'',unit:it.unit||'',spec:it.spec||'',scope:it.scope||'Scope',qty:it.qty==null?'':it.qty,rate:it.rate==null?'':it.rate})):[crmQtBlankItem()];
-  crmRenderQtItems('qe');
-  document.getElementById('crmqtn-err').style.display='none';
-  openModal('crmqtnmodal');
-}
-async function crmQtnSave(){
-  const err=document.getElementById('crmqtn-err');err.style.display='none';
-  const body={
-    quotationDate:document.getElementById('qe-date').value,serviceType:document.getElementById('qe-servicetype').value,
-    clientReferenceNo:document.getElementById('qe-clientref').value.trim(),attentionName:document.getElementById('qe-attention').value.trim(),
-    currency:(document.getElementById('qe-currency').value||'').split(' — ')[0],srbPercent:document.getElementById('qe-srb').value||'15',
-    paymentTerms:document.getElementById('qe-paymentterms').value,
-    status:document.getElementById('qe-status').value,revision:document.getElementById('qe-revision').value||'0',
-    subject:document.getElementById('qe-subject').value.trim(),
-    items:crmQtItemsPayload(CRM_QE_ITEMS),
-  };
+/* ================= CRM: Quotations Recycle Bin (separate from RFQ's) ================= */
+async function renderCrmQuotationRecycleBin(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-h">'+
+   '<button class="btn ghost small" onclick="go(\'crm_quotations\')">‹ Quotations</button>'+
+   '<span style="margin-left:8px;font-weight:700">Recycle Bin</span>'+
+   '<span class="hint" style="font-weight:400;margin-left:8px">— deleted Quotations. Restore, or delete permanently.</span></div>'+
+   '<div class="card-b"><div id="crm-qrb-list" class="tblwrap"><div class="empty">Loading…</div></div></div></div>';
   try{
-    await api('/api/crm/quotations/'+CRM_QE_EDIT.id,{method:'PUT',body:JSON.stringify(body)});
-    closeModal('crmqtnmodal');toast('Quotation saved.','ok');
-    if(route==='crm_quotation_view')render();else renderCrmQuotations();
-  }catch(e){showErrEl(err,e.message);}
+    const rows=await api('/api/crm/quotations-recycle-bin');
+    const el=document.getElementById('crm-qrb-list');
+    el.innerHTML=rows.length
+     ?'<table><thead><tr><th>Quotation No.</th><th>Customer</th><th>Subject</th><th>Status</th><th>Deleted</th><th class="no-print"></th></tr></thead><tbody>'+
+       rows.map(r=>'<tr><td><b>'+esc(r.quotationNo||'—')+'</b></td><td>'+esc(r.customerName||'')+'</td><td>'+esc(r.subject||'')+'</td><td>'+esc(r.status||'')+'</td><td>'+esc(String(r.deletedAt||'').slice(0,16).replace('T',' '))+'</td>'+
+        '<td class="no-print"><button class="btn ghost small" onclick="crmQrbRestore('+r.id+')">Restore</button> <button class="btn ghost small" style="color:#b42318" onclick="crmQrbPurge('+r.id+',\''+esc(r.quotationNo||'').replace(/\x27/g,"")+'\')">Delete permanently</button></td></tr>').join('')+
+      '</tbody></table>'
+     :'<div class="empty">Recycle Bin is empty.</div>';
+  }catch(e){const el=document.getElementById('crm-qrb-list');if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
-async function crmQtnDelete(){
-  if(!CRM_QE_EDIT)return;
-  if(!confirm('Delete Quotation '+(CRM_QE_EDIT.quotationNo||'')+'?\n\nIts linked RFQ '+(CRM_QE_EDIT.rfqNo||'')+' will ALSO be moved to the Recycle Bin. You can restore both from there.'))return;
-  try{
-    await api('/api/crm/quotations/'+CRM_QE_EDIT.id,{method:'DELETE'});
-    closeModal('crmqtnmodal');toast('Moved to Recycle Bin.','ok');
-    go('crm_quotations');
-  }catch(e){toast(e.message,'err');}
+async function crmQrbRestore(id){
+  try{await api('/api/crm/quotations-recycle-bin/restore',{method:'POST',body:JSON.stringify({id})});toast('Restored.','ok');renderCrmQuotationRecycleBin();}
+  catch(e){toast(e.message,'err');}
+}
+async function crmQrbPurge(id,label){
+  const typed=prompt('Permanently delete Quotation '+label+'? This CANNOT be undone.\n\nType DELETE to confirm:');
+  if(typed!=='DELETE'){if(typed!==null)toast('Confirmation did not match.','info');return;}
+  try{await api('/api/crm/quotations-recycle-bin/'+id,{method:'DELETE'});toast('Permanently deleted.','ok');renderCrmQuotationRecycleBin();}
+  catch(e){toast(e.message,'err');}
 }
 
 /* ================= Quotation PDF ================= */
@@ -16758,7 +16768,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['CRM','RFQs'],crm_rfq_view:['CRM','RFQ Detail'],crm_quotations:['CRM','Quotations'],crm_quotation_view:['CRM','Quotation Detail'],crm_recyclebin:['CRM','Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -16772,7 +16782,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_view:renderCrmQuotationView,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_add:renderCrmQuotationAdd,crm_quotation_edit:renderCrmQuotationEdit,crm_quotation_view:renderCrmQuotationView,crm_quotation_recyclebin:renderCrmQuotationRecycleBin,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;

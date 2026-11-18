@@ -575,12 +575,30 @@ async function migrate() {
     ['erp_crm_rfqs', 'deleted_at TIMESTAMP NULL'],
     ['erp_crm_quotations', 'deleted_at TIMESTAMP NULL'],
     ['erp_crm_quotations', 'payment_terms VARCHAR(60) NULL'],
+    ['erp_crm_quotations', 'customer_id INT NULL'],
     ['erp_crm_quotation_items', 'spec VARCHAR(500) NULL'],
     ['erp_crm_quotation_items', "scope VARCHAR(20) NULL"],
   ]) {
     try { await pool.query(`ALTER TABLE ${table} ADD COLUMN ${col}`); }
     catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   }
+
+  // RFQ (now Procurement) and Quotation (CRM) no longer have to come as a
+  // pair — a Quotation carries its own customer_id and rfq_id is now
+  // optional, so a Quotation can be created standalone. rfq_id was NOT
+  // NULL from when the two were always created together; relax it (a NULL
+  // foreign key value is simply unconstrained in MySQL, so the existing
+  // fk_qtn_rfq constraint doesn't need to change). Idempotent — re-running
+  // MODIFY COLUMN with the same definition is a no-op.
+  await pool.query('ALTER TABLE erp_crm_quotations MODIFY COLUMN rfq_id INT NULL');
+  // Backfill customer_id for quotations created back when it only lived on
+  // the linked RFQ, so they keep showing the right customer under the new
+  // COALESCE(q.customer_id, r.customer_id) lookup even after that RFQ link
+  // is eventually dropped.
+  await pool.query(`
+    UPDATE erp_crm_quotations q JOIN erp_crm_rfqs r ON r.id = q.rfq_id
+    SET q.customer_id = r.customer_id WHERE q.customer_id IS NULL
+  `);
 
   // One-row CRM config: the running Client Reference No. counter (auto
   // numbering like FOT-100926-1190 -> 1191 -> ...) and the single shared

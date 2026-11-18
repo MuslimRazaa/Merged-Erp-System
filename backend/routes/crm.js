@@ -47,7 +47,16 @@ function requireGroup(group) {
     next();
   };
 }
-router.use(requireGroup('CRM'));
+// RFQ moved to Procurement (its own access gate below); everything else
+// here (Customers, Service Catalogue, Quotations) stays CRM.
+const reqCrm = requireGroup('CRM');
+const reqProc = requireGroup('Procurement');
+router.use((req, res, next) => {
+  // /rfqs* carries its own reqProc gate per-route below; everything else
+  // in this router is CRM.
+  if (req.path === '/rfqs' || req.path.startsWith('/rfqs/')) return next();
+  return reqCrm(req, res, next);
+});
 
 // mysql2 hands back a DATE column as a JS Date at local midnight; letting
 // JSON.stringify's default toISOString() serialize it shifts the calendar
@@ -286,7 +295,7 @@ async function fetchGrouped(table, columns, rfqIds) {
   return byRfq;
 }
 
-router.get('/rfqs', async (req, res) => {
+router.get('/rfqs', reqProc, async (req, res) => {
   const [rows] = await pool.query(`${RFQ_SELECT} WHERE r.deleted_at IS NULL ORDER BY r.received_date DESC, r.id DESC`);
   if (!rows.length) return res.json([]);
   const ids = rows.map((r) => r.id);
@@ -301,7 +310,7 @@ router.get('/rfqs', async (req, res) => {
   res.json(rows.map((r) => shapeRfq(r, itemsByRfq.get(r.id), attByRfq.get(r.id), qtnByRfq.get(r.id))));
 });
 
-router.get('/rfqs/:id', async (req, res) => {
+router.get('/rfqs/:id', reqProc, async (req, res) => {
   const [rows] = await pool.query(`${RFQ_SELECT} WHERE r.id = ? AND r.deleted_at IS NULL`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'RFQ not found.' });
   const [items] = await pool.query('SELECT * FROM erp_crm_rfq_items WHERE rfq_id = ? ORDER BY sort_order', [req.params.id]);
@@ -361,7 +370,7 @@ async function nextRfqSerial(dateStr) {
 // One call creates the RFQ header AND its line items AND its attachments —
 // multipart/form-data now (not JSON): text fields as usual, "items" as a
 // JSON-stringified array field, files under the "attachments" field name.
-router.post('/rfqs', upload.array('attachments', 10), handleUploadErrors, async (req, res) => {
+router.post('/rfqs', reqProc, upload.array('attachments', 10), handleUploadErrors, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const customerId = +req.body.customerId;
   const receivedDate = String(req.body.receivedDate || '').trim();
@@ -391,7 +400,7 @@ router.post('/rfqs', upload.array('attachments', 10), handleUploadErrors, async 
   res.status(201).json(shapeRfq(rows[0], savedItems, atts));
 });
 
-router.put('/rfqs/:id', async (req, res) => {
+router.put('/rfqs/:id', reqProc, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const fields = []; const values = [];
   const map = {
@@ -414,7 +423,7 @@ router.put('/rfqs/:id', async (req, res) => {
 // Attachments on an already-saved RFQ — uploaded/removed immediately
 // (unlike a brand-new RFQ, where files ride along with the create above).
 // Multipart/form-data, file(s) under field name "files".
-router.post('/rfqs/:id/attachments', upload.array('files', 10), handleUploadErrors, async (req, res) => {
+router.post('/rfqs/:id/attachments', reqProc, upload.array('files', 10), handleUploadErrors, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const [rfq] = await pool.query('SELECT id FROM erp_crm_rfqs WHERE id = ?', [req.params.id]);
   if (!rfq.length) return res.status(404).json({ error: 'RFQ not found.' });
@@ -424,7 +433,7 @@ router.post('/rfqs/:id/attachments', upload.array('files', 10), handleUploadErro
   res.status(201).json(atts.map(shapeAttachmentMeta));
 });
 
-router.get('/rfqs/:id/attachments/:attId/download', async (req, res) => {
+router.get('/rfqs/:id/attachments/:attId/download', reqProc, async (req, res) => {
   const [rows] = await pool.query(
     'SELECT file_name, mime_type, file_data FROM erp_crm_rfq_attachments WHERE id = ? AND rfq_id = ?',
     [req.params.attId, req.params.id]
@@ -440,7 +449,7 @@ router.get('/rfqs/:id/attachments/:attId/download', async (req, res) => {
   res.send(a.file_data);
 });
 
-router.delete('/rfqs/:id/attachments/:attId', async (req, res) => {
+router.delete('/rfqs/:id/attachments/:attId', reqProc, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const [result] = await pool.query('DELETE FROM erp_crm_rfq_attachments WHERE id = ? AND rfq_id = ?', [req.params.attId, req.params.id]);
   if (!result.affectedRows) return res.status(404).json({ error: 'Attachment not found.' });
@@ -448,7 +457,7 @@ router.delete('/rfqs/:id/attachments/:attId', async (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/rfqs/:id', async (req, res) => {
+router.delete('/rfqs/:id', reqProc, async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
   const [rows] = await pool.query('SELECT id FROM erp_crm_rfqs WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'RFQ not found.' });
@@ -823,6 +832,10 @@ async function nextQuotationSerial(dateStr) {
   return `QTN-${fyLabel}/${String(max + 1).padStart(3, '0')}`;
 }
 
+// rfq_id is now optional — a Quotation stands on its own (CRM) and no
+// longer has to come from an RFQ (Procurement). customer_id is read off
+// the quotation itself when set, falling back to the linked RFQ's
+// customer for the older records created back when it was required.
 const QTN_SELECT = `
   SELECT q.*, r.rfq_no, r.subject AS rfq_subject, r.deleted_at AS rfq_deleted_at,
          c.id AS customer_id, c.name AS customer_name, c.code AS customer_code,
@@ -830,8 +843,8 @@ const QTN_SELECT = `
          c.contact_person AS customer_contact,
          e.full_name AS created_by_name
   FROM erp_crm_quotations q
-  JOIN erp_crm_rfqs r ON r.id = q.rfq_id
-  JOIN erp_crm_customers c ON c.id = r.customer_id
+  LEFT JOIN erp_crm_rfqs r ON r.id = q.rfq_id
+  JOIN erp_crm_customers c ON c.id = COALESCE(q.customer_id, r.customer_id)
   LEFT JOIN employees e ON e.id = q.created_by`;
 
 function shapeQuotationItem(it) {
@@ -966,6 +979,45 @@ router.post('/rfq-quotation', upload.array('attachments', 10), handleUploadError
   });
 });
 
+// Standalone Quotation create — CRM's own entry point now, no RFQ
+// required (RFQ moved to Procurement and the two aren't linked for the
+// moment — see the module header note above POST /rfq-quotation).
+router.post('/quotations', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const b = req.body;
+  const customerId = +b.customerId;
+  const quotationDate = String(b.quotationDate || '').trim();
+  if (!customerId) return res.status(400).json({ error: 'Customer is required.' });
+  if (!quotationDate) return res.status(400).json({ error: 'Quotation Date is required.' });
+  const [cust] = await pool.query('SELECT id FROM erp_crm_customers WHERE id = ?', [customerId]);
+  if (!cust.length) return res.status(400).json({ error: 'Selected customer was not found.' });
+
+  const cfg = await getCrmConfig();
+  let clientRef = String(b.clientReferenceNo || '').trim();
+  if (!clientRef) clientRef = nextClientRef(cfg.lastClientRef) || null;
+  if (clientRef) await pool.query('UPDATE erp_crm_config SET last_client_ref = ? WHERE id = 1', [clientRef]);
+
+  const [qtnRes] = await pool.query(
+    `INSERT INTO erp_crm_quotations
+       (customer_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, payment_terms, status, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [customerId, 0, quotationDate, b.serviceType || null, clientRef, b.attentionName || null,
+     b.subject || null, b.currency || 'PKR',
+     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, b.paymentTerms || null, 'Draft', req.erpUser.id]
+  );
+  const quotationId = qtnRes.insertId;
+  const quotationNo = await nextQuotationSerial(quotationDate);
+  await pool.query('UPDATE erp_crm_quotations SET quotation_no = ? WHERE id = ?', [quotationNo, quotationId]);
+
+  // JSON body (not multipart, unlike the old combined endpoint), so
+  // quotationItems arrives as a real array already, same as PUT /quotations/:id's items.
+  await saveQuotationItems(quotationId, Array.isArray(b.quotationItems) ? b.quotationItems : []);
+
+  await audit(req.erpUser.employeeId, 'crm-quotation-created', quotationNo);
+  const [qrows] = await pool.query(`${QTN_SELECT} WHERE q.id = ?`, [quotationId]);
+  res.status(201).json({ ...shapeQuotation(qrows[0], await fetchQuotationItems(quotationId)), termsHtml: cfg.quotationTermsHtml });
+});
+
 router.get('/quotations', async (req, res) => {
   const [rows] = await pool.query(`${QTN_SELECT} WHERE q.deleted_at IS NULL ORDER BY q.id DESC`);
   if (!rows.length) return res.json([]);
@@ -992,7 +1044,7 @@ router.get('/quotations/:id', async (req, res) => {
 });
 
 const QUOTATION_FIELD_MAP = {
-  quotationDate: 'quotation_date', serviceType: 'service_type', clientReferenceNo: 'client_reference_no',
+  customerId: 'customer_id', quotationDate: 'quotation_date', serviceType: 'service_type', clientReferenceNo: 'client_reference_no',
   attentionName: 'attention_name', subject: 'subject', currency: 'currency', srbPercent: 'srb_percent',
   status: 'status', revision: 'revision', paymentTerms: 'payment_terms',
 };
@@ -1007,29 +1059,54 @@ router.put('/quotations/:id', async (req, res) => {
     const [result] = await pool.query(`UPDATE erp_crm_quotations SET ${fields.join(', ')} WHERE id = ?`, values);
     if (!result.affectedRows) return res.status(404).json({ error: 'Quotation not found.' });
   }
-  if (req.body.items !== undefined) {
-    await saveQuotationItems(req.params.id, req.body.items);
-    // keep the linked RFQ's items mirrored
-    const [qr] = await pool.query('SELECT rfq_id FROM erp_crm_quotations WHERE id = ?', [req.params.id]);
-    if (qr.length) await saveRfqItems(qr[0].rfq_id, await rfqItemsFromQuotationItems(req.body.items));
-  }
+  // No longer mirrors into a linked RFQ's items — Quotations stand on
+  // their own now (see the module header note above POST /rfq-quotation).
+  if (req.body.items !== undefined) await saveQuotationItems(req.params.id, req.body.items);
   await audit(req.erpUser.employeeId, 'crm-quotation-updated', String(req.params.id));
   res.json({ ok: true });
 });
 
-// Deleting either side sends the whole RFQ+Quotation unit to the Recycle
-// Bin (soft delete) — never a hard delete from here.
+// Deleting an RFQ's whole unit (RFQ + any quotations still linked to it
+// from before the split) — used only by DELETE /rfqs/:id below.
 async function softDeleteRfqUnit(rfqId, employeeId) {
   await pool.query('UPDATE erp_crm_rfqs SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [rfqId]);
   await pool.query('UPDATE erp_crm_quotations SET deleted_at = NOW() WHERE rfq_id = ? AND deleted_at IS NULL', [rfqId]);
   await audit(employeeId, 'crm-rfq-unit-recycled', String(rfqId));
 }
+// A Quotation's own delete recycles only the Quotation — it no longer
+// touches any RFQ, linked or not.
 router.delete('/quotations/:id', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
-  const [rows] = await pool.query('SELECT rfq_id FROM erp_crm_quotations WHERE id = ?', [req.params.id]);
-  if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
-  await softDeleteRfqUnit(rows[0].rfq_id, req.erpUser.employeeId);
+  const [result] = await pool.query('UPDATE erp_crm_quotations SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Quotation not found.' });
+  await audit(req.erpUser.employeeId, 'crm-quotation-recycled', String(req.params.id));
   res.json({ ok: true, recycled: true });
+});
+
+/* ---- Quotations' own Recycle Bin (separate from the RFQ one below) ---- */
+router.get('/quotations-recycle-bin', async (req, res) => {
+  const [rows] = await pool.query(`${QTN_SELECT} WHERE q.deleted_at IS NOT NULL ORDER BY q.deleted_at DESC`);
+  res.json(rows.map((q) => ({
+    id: q.id, quotationNo: q.quotation_no, subject: q.subject, quotationDate: dstr(q.quotation_date),
+    deletedAt: q.deleted_at, customerName: q.customer_name, status: q.status,
+  })));
+});
+router.post('/quotations-recycle-bin/restore', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const id = +req.body.id;
+  if (!id) return res.status(400).json({ error: 'id is required.' });
+  const [result] = await pool.query('UPDATE erp_crm_quotations SET deleted_at = NULL WHERE id = ?', [id]);
+  if (!result.affectedRows) return res.status(404).json({ error: 'Not in the Recycle Bin.' });
+  await audit(req.erpUser.employeeId, 'crm-quotation-restored', String(id));
+  res.json({ ok: true });
+});
+router.delete('/quotations-recycle-bin/:id', async (req, res) => {
+  if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });
+  const [r] = await pool.query('SELECT id FROM erp_crm_quotations WHERE id = ? AND deleted_at IS NOT NULL', [req.params.id]);
+  if (!r.length) return res.status(404).json({ error: 'Not in the Recycle Bin.' });
+  await pool.query('DELETE FROM erp_crm_quotations WHERE id = ?', [req.params.id]); // FK cascade removes items
+  await audit(req.erpUser.employeeId, 'crm-quotation-purged', String(req.params.id));
+  res.json({ ok: true });
 });
 
 /* ---------------- CRM config (Client Ref counter + shared terms) ---------------- */
