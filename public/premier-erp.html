@@ -1191,7 +1191,7 @@ const INSP_LOCATIONS=["Karachi","Hussain Sharif","Muhammad Akram","Rizwan Bashir
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
-salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[FYAUTOCODE('no','SO no.','salesorders','SO'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no',r=>r.status!=='Draft'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
+salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',onPick:{quote:soApplyQuoteRef},fields:[FYAUTOCODE('no','SO no.','salesorders','SO'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no',r=>r.status!=='Draft'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
 activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type','Type',['Call','Meeting','Email','Site visit','Follow-up']),REF('customer','Customer','customers','name'),T('who','By'),A('notes','Summary / outcome'),D('next','Next follow-up')],list:['date','type','customer','who','next'],badge:r=>r.type},
 /* ---------------- SALES / AR ---------------- */
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
@@ -1258,7 +1258,7 @@ insplocs:{g:'Inspection',ic:'◉',name:'Add Location',admin:1,cols:2,
           {...T('subloc','Sub Location','Site A'),req:1}],
   list:['loc','subloc']},
 
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,onPick:{company:ctrCompanyPicked,quote:ctrApplyQuote},fields:[{k:'no',l:'Contract no.',t:'computed',auto:1,fn:r=>r.no||nextContractNo(r.company)},{k:'company',l:'Company',t:'acctco'},REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),{k:'quote',l:'Quotation',t:'wonqt'},A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Client Reference','Optional'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','quote','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
    (see woPdf() — every field below prints, and nothing prints that isn't
    entered here). `contract`/`status` are the only two ERP-only extras:
    they drive the contract map + KPIs and stay off the printed sheet. */
@@ -1325,7 +1325,7 @@ const EXTRA_NAV={
   // screen. Not linked to Quotations for now (decided separately, later).
   'Procurement':[{id:'crm_rfqs',ic:'✉',name:'RFQ'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
-  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_taxes',ic:'%',name:'Taxes'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
   // DCR hidden from the sidebar for now at the user's request — the route,
   // screen and modal are all still fully built and working underneath;
@@ -1367,7 +1367,7 @@ function bootGoTake(){
 // A group not listed here keeps the old default (all EXTRA_NAV items,
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
-  'CRM':['crm_customers','crm_services','leads','activities','crm_quotations','salesorders'],
+  'CRM':['crm_customers','crm_services','leads','activities','crm_quotations'],
   'Inspection':['insp_report','insp_list','woalloc','insplocs','contracts','workorders','insp_wo_view','insp_map'],
   'Inventory':['items','stockmoves','inv_stock_report'],
 };
@@ -6622,7 +6622,7 @@ function crmQuotationFormHtml(pfx,q,isEdit){
      '<div class="field"><label>Service Type <span class="hint">(cover page)</span></label><select id="'+pfx+'-servicetype"><option value="">— choose —</option>'+CRM_SERVICE_TYPES.map(o=>'<option'+((q.serviceType||'')===o?' selected':'')+'>'+o+'</option>').join('')+'</select></div>'+
      '<div class="field"><label>Client Reference No. <span class="hint">(auto)</span></label><input id="'+pfx+'-clientref" placeholder="FOT-100926-1190" value="'+esc(q.clientReferenceNo||'')+'"></div>'+
      '<div class="field"><label>Currency</label><select id="'+pfx+'-currency"></select></div>'+
-     '<div class="field"><label>SRB %</label><input id="'+pfx+'-srb" type="number" step="0.01" value="'+esc(q.srbPercent!=null?q.srbPercent:15)+'"></div>'+
+     '<div class="field"><label>Sales Tax <span class="hint">(Accounting › Taxes)</span></label><select id="'+pfx+'-taxkey" onchange="crmQtTaxPick(\''+pfx+'\')"></select><input type="hidden" id="'+pfx+'-srb" value="'+esc(q.srbPercent!=null?q.srbPercent:15)+'"><div class="hint" id="'+pfx+'-taxhint" style="display:none"></div></div>'+
      '<div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="'+pfx+'-paymentterms"></select></div>'+
      '<div class="field" style="grid-column:span 2"><label>Attention</label><input id="'+pfx+'-attention" placeholder="e.g. Ms. Kanza Nasim" value="'+esc(q.attentionName||'')+'"></div>'+
     '</div>'+
@@ -6636,6 +6636,28 @@ function crmQuotationFormHtml(pfx,q,isEdit){
     '</div>'+
    '</div></div>';
 }
+// Sales Tax dropdown: one option per Accounting > Taxes row ("SRB — 15%").
+// The % actually saved lives in the hidden <pfx>-srb input, so a quotation
+// saved before a rate change keeps its own % until the tax is re-picked.
+function crmQtTaxFill(pfx,key,pct){
+  const sel=document.getElementById(pfx+'-taxkey');if(!sel)return;
+  const list=ACCT_TAXES.slice();
+  if(key&&!list.some(t=>t.key===key))list.push({key,rate:+pct,missing:true});
+  sel.innerHTML=list.map(t=>'<option value="'+esc(t.key)+'">'+esc(t.key)+' — '+t.rate+'%'+(t.missing?' (saved)':'')+'</option>').join('');
+  sel.value=key||'';
+  document.getElementById(pfx+'-srb').value=pct;
+  const cur=ACCT_TAXES.find(t=>t.key===key),hint=document.getElementById(pfx+'-taxhint');
+  const differs=!!cur&&+cur.rate!==+pct;
+  if(hint){hint.style.display=differs?'':'none';hint.textContent=differs?'Saved at '+pct+'%, current '+key+' rate is '+cur.rate+'%. Pick it again to apply.':'';}
+  if(differs){const o=sel.options[sel.selectedIndex];if(o)o.textContent=key+' — '+pct+'% (saved)';}
+}
+function crmQtTaxPick(pfx){
+  const sel=document.getElementById(pfx+'-taxkey');
+  const t=ACCT_TAXES.find(x=>x.key===sel.value);
+  if(t)crmQtTaxFill(pfx,t.key,t.rate);
+  crmQtRecalcTotals(pfx);
+}
+function crmQtTaxKey(pfx){const sel=document.getElementById(pfx+'-taxkey');return (sel&&sel.value)||'SRB';}
 function crmQuotationFormCancel(){
   if(CRM_QE_EDIT)crmOpenQuotationView(CRM_QE_EDIT.id);
   else go('crm_quotations');
@@ -6646,12 +6668,15 @@ async function renderCrmQuotationAdd(){
   try{await crmLoadCustomers();}catch(e){}
   try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
   await crmLoadConfig();
+  try{await acctLoadTaxes();}catch(e){}
   CRM_QE_EDIT=null;
   CRM_QT_ITEMS=[crmQtBlankItem()];
-  const q={clientReferenceNo:crmNextClientRef(CRM_CFG.lastClientRef)||'',quotationDate:today(),srbPercent:15};
+  const defTax=ACCT_TAXES.find(t=>t.key==='SRB')||ACCT_TAXES[0]||{key:'SRB',rate:15};
+  const q={clientReferenceNo:crmNextClientRef(CRM_CFG.lastClientRef)||'',quotationDate:today(),srbPercent:defTax.rate,taxKey:defTax.key};
   c.innerHTML=crmQuotationFormHtml('qt',q,false);
   document.getElementById('qt-currency').innerHTML=CRM_CURRENCIES.map(c2=>'<option'+(c2[0]==='PKR'?' selected':'')+'>'+c2[0]+' — '+c2[1]+'</option>').join('');
   document.getElementById('qt-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option>'+esc(t)+'</option>').join('');
+  crmQtTaxFill('qt',q.taxKey,q.srbPercent);
   crmRenderQtItems('qt');
 }
 function crmOpenQuotationEditPage(id){
@@ -6663,12 +6688,14 @@ async function renderCrmQuotationEdit(){
   try{
     try{await crmLoadCustomers();}catch(e){}
     try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
+    try{await acctLoadTaxes();}catch(e){}
     const q=await api('/api/crm/quotations/'+CRM_QE_EDIT_ID);
     CRM_QE_EDIT=q;
     CRM_QE_ITEMS=q.items.length?q.items.map(it=>({equipmentId:it.equipmentId||'',standardId:it.standardId||'',itemDescriptionId:it.itemDescriptionId||'',size:it.size||'',unit:it.unit||'',spec:it.spec||'',scope:it.scope||'Scope',qty:it.qty==null?'':it.qty,rate:it.rate==null?'':it.rate})):[crmQtBlankItem()];
     c.innerHTML=crmQuotationFormHtml('qe',q,true);
     document.getElementById('qe-currency').innerHTML=CRM_CURRENCIES.map(c2=>'<option'+(c2[0]===(q.currency||'PKR')?' selected':'')+'>'+c2[0]+' — '+c2[1]+'</option>').join('');
     document.getElementById('qe-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option'+(t===(q.paymentTerms||'')?' selected':'')+'>'+esc(t)+'</option>').join('');
+    crmQtTaxFill('qe',q.taxKey||'SRB',q.srbPercent);
     crmRenderQtItems('qe');
   }catch(err){
     c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
@@ -6687,6 +6714,7 @@ async function crmQuotationFormSave(pfx){
     attentionName:document.getElementById(pfx+'-attention').value.trim(),
     currency:(document.getElementById(pfx+'-currency').value||'').split(' — ')[0],
     srbPercent:document.getElementById(pfx+'-srb').value||'15',
+    taxKey:crmQtTaxKey(pfx),
     paymentTerms:document.getElementById(pfx+'-paymentterms').value,
     subject:document.getElementById(pfx+'-subject').value.trim(),
   };
@@ -6767,7 +6795,7 @@ function crmQtRecalcTotals(pfx){
   const srb=+document.getElementById(pfx+'-srb').value||0;
   const srbAmt=totalCost*srb/100;
   const el=document.getElementById(pfx+'-totals');
-  if(el)el.innerHTML='<b>Total Cost:</b> '+crmMoney(totalCost)+' &nbsp;·&nbsp; <b>SRB '+srb+'%:</b> '+crmMoney(srbAmt)+' &nbsp;·&nbsp; <b>Grand Total:</b> '+crmMoney(totalCost+srbAmt);
+  if(el)el.innerHTML='<b>Total Cost:</b> '+crmMoney(totalCost)+' &nbsp;·&nbsp; <b>'+esc(crmQtTaxKey(pfx))+' '+srb+'%:</b> '+crmMoney(srbAmt)+' &nbsp;·&nbsp; <b>Grand Total:</b> '+crmMoney(totalCost+srbAmt);
 }
 function crmQtItemsPayload(arr){
   return arr.filter(it=>it.equipmentId||it.itemDescriptionId||it.size||it.qty||it.rate||it.spec).map(it=>({
@@ -6889,7 +6917,7 @@ async function renderCrmQuotationView(){
        (itemsBody||'<tr><td colspan="9"><span class="hint">No line items.</span></td></tr>')+'</tbody></table></div>'+
       '<div style="text-align:right;margin-top:12px;font-size:13px">'+
        '<div><b>Total Cost:</b> '+crmMoney(q.totalCost)+' '+esc(q.currency)+'</div>'+
-       '<div><b>SRB '+q.srbPercent+'%:</b> '+crmMoney(q.srbAmount)+'</div>'+
+       '<div><b>'+esc(q.taxKey||'SRB')+' '+q.srbPercent+'%:</b> '+crmMoney(q.srbAmount)+'</div>'+
        '<div style="font-size:15px;margin-top:4px"><b>GRAND TOTAL:</b> '+crmMoney(q.grandTotal)+' '+esc(q.currency)+'</div>'+
       '</div>'+
      '</div></div>';
@@ -7208,7 +7236,7 @@ function crmBuildQuotationPdf(q,termsHtml){
   doc.y-=6;
   const rx=CR-190;
   doc.text(rx,doc.y,'Total Cost',9,true);doc.textR(CR,doc.y,money(q.totalCost),9);doc.y-=13;
-  doc.text(rx,doc.y,'SRB '+q.srbPercent+'%',9,true);doc.textR(CR,doc.y,money(q.srbAmount),9);doc.y-=14;
+  doc.text(rx,doc.y,(q.taxKey||'SRB')+' '+q.srbPercent+'%',9,true);doc.textR(CR,doc.y,money(q.srbAmount),9);doc.y-=14;
   doc.text(rx,doc.y,'GRAND TOTAL ('+(q.currency||'')+')',10,true);doc.textR(CR,doc.y,money(q.grandTotal),10,true);
 
   /* ---- Terms (single flowing section, 1+ pages) ---- */
@@ -7238,7 +7266,7 @@ function crmQuotationXlsx(q){
   q.items.forEach((it,i)=>grid.push([i+1,it.equipmentName||'',it.standardName||'',it.itemDescription||'',it.size||'',it.unit||'',it.spec||'',it.scope||'',it.qty!=null?it.qty:'',it.rate!=null?it.rate:'',it.total!=null?it.total:'']));
   grid.push([]);
   grid.push(['','','','','','','','','','Total Cost',q.totalCost]);
-  grid.push(['','','','','','','','','','SRB '+q.srbPercent+'%',q.srbAmount]);
+  grid.push(['','','','','','','','','',(q.taxKey||'SRB')+' '+q.srbPercent+'%',q.srbAmount]);
   grid.push(['','','','','','','','','','GRAND TOTAL',q.grandTotal]);
   return grid.map(r=>r.map(c=>c==null?'':String(c)));
 }
@@ -7673,7 +7701,7 @@ async function recBootstrap(){
   const res=await Promise.all([...SERVER_MODS].filter(k=>MODULES[k]&&canSee(MODULES[k].g)).map(k=>recPull(k,true)));
   if(res.some(Boolean)&&!editId)render();
 }
-function recClearCache(){SERVER_MODS.forEach(k=>{lsDel(k);delete REC_AT[k];});lsDel('quotes');CRM_QREF_AT=0;}
+function recClearCache(){SERVER_MODS.forEach(k=>{lsDel(k);delete REC_AT[k];});lsDel('quotes');CRM_QREF_AT=0;CTR_REF_AT=0;ACCT_COMPANIES=null;CTR_WON_QTNS=null;}
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
@@ -7920,6 +7948,22 @@ document.addEventListener('click',()=>document.querySelectorAll('.selx.open').fo
 function fieldInput(f,v,idPrefix,onSelectChange){
   idPrefix=idPrefix||'f-';
   v=v==null?'':v;
+  /* Client Contract: the Accounting company whose code prefixes the
+     contract no. (PTIS-CTR-2026-27-00001). Stores the code. */
+  if(f.t==='acctco'){
+    const cur=String(v||ctrDefaultCompanyCode());
+    const items=(ACCT_COMPANIES||[]).filter(c=>c.code).map(c=>({id:c.code,label:c.code+(c.name?' — '+c.name:'')}));
+    if(cur&&!items.some(it=>it.id===cur))items.unshift({id:cur,label:cur});
+    return selxId(idPrefix+f.k,cur,items,onSelectChange||null,'— choose company —');
+  }
+  /* Client Contract: a CRM quotation whose status is Won. Stores the
+     quotation no.; picking one fills the contract (ctrApplyQuote). */
+  if(f.t==='wonqt'){
+    const cur=String(v);
+    const items=(CTR_WON_QTNS||[]).map(q=>({id:q.quotationNo,label:q.quotationNo+(q.customerName?' — '+q.customerName:'')}));
+    if(cur&&!items.some(it=>it.id===cur))items.unshift({id:cur,label:cur});
+    return selxId(idPrefix+f.k,cur,items,onSelectChange||null,(CTR_WON_QTNS&&!CTR_WON_QTNS.length)?'— no Won quotations —':'— choose quotation —');
+  }
   /* Approving is the HOD's act on the live system, so the option is not
      put in front of somebody who may not take it - though a record that
      is already Approved still shows it. */
@@ -8104,6 +8148,7 @@ function renderModule(){
   if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
   if(m.plist)crmEquipRefEnsure(); // Equipment/Standard/Item Description dropdowns in the price list grid
+  if(k==='contracts')ctrRefsEnsure(); // Company codes (contract no.) + Won quotations (Quotation dropdown)
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
   if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
@@ -8125,7 +8170,7 @@ function renderModule(){
     '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-f-'+f.k+'"><label>'+f.l+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+
       // auto-numbered fields preview the number this record will get; a
       // file field gets the record's id instead of a value (see fieldInput)
-      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',(k==='salesorders'&&f.k==='quote')?()=>soApplyQuoteRef('f-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null))+'</div>').join('')+'</div>'+
+      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',(m.onPick&&m.onPick[f.k])?()=>m.onPick[f.k]('f-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null))+'</div>').join('')+'</div>'+
     (m.lines?'<div id="ql-zone">'+qlGrid(rec)+'</div>':'')+
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
@@ -8262,7 +8307,7 @@ function editRecModalNow(id){
   m.fields.forEach(f=>{if(f.narrowOn)watchedFields.add(f.narrowOn);});
   const mlk=APPR_MODS.has(k)&&apprLocked(r);
   document.getElementById('recedit-body').className=mlk?'appr-locked':'';
-  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',(k==='salesorders'&&f.k==='quote')?()=>soApplyQuoteRef('mf-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null))+'</div>').join('')+'</div>'+
+  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',(m.onPick&&m.onPick[f.k])?()=>m.onPick[f.k]('mf-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null))+'</div>').join('')+'</div>'+
     filePreviewHtml(id,m);
   document.getElementById('recedit-err').style.display='none';
   if(watchedFields.size)applyConditionalFields(m,'mf-');
@@ -8749,6 +8794,78 @@ function qlPickItem(i,name){
   const it=coll('items').find(x=>x.name===name);if(!it)return;
   if(it.unit&&!QL[i].unit)QL[i].unit=it.unit;if(it.cost&&!QL[i].price)QL[i].price=it.cost;qlRefresh();qlRefreshTotals();}
 /* ============ contract price list (rate sheet grid) ============ */
+/* ============ Client Contracts — company code, contract no., Won quotation ============
+   Contract no. = <company code>-CTR-<financial year>-<5-digit seq>, e.g.
+   PTIS-CTR-2026-27-00001; the sequence runs per company code per FY
+   (Jul–Jun, financialYearLabelJs) and is assigned on first save like every
+   other auto-number here. Company codes come from Accounting > Companies
+   (routes/accounting.js /companies — readable without Accounting access);
+   the default is whichever company is selected in Accounting. */
+let ACCT_COMPANIES=null,CTR_WON_QTNS=null,CTR_REF_AT=0;
+function ctrDefaultCompanyCode(){
+  const list=ACCT_COMPANIES||[];
+  const act=lsGet('gl_activeco',null);
+  const c=list.find(x=>x.id===act&&x.code)||list.find(x=>String(x.code).toUpperCase()==='PTIS')||list.find(x=>x.code);
+  return c?String(c.code):'PTIS';
+}
+function nextContractNo(code){
+  code=String(code||ctrDefaultCompanyCode()).trim().toUpperCase().replace(/\s+/g,'');
+  const prefix=code+'-CTR-'+financialYearLabelJs()+'-';
+  const re=new RegExp('^'+prefix.replace(/[.*+?^${}()|[\]\\\/]/g,'\\$&')+'(\\d+)$');
+  const maxSeq=coll('contracts').reduce((mx,r)=>{const mt=re.exec(r.no||'');return mt?Math.max(mx,+mt[1]):mx;},0);
+  return prefix+String(maxSeq+1).padStart(5,'0');
+}
+function ctrRefsEnsure(){
+  if(Date.now()-CTR_REF_AT<15000&&ACCT_COMPANIES&&CTR_WON_QTNS)return;
+  CTR_REF_AT=Date.now();
+  Promise.all([
+    api('/api/accounting/companies').then(r=>{ACCT_COMPANIES=r;}).catch(()=>{ACCT_COMPANIES=ACCT_COMPANIES||[];}),
+    api('/api/crm/won-quotations').then(r=>{CTR_WON_QTNS=r;}).catch(()=>{CTR_WON_QTNS=CTR_WON_QTNS||[];}),
+  ]).then(()=>{if(route==='m_contracts')ctrRefreshWidgets();});
+}
+// Re-draw just the Company / Quotation pickers once their lists arrive —
+// the rest of the form (anything already typed) is left alone.
+function ctrRefreshWidgets(){
+  const m=MODULES.contracts;
+  ['company','quote'].forEach(k=>{
+    const w=document.getElementById('selx-f-'+k),h=document.getElementById('f-'+k);if(!w||!h)return;
+    const f=m.fields.find(x=>x.k===k);
+    w.outerHTML=fieldInput(f,h.value,'f-',()=>m.onPick[k]('f-'));
+  });
+  ctrCompanyPicked('f-');
+}
+function ctrCompanyPicked(pfx){
+  if(editId)return; // a saved contract keeps the number it was given
+  const no=document.getElementById(pfx+'no'),co=document.getElementById(pfx+'company');
+  if(no&&co)no.value=nextContractNo(co.value);
+}
+// Quotation picked: carry over everything the quotation already knows —
+// client, currency, value, subject, client reference, prepared-by, payment
+// terms — and its line items into the price list. Discount / terms and
+// anything else the quotation doesn't hold stays to be filled by hand.
+function ctrApplyQuote(pfx){
+  const h=document.getElementById(pfx+'quote');
+  const q=(CTR_WON_QTNS||[]).find(x=>x.quotationNo===(h?h.value:''));
+  if(!q)return;
+  const setv=(k,v,onlyIfEmpty)=>{const el=document.getElementById(pfx+k);if(!el||(onlyIfEmpty&&el.value.trim()))return;el.value=v==null?'':v;};
+  if(q.customerName)selxPick(pfx+'client',q.customerName);
+  if(q.currency)selxPick(pfx+'cur',q.currency);
+  setv('value',q.grandTotal!=null?q.grandTotal:'');
+  if(q.subject)setv('scope',q.subject);
+  if(q.clientReferenceNo)setv('rates',q.clientReferenceNo);
+  if(q.createdByName)setv('kam',q.createdByName,true);
+  if(q.paymentTerms)setv('notes','Payment terms: '+q.paymentTerms,true);
+  const items=(q.items||[]).filter(it=>it.itemDescriptionId||it.itemDescription||it.rate!=null);
+  if(!items.length)return;
+  const hasLines=PL.some(l=>l.desc||l.rate||l.equipId);
+  if(hasLines&&!confirm('Replace the current price list with the '+items.length+' line(s) from '+q.quotationNo+'?'))return;
+  PL=items.map(it=>({
+    equipId:it.equipmentId||null,stdId:it.standardId||null,itemDescId:it.itemDescriptionId||null,
+    desc:it.itemDescription||'',code:it.itemCode||'',unit:it.unit||'',
+    rate:it.rate!=null?String(it.rate):'',disc:'',rem:it.size||'',
+  }));
+  plRefresh();
+}
 let PL=[{}];
 // Equipment -> Standard -> Item Description cascade, same reference data
 // as the Service Catalogue (CRM_EQUIPMENT/CRM_STANDARDS/CRM_ITEMDESCS,
@@ -11176,6 +11293,59 @@ function renderGlCons(){
 // lists, at which point HBL_BANK_CODES/HBL_PURPOSE_CODES above get edited
 // directly. (The two source PDFs themselves aren't hosted here — only
 // their contents, transcribed into these two tables.)
+/* ================================================================
+   Accounting > Taxes — sales-tax-on-services keys and rates (KPK, SRB,
+   ICT, BRA, PRA ...), kept server-side in erp_tax_rates (routes/
+   accounting.js). CRM Quotations take their tax key + % from this list.
+   ================================================================ */
+let ACCT_TAXES=[];
+async function acctLoadTaxes(){ACCT_TAXES=await api('/api/accounting/taxes');return ACCT_TAXES;}
+function acctTaxCanEdit(){return !!SESSION&&SESSION.role!=='Viewer';}
+async function renderGlTaxes(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  try{await acctLoadTaxes();}catch(e){c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load taxes: '+esc(e.message)+'</div></div></div>';return;}
+  const ed=acctTaxCanEdit();
+  c.innerHTML='<div class="card"><div class="card-h">Taxes<span class="sp"></span>'+(ed?'<button class="btn" onclick="glTaxAddRow()">+ Add tax</button>':'')+'</div><div class="card-b tblwrap">'+
+   '<table><thead><tr><th style="width:120px">Key</th><th>Description</th><th class="num" style="width:140px">Rate %</th>'+(ed?'<th style="width:150px"></th>':'')+'</tr></thead><tbody id="gltax-body">'+
+   (ACCT_TAXES.length?ACCT_TAXES.map(t=>glTaxRowHtml(t,ed)).join(''):'<tr><td colspan="4"><span class="hint">No taxes yet.</span></td></tr>')+
+   '</tbody></table>'+
+   '<div class="hint">CRM › Quotations › Sales Tax picks its key and % from this list. A changed rate applies to quotations saved after the change; a quotation already saved keeps its own % until it is edited and the tax is picked again.</div></div></div>';
+}
+function glTaxRowHtml(t,ed){
+  if(!ed)return '<tr><td><b>'+esc(t.key)+'</b></td><td>'+esc(t.description)+'</td><td class="num">'+t.rate+'%</td></tr>';
+  return '<tr><td><input id="gltax-key-'+t.id+'" value="'+esc(t.key)+'" style="width:100%;text-transform:uppercase;font-weight:700"></td>'+
+   '<td><input id="gltax-desc-'+t.id+'" value="'+esc(t.description)+'" style="width:100%"></td>'+
+   '<td><input id="gltax-rate-'+t.id+'" type="number" step="0.01" min="0" max="100" class="num" value="'+t.rate+'" style="width:100%"></td>'+
+   '<td style="white-space:nowrap"><button class="btn small" onclick="glTaxSave('+t.id+')">Save</button> <button class="del" title="Delete" onclick="glTaxDel('+t.id+')">🗑</button></td></tr>';
+}
+function glTaxAddRow(){
+  if(document.getElementById('gltax-key-new'))return;
+  const tb=document.getElementById('gltax-body');if(!tb)return;
+  if(!ACCT_TAXES.length)tb.innerHTML='';
+  tb.insertAdjacentHTML('beforeend','<tr><td><input id="gltax-key-new" placeholder="e.g. AJK" style="width:100%;text-transform:uppercase;font-weight:700"></td>'+
+   '<td><input id="gltax-desc-new" placeholder="Authority / description" style="width:100%"></td>'+
+   '<td><input id="gltax-rate-new" type="number" step="0.01" min="0" max="100" class="num" style="width:100%"></td>'+
+   '<td style="white-space:nowrap"><button class="btn small" onclick="glTaxSave(\'new\')">Add</button> <button class="btn ghost small" onclick="render()">Cancel</button></td></tr>');
+  document.getElementById('gltax-key-new').focus();
+}
+async function glTaxSave(id){
+  const key=document.getElementById('gltax-key-'+id).value.trim().toUpperCase();
+  const description=document.getElementById('gltax-desc-'+id).value.trim();
+  const rate=document.getElementById('gltax-rate-'+id).value;
+  if(!key)return toast('Tax key is required.','err');
+  if(rate===''||isNaN(+rate)||+rate<0||+rate>100)return toast('Rate must be a number between 0 and 100.','err');
+  try{
+    if(id==='new')await api('/api/accounting/taxes',{method:'POST',body:JSON.stringify({key,description,rate:+rate})});
+    else await api('/api/accounting/taxes/'+id,{method:'PUT',body:JSON.stringify({key,description,rate:+rate})});
+    toast('Saved.','ok');render();
+  }catch(e){toast(e.message,'err');}
+}
+async function glTaxDel(id){
+  const t=ACCT_TAXES.find(x=>x.id===id);
+  if(!confirm('Delete tax "'+(t?t.key:'')+'"? Quotations already saved with it keep their % and label.'))return;
+  try{await api('/api/accounting/taxes/'+id,{method:'DELETE'});toast('Deleted.','ok');render();}catch(e){toast(e.message,'err');}
+}
 function renderGlRefs(){
   document.getElementById('content').innerHTML=
   '<div class="card"><div class="card-h">1-Link Bank Codes<span class="sp"></span>'+expBtns('xt-bankcodes','hbl-bank-codes')+'</div><div class="card-b tblwrap" id="xt-bankcodes">'+
@@ -17044,7 +17214,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Remote Work Attendance'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Remote Work Attendance'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_taxes:['Accounting','Taxes'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -17058,7 +17228,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_add:renderCrmQuotationAdd,crm_quotation_edit:renderCrmQuotationEdit,crm_quotation_view:renderCrmQuotationView,crm_quotation_recyclebin:renderCrmQuotationRecycleBin,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_add:renderCrmQuotationAdd,crm_quotation_edit:renderCrmQuotationEdit,crm_quotation_view:renderCrmQuotationView,crm_quotation_recyclebin:renderCrmQuotationRecycleBin,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_taxes:renderGlTaxes,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;

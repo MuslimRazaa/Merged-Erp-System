@@ -576,6 +576,8 @@ async function migrate() {
     ['erp_crm_quotations', 'deleted_at TIMESTAMP NULL'],
     ['erp_crm_quotations', 'payment_terms VARCHAR(60) NULL'],
     ['erp_crm_quotations', 'customer_id INT NULL'],
+    // which Accounting > Taxes key the % came from (SRB, KPK, ICT, BRA, PRA)
+    ['erp_crm_quotations', "tax_key VARCHAR(20) NULL"],
     ['erp_crm_quotation_items', 'spec VARCHAR(500) NULL'],
     ['erp_crm_quotation_items', "scope VARCHAR(20) NULL"],
   ]) {
@@ -841,7 +843,37 @@ async function migrate() {
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN late_deduction_waived TINYINT(1) NULL DEFAULT 0 AFTER employment_type'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
-  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
+  // Accounting > Taxes — the provincial / federal sales-tax-on-services
+  // rates. CRM Quotations pick their tax key + % from here (shown on the
+  // quotation and its PDF as e.g. "SRB 15%"). Seeded once; edited on the
+  // Accounting > Taxes screen afterwards.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_tax_rates (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      tax_key     VARCHAR(20) NOT NULL UNIQUE,
+      description VARCHAR(160) NULL,
+      rate        DECIMAL(6,2) NOT NULL DEFAULT 0,
+      sort_order  INT NOT NULL DEFAULT 0,
+      updated_by  INT NULL,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  const [[taxCount]] = await pool.query('SELECT COUNT(*) AS n FROM erp_tax_rates');
+  if (!taxCount.n) {
+    const seed = [
+      ['KPK', 'Khyber Pakhtunkhwa Revenue Authority', 15],
+      ['SRB', 'Sindh Revenue Board', 15],
+      ['ICT', 'Islamabad Capital Territory', 15],
+      ['BRA', 'Balochistan Revenue Authority', 15],
+      ['PRA', 'Punjab Revenue Authority', 16],
+    ];
+    for (let i = 0; i < seed.length; i++) {
+      await pool.query('INSERT INTO erp_tax_rates (tax_key, description, rate, sort_order) VALUES (?,?,?,?)', [...seed[i], i + 1]);
+    }
+  }
+
+  console.log('[erp-migrate] erp_tax_rates, erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;
