@@ -8927,8 +8927,7 @@ function ctrRefsEnsure(){
   Promise.all([
     api('/api/accounting/companies').then(r=>{ACCT_COMPANIES=r;}).catch(()=>{ACCT_COMPANIES=ACCT_COMPANIES||[];}),
     api('/api/crm/won-quotations').then(r=>{CTR_WON_QTNS=r;}).catch(()=>{CTR_WON_QTNS=CTR_WON_QTNS||[];}),
-    acctLoadTaxes().catch(()=>{}),  // tax dropdown under the price list
-  ]).then(()=>{if(route==='m_contracts'){ctrRefreshWidgets();if(document.getElementById('pl-zone'))plRefresh();}});
+  ]).then(()=>{if(route==='m_contracts')ctrRefreshWidgets();});
 }
 // Re-draw just the Company / Quotation pickers once their lists arrive —
 // the rest of the form (anything already typed) is left alone.
@@ -9022,8 +9021,8 @@ function plGrid(rec){
   '</div>';
 }
 /* Totals under the price list, same as a quotation's: Total Cost (sum of
-   Qty x Rate), the sales tax picked from Accounting > Taxes (carried over
-   from the quotation when one is picked), and the Grand Total. A line
+   Qty x Rate), the selected quotation's own sales tax (key + %, fixed —
+   not editable on the contract), and the Grand Total. A line
    with no Qty is a plain rate and adds nothing to the totals. */
 let PLTAX={key:'',pct:''};
 function plLineTotal(l){return (l.qty===''||l.qty==null||l.rate===''||l.rate==null)?null:(+l.qty||0)*(+l.rate||0);}
@@ -9033,25 +9032,17 @@ function plTotals(){
   const pct=PLTAX.key?(+PLTAX.pct||0):0,tax=+(cost*pct/100).toFixed(2);
   return {cost,pct,tax,grand:cost+tax};
 }
+// The tax is the quotation's own (key + %), fixed: shown, never edited here.
 function plTotalsHtml(){
-  const t=plTotals(),list=(ACCT_TAXES||[]).slice();
-  if(PLTAX.key&&!list.some(x=>x.key===PLTAX.key))list.push({key:PLTAX.key,rate:+PLTAX.pct,missing:true});
-  const opts='<option value="">No tax</option>'+list.map(x=>{
-    const shown=(x.key===PLTAX.key&&+x.rate!==+PLTAX.pct)?+PLTAX.pct:x.rate;
-    return '<option value="'+esc(x.key)+'"'+(x.key===PLTAX.key?' selected':'')+'>'+esc(x.key)+' '+shown+'%'+(x.missing||shown!==x.rate?' (saved)':'')+'</option>';
-  }).join('');
+  const t=plTotals();
+  const taxLbl=PLTAX.key?esc(PLTAX.key)+' '+(+PLTAX.pct||0)+'%':'Tax';
   return '<div id="pl-totals" style="text-align:right;font-size:13px;line-height:1.9;min-width:280px">'+
    '<div><b>Total Cost:</b> <span id="pl-tc">'+crmMoney(t.cost)+'</span> <span class="pl-cur">'+esc(plCur())+'</span></div>'+
-   '<div><select onchange="plTaxPick(this.value)" style="width:auto;padding:2px 6px;font-weight:700">'+opts+'</select>: <span id="pl-taxamt">'+crmMoney(t.tax)+'</span></div>'+
+   '<div title="Taken from the selected quotation"><b>'+taxLbl+':</b> <span id="pl-taxamt">'+crmMoney(t.tax)+'</span></div>'+
    '<div style="font-size:15px"><b>GRAND TOTAL:</b> <span id="pl-gt">'+crmMoney(t.grand)+'</span> <span class="pl-cur">'+esc(plCur())+'</span></div>'+
   '</div>';
 }
 function plCur(){const el=document.getElementById('f-cur');return el?el.value:'';}
-function plTaxPick(key){
-  const x=(ACCT_TAXES||[]).find(t=>t.key===key);
-  PLTAX=key?{key,pct:x?x.rate:PLTAX.pct}:{key:'',pct:''};
-  plRecalc();
-}
 // Live update while typing — no grid re-render, so the cursor stays put.
 // Contract value follows the Grand Total whenever the lines have one.
 function plRecalc(){
