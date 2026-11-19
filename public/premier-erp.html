@@ -407,11 +407,11 @@ body.locked #app{display:none}
 </div></div>
 
 <div class="modal" id="otconfirmmodal"><div class="box" style="max-width:440px">
-  <h3>Confirm Late Sitting</h3>
+  <h3>Confirm Entry</h3>
   <div id="otconfirm-body"></div>
   <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:12.5px;cursor:pointer;line-height:1.5">
     <input type="checkbox" id="otconfirm-check" style="margin-top:3px">
-    <span>I confirm this is accurate — this is really the time I was working late, read from my own device's clock.</span>
+    <span>I confirm this is accurate — this is really the time I was working, read from my own device's clock.</span>
   </label>
   <div class="lerr" id="otconfirm-err" style="display:none"></div>
   <div class="actions" style="justify-content:flex-end">
@@ -1191,7 +1191,7 @@ const INSP_LOCATIONS=["Karachi","Hussain Sharif","Muhammad Akram","Rizwan Bashir
 const MODULES={
 /* ---------------- CRM ---------------- */
 leads:{g:'CRM',ic:'◈',name:'Leads & Opportunities',fields:[T('name','Company / lead'),T('contact','Contact'),T('phone','Phone'),T('email','Email'),S('stage','Stage',['New','Contacted','Qualified','Proposal sent','Negotiation','Won','Lost']),N('value','Est. value'),T('owner','Owner'),D('next','Next action date'),A('notes','Notes')],list:['name','contact','stage','value','owner','next'],badge:r=>r.stage,kpi:d=>[{n:d.filter(r=>!['Won','Lost'].includes(r.stage)).length,l:'Open opportunities'},{n:fmt(d.filter(r=>!['Won','Lost'].includes(r.stage)).reduce((s,r)=>s+(+r.value||0),0)),l:'Pipeline value'}]},
-salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',fields:[FYAUTOCODE('no','SO no.','salesorders','SO'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no',r=>r.status!=='Draft'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
+salesorders:{g:'CRM',ic:'▣',name:'Sales Orders',onPick:{quote:soApplyQuoteRef},fields:[FYAUTOCODE('no','SO no.','salesorders','SO'),D('date','Date'),REF('customer','Customer','customers','name'),REF('quote','Quotation ref','quotes','no',r=>r.status!=='Draft'),N('amount','Amount'),T('cur','Currency','AED'),S('status','Status',['Open','In progress','Delivered','Invoiced','Closed','Cancelled']),A('detail','Details')],list:['no','date','customer','quote','amount','status'],badge:r=>r.status},
 activities:{g:'CRM',ic:'✆',name:'Activities',fields:[D('date','Date'),S('type','Type',['Call','Meeting','Email','Site visit','Follow-up']),REF('customer','Customer','customers','name'),T('who','By'),A('notes','Summary / outcome'),D('next','Next follow-up')],list:['date','type','customer','who','next'],badge:r=>r.type},
 /* ---------------- SALES / AR ---------------- */
 invoices:{g:'Sales & AR',ic:'▥',name:'Invoices',fields:[T('no','Invoice no.','INV-2026-001'),D('date','Date'),REF('customer','Customer','customers','name'),REF('so','Sales order','salesorders','no'),T('project','Project / WO ref'),N('amount','Amount (excl. tax)'),N('tax','Tax'),T('cur','Currency','AED'),S('status','Status',['Draft','Issued','Partially paid','Paid','Overdue','Cancelled']),D('due','Due date'),A('notes','Notes')],list:['no','date','customer','amount','tax','cur','status','due'],badge:r=>r.status,kpi:d=>[{n:fmt(d.filter(r=>['Issued','Partially paid','Overdue'].includes(r.status)).reduce((s,r)=>s+(+r.amount||0)+(+r.tax||0),0)),l:'Outstanding AR'},{n:d.filter(r=>r.status==='Overdue').length,l:'Overdue invoices',warn:1}]},
@@ -1258,7 +1258,7 @@ insplocs:{g:'Inspection',ic:'◉',name:'Add Location',admin:1,cols:2,
           {...T('subloc','Sub Location','Site A'),req:1}],
   list:['loc','subloc']},
 
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,fields:[T('no','Contract no.','CTR-2026-001'),REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Rate sheet ref'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,onPick:{company:ctrCompanyPicked,quote:ctrApplyQuote},fields:[{k:'no',l:'Contract no.',t:'computed',auto:1,fn:r=>r.no||nextContractNo(r.company)},{k:'company',l:'Company',t:'acctco'},REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),{k:'quote',l:'Quotation',t:'wonqt'},A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Client Reference','Optional'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','quote','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
    (see woPdf() — every field below prints, and nothing prints that isn't
    entered here). `contract`/`status` are the only two ERP-only extras:
    they drive the contract map + KPIs and stay off the printed sheet. */
@@ -1325,7 +1325,7 @@ const EXTRA_NAV={
   // screen. Not linked to Quotations for now (decided separately, later).
   'Procurement':[{id:'crm_rfqs',ic:'✉',name:'RFQ'}],
   'Human Resources':[{id:'hr_employees',ic:'❖',name:'Employees'},{id:'hr_attendance',ic:'◷',name:'Live Attendance'},{id:'hr_report',ic:'▦',name:'Attendance Report'},{id:'hr_holidays',ic:'▧',name:'Holidays & Weekly Off'},{id:'hr_payroll',ic:'❒',name:'Payroll'},{id:'hr_payroll_slips',ic:'🧾',name:'Payroll / Slips'},{id:'hr_leave_records',ic:'⚑',name:'Leave Records'}],
-  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
+  'Accounting':[{id:'gl_companies',ic:'▩',name:'Companies'},{id:'gl_fx',ic:'¤',name:'Currencies & FX'},{id:'gl_coa',ic:'≡',name:'Chart of Accounts'},{id:'gl_je',ic:'✎',name:'Journal Entries'},{id:'gl_ledger',ic:'≣',name:'General Ledger'},{id:'gl_tb',ic:'⚖',name:'Trial Balance'},{id:'gl_pl',ic:'∑',name:'Profit & Loss'},{id:'gl_bs',ic:'▤',name:'Balance Sheet'},{id:'gl_cons',ic:'◉',name:'Consolidated'},{id:'gl_taxes',ic:'%',name:'Taxes'},{id:'gl_refs',ic:'ℹ',name:'Purpose & Bank Codes'}],
   'Inspection':[{id:'insp_report',ic:'✓',name:'Detailed Report'},{id:'insp_list',ic:'▭',name:'Saved Reports'},{id:'insp_wo_view',ic:'▤',name:'View Work Orders'},{id:'insp_map',ic:'◈',name:'Contract Map'}],
   // DCR hidden from the sidebar for now at the user's request — the route,
   // screen and modal are all still fully built and working underneath;
@@ -1367,7 +1367,7 @@ function bootGoTake(){
 // A group not listed here keeps the old default (all EXTRA_NAV items,
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
-  'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
+  'CRM':['crm_customers','crm_services','leads','activities','crm_quotations'],
   'Inspection':['insp_report','insp_list','woalloc','insplocs','contracts','workorders','insp_wo_view','insp_map'],
   'Inventory':['items','stockmoves','inv_stock_report'],
 };
@@ -1897,7 +1897,7 @@ async function renderLiveAttendance(){
             '<td>'+attEmpCell(r,'name','employeeCode')+'</td><td>'+esc(r.department||'')+(r.department&&r.location?' · ':'')+esc(r.location||'')+'</td>'+
             (dtLabel
              ?'<td colspan="3"><span class="pill '+pillClass+'">'+esc(dtLabel)+'</span></td>'
-             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td class="num">'+hrs+'</td>')+
+             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkInMode?' <span class="hint">('+esc(r.checkInMode)+')</span>':''):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkOutMode?' <span class="hint">('+esc(r.checkOutMode)+')</span>':''):'—')+'</td><td class="num">'+hrs+'</td>')+
             '<td>'+(dtLabel||r.unmapped||!ci?'—':'<span class="pill '+(r.late?'a':'g')+'">'+(r.late?'Late':'On time')+'</span>')+'</td></tr>';
          }).join('')+
          '</tbody></table>';
@@ -1973,7 +1973,7 @@ function attExportCsv(){
     ATT_ROWS.forEach(r=>{
       const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
       const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1):'';
-      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString():'',co?co.toLocaleTimeString():'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
+      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString()+(r.checkInMode?' ('+r.checkInMode+')':''):'',co?co.toLocaleTimeString()+(r.checkOutMode?' ('+r.checkOutMode+')':''):'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
     });
   }
   const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
@@ -2136,6 +2136,9 @@ function rptFmtDay(d){return new Date(d+'T00:00:00').toLocaleDateString('en-US',
 // show for a day that isn't a normal punched attendance day — Holiday/
 // CompanyOff/WeeklyOff/Absent all come from the server's own calendar +
 // Saturday-rotation + leave logic now, not from a manually-filled sheet.
+// A Remote Work Attendance punch (Offsite working / Work From Home) is
+// labelled next to its time, e.g. "09:05 AM (Work From Home)".
+function rptTimeMode(t,mode){const s=rptFmtTime(t);return s&&mode?s+' ('+mode+')':s;}
 function rptDayTypeLabel(r){
   switch(r.dayType){
     case 'Holiday': return 'Holiday — '+(r.holidayName||'');
@@ -2161,7 +2164,7 @@ function rptBuildDetailed(){
   const rows=sorted.map((r,i)=>{
     const label=rptDayTypeLabel(r);
     return [i+1,r.department||'',r.employeeCode||'',r.name||'(Unmapped)',rptFmtDate(r.date),rptFmtDay(r.date),
-      label||rptFmtTime(r.checkIn), label?(r.leaveDocNo||''):rptFmtTime(r.checkOut)];
+      label||rptTimeMode(r.checkIn,r.checkInMode), label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode)];
   });
   return {headers,rows};
 }
@@ -3126,18 +3129,33 @@ function otPickDate(btn){
 // changes what HR's audit list shows this entry as. Kept server-side too,
 // see backend/routes/lateSitting.js's WORK_MODES.
 const OT_WORK_MODES=['Offsite working','Work From Home'];
+// Hidden HR-admin flow: lets exactly emp code 1551 log a WFH/Offsite In or
+// Out entry on ANY employee's behalf, any date — flip this to false and the
+// whole card disappears for everyone, 1551 included (its backend route,
+// POST /api/late-sittings/admin-log, has the matching switch and emp-code
+// check — see backend/routes/lateSitting.js).
+const OT_ADMIN_LOG_ENABLED=true;
+const OT_ADMIN_EMP_CODE='1551';
 function otPickMode(btn){
   btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
   const el=document.getElementById('ot-mode');if(el)el.value=btn.dataset.v;
 }
+function otPickInOut(btn){
+  btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const el=document.getElementById('ot-inout');if(el)el.value=btn.dataset.v;
+}
 async function renderOvertime(){
-  const hasHr=canSee('Human Resources');
+  // The every-employee list is only ever for the one HR account (1551) —
+  // everyone else, Administrator included, sees just their own entries.
+  // Independent of OT_ADMIN_LOG_ENABLED (that only hides the Manual Entry card).
+  const hasHr=!!SESSION&&String(SESSION.user)===OT_ADMIN_EMP_CODE;
   const c=document.getElementById('content');
   const opts=otDateOptions();
   c.innerHTML=
-   '<div class="card"><div class="card-h">⏱ Log a Late Sitting</div><div class="card-b">'+
-    '<div class="hint" style="margin-bottom:16px">Only you can log your own late sitting. The time below is read straight off this device\'s clock and counts exactly like a normal machine check-out — log it from here while you\'re actually working late, or right after.</div>'+
+   '<div class="card"><div class="card-h">Remote Work Attendance</div><div class="card-b">'+
+    '<div class="hint" style="margin-bottom:16px">Only you can log your own Offsite/WFH time. The time below is read straight off this device\'s clock and counts exactly like a normal machine punch — log it from here while you\'re actually working, or right after.</div>'+
     '<div style="background:linear-gradient(135deg,var(--brand),#0b4fa8);border-radius:14px;padding:22px 26px;color:#fff;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
      '<div>'+
       '<div style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;opacity:.8;margin-bottom:6px">This device’s current time</div>'+
@@ -3151,6 +3169,11 @@ async function renderOvertime(){
      opts.map((o,i)=>'<button type="button" class="att-tab'+(i===0?' on':'')+'" data-v="'+esc(o.v)+'" onclick="otPickDate(this)">'+o.label+' <span style="opacity:.6;font-weight:400">· '+o.sub+'</span></button>').join('')+
     '</div>'+
     '<input type="hidden" id="ot-date" value="'+esc(opts[0].v)+'">'+
+    '<div style="font-weight:700;font-size:12.5px;margin:16px 0 8px">In or Out?</div>'+
+    '<div class="att-tabs" id="ot-inout-tabs">'+
+     [['out','Out'],['in','In']].map(([v,l])=>'<button type="button" class="att-tab" data-v="'+v+'" onclick="otPickInOut(this)">'+l+'</button>').join('')+
+    '</div>'+
+    '<input type="hidden" id="ot-inout" value="">'+
     '<div style="font-weight:700;font-size:12.5px;margin:16px 0 8px">How were you working?</div>'+
     '<div class="att-tabs" id="ot-mode-tabs">'+
      OT_WORK_MODES.map((wm)=>'<button type="button" class="att-tab" data-v="'+esc(wm)+'" onclick="otPickMode(this)">'+esc(wm)+'</button>').join('')+
@@ -3158,16 +3181,17 @@ async function renderOvertime(){
     '<input type="hidden" id="ot-mode" value="">'+
     '<div class="field full" style="margin:18px 0 0;max-width:460px">'+
      '<label>Attachment (optional)</label><input type="file" id="ot-file" accept="image/*,.pdf">'+
-     '<div class="hint" style="margin-top:4px">A screenshot of the email/message that shows you were working late — optional, but helps if this is ever questioned.</div>'+
+     '<div class="hint" style="margin-top:4px">A screenshot of the email/message that backs this up — optional, but helps if this is ever questioned.</div>'+
     '</div>'+
     '<div class="lerr" id="ot-err" style="display:none"></div>'+
-    '<div class="actions" style="margin-top:18px"><button class="btn" id="ot-submit-btn" onclick="otOpenConfirm()">Log Late Sitting</button></div>'+
+    '<div class="actions" style="margin-top:18px"><button class="btn" id="ot-submit-btn" onclick="otOpenConfirm()">Log Entry</button></div>'+
    '</div></div>'+
-   '<div class="card"><div class="card-h">My Late Sittings</div><div class="card-b" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
-   (hasHr?'<div class="card"><div class="card-h">All Employees — Late Sitting Log<span class="hint" style="font-weight:400"> — every manually logged late sitting, newest first</span></div><div class="card-b">'+
+   '<div class="card"><div class="card-h">My Offsite / WFH Log</div><div class="card-b" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
+   (hasHr?'<div class="card"><div class="card-h">All Employees — Offsite / WFH Log<span class="hint" style="font-weight:400"> — every manually logged entry, newest first</span></div><div class="card-b">'+
      '<div class="kpis" id="ot-all-kpis" style="margin-bottom:16px"></div>'+
      '<div class="tblwrap" id="ot-all-body"><div class="empty">Loading…</div></div>'+
-    '</div></div>':'');
+    '</div></div>':'')+
+   ((OT_ADMIN_LOG_ENABLED&&SESSION&&String(SESSION.user)===OT_ADMIN_EMP_CODE)?otAdminLogCardHtml():'');
   otTickClock();
   await otLoadMine();
   if(hasHr)await otLoadAll();
@@ -3175,12 +3199,10 @@ async function renderOvertime(){
 // A quiet activity feed (same look Live Attendance's "Latest punches" uses)
 // instead of a plain table — this is a personal log, not a data-dense report.
 function otFeedRow(r,withEmployee){
-  const d=new Date(r.outTime);
   return '<div class="att-row">'+
    '<span style="font-size:17px;flex:0 0 auto">🕗</span>'+
    '<div style="flex:1;min-width:0">'+
-    '<b>'+rptFmtDate(r.workDate)+'</b>'+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
-    '<div class="hint" style="margin-top:2px">Logged at '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · submitted '+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'+
+    '<b>'+rptFmtDate(r.workDate)+'</b> <span style="font-variant-numeric:tabular-nums">'+new Date(r.outTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</span>'+(r.inOut?' <span class="pill '+(r.inOut==='in'?'g':'a')+'" style="margin-left:4px">'+(r.inOut==='in'?'In':'Out')+'</span>':'')+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
    '</div>'+
    (r.hasAttachment?'<button class="btn ghost small" onclick="otViewAttachment('+r.id+')">📎 View</button>':'<span class="hint" style="white-space:nowrap">No attachment</span>')+
    (withEmployee?' <button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="otDelete('+r.id+')">🗑</button>':'')+
@@ -3190,7 +3212,7 @@ async function otLoadMine(){
   const el=document.getElementById('ot-mine-body');if(!el)return;
   try{
     OT_MINE=await api('/api/late-sittings/mine');
-    el.innerHTML=OT_MINE.length?'<div class="att-feed">'+OT_MINE.map(r=>otFeedRow(r,false)).join('')+'</div>':'<div class="empty">No late sittings logged yet.</div>';
+    el.innerHTML=OT_MINE.length?'<div class="att-feed">'+OT_MINE.map(r=>otFeedRow(r,false)).join('')+'</div>':'<div class="empty">No entries logged yet.</div>';
   }catch(e){el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 async function otLoadAll(){
@@ -3200,16 +3222,15 @@ async function otLoadAll(){
     OT_ALL=await api('/api/late-sittings');
     const byEmp={};
     OT_ALL.forEach(r=>{(byEmp[r.employeeCode]=byEmp[r.employeeCode]||{name:r.employeeName,days:new Set()}).days.add(r.workDate);});
-    if(kEl)kEl.innerHTML='<div class="kpi"><span>Total entries</span><b>'+OT_ALL.length+'</b></div>'+
-     '<div class="kpi"><span>Employees with manual lates</span><b>'+Object.keys(byEmp).length+'</b></div>';
+    if(kEl)kEl.innerHTML='<div class="kpi"><span>Total entries</span><b>'+OT_ALL.length+'</b></div>';
     const summaryRows=Object.entries(byEmp).sort((a,b)=>b[1].days.size-a[1].days.size)
      .map(([code,v])=>'<tr><td>'+esc(code)+'</td><td>'+esc(v.name)+'</td><td class="num">'+v.days.size+'</td></tr>').join('');
     bEl.innerHTML=
      (OT_ALL.length?'<div style="font-weight:700;margin-bottom:8px">By Employee</div>'+
-      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Late Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
+      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Total days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
      '<div style="font-weight:700;margin-bottom:8px">Every Entry</div>'+
      (OT_ALL.length?'<div class="att-feed">'+OT_ALL.map(r=>otFeedRow(r,true)).join('')+'</div>'
-      :'<div class="empty">No late sittings logged by anyone yet.</div>');
+      :'<div class="empty">No entries logged by anyone yet.</div>');
   }catch(e){bEl.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 async function otViewAttachment(id){
@@ -3223,7 +3244,7 @@ async function otViewAttachment(id){
   }catch(e){toast('Could not open attachment — '+e.message,'err');}
 }
 async function otDelete(id){
-  if(!confirm('Delete this late-sitting entry? This also removes the matching time from Attendance Report/Payroll. This cannot be undone.'))return;
+  if(!confirm('Delete this entry? This also removes the matching time from Attendance Report/Payroll. This cannot be undone.'))return;
   try{
     await api('/api/late-sittings/'+id,{method:'DELETE'});
     toast('Entry deleted.','ok');
@@ -3231,8 +3252,113 @@ async function otDelete(id){
     await otLoadMine();
   }catch(e){toast(e.message,'err');}
 }
-// Clicking "Log Late Sitting" never saves straight away — it freezes the
-// exact time right then (shown in the confirm dialog) and opens it for the
+// Hidden admin-only card (see OT_ADMIN_LOG_ENABLED above) — picks any
+// employee, any date/time, In or Out, Offsite/WFH, and logs it straight
+// into the exact same two tables the self-service flow writes, so it shows
+// up for that employee exactly as if they'd logged it themselves.
+function otAdminLogCardHtml(){
+  return '<div class="card"><div class="card-h">Manual Entry</div><div class="card-b">'+
+   '<div class="hint" style="margin-bottom:14px">Logs a Work From Home / Offsite entry on an employee\'s behalf — it shows up for them exactly as if they logged it themselves.</div>'+
+   '<div class="field"><label>Employee</label>'+selxId('otad-emp','',coll('employees').filter(e=>e.name).map(e=>({id:e.isoId,label:e.empno+' — '+e.name})),null,'— choose —')+'</div>'+
+   '<div class="att-tabs" id="otad-scope-tabs" style="margin-top:12px">'+
+    '<button type="button" class="att-tab on" data-v="single" onclick="otAdminScopeSwitch(this)">Single Entry</button>'+
+    '<button type="button" class="att-tab" data-v="bulk" onclick="otAdminScopeSwitch(this)">Bulk (date range)</button>'+
+   '</div>'+
+   '<input type="hidden" id="otad-scope" value="single">'+
+   '<div id="otad-single-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>Date</label><input id="otad-date" type="date" value="'+esc(today())+'"></div>'+
+    '<div class="field"><label>Time</label><input id="otad-time" type="time"></div>'+
+   '</div>'+
+   // A fixed time repeated across every day in the range would leave an
+   // obvious identical-timestamp fingerprint — instead, each day gets its
+   // own random time drawn from the From/To window (see otAdminRandTime()).
+   '<div id="otad-bulk-fields" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>From Date</label><input id="otad-fromdate" type="date" value="'+esc(today())+'"></div>'+
+    '<div class="field"><label>To Date</label><input id="otad-todate" type="date" value="'+esc(today())+'"></div>'+
+    '<div class="field"><label>From Time</label><input id="otad-fromtime" type="time" value="09:00"></div>'+
+    '<div class="field"><label>To Time</label><input id="otad-totime" type="time" value="09:15"></div>'+
+    '<div class="hint" style="grid-column:1/-1">One entry per day in the range, each at its own random time inside the From/To time window.</div>'+
+   '</div>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>In / Out</label><select id="otad-inout"><option value="out">Out</option><option value="in">In</option></select></div>'+
+    '<div class="field"><label>Working</label><select id="otad-mode">'+OT_WORK_MODES.map(wm=>'<option>'+esc(wm)+'</option>').join('')+'</select></div>'+
+   '</div>'+
+   '<div class="lerr" id="otad-err" style="display:none"></div>'+
+   '<div class="hint" id="otad-progress" style="display:none;margin-top:8px"></div>'+
+   '<div class="actions" style="margin-top:14px"><button class="btn" id="otad-submit-btn" onclick="otAdminLogSubmit()">Log Entry</button></div>'+
+  '</div></div>';
+}
+function otAdminScopeSwitch(btn){
+  btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const v=btn.dataset.v;
+  document.getElementById('otad-scope').value=v;
+  document.getElementById('otad-single-fields').style.display=v==='single'?'grid':'none';
+  document.getElementById('otad-bulk-fields').style.display=v==='bulk'?'grid':'none';
+}
+// A random HH:MM:SS inside [fromHHMM, toHHMM] (swapped if entered backwards)
+function otAdminRandTime(fromHHMM,toHHMM){
+  const toMin=t=>{const p=t.split(':').map(Number);return p[0]*60+p[1];};
+  let a=toMin(fromHHMM),b=toMin(toHHMM);
+  if(b<a){const t=a;a=b;b=t;}
+  const mins=a+Math.floor(Math.random()*(b-a+1));
+  const h=Math.floor(mins/60),m=mins%60,s=Math.floor(Math.random()*60);
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+function otAdminDateRange(from,to){
+  const out=[];
+  const d=new Date(from+'T00:00:00'),end=new Date(to+'T00:00:00');
+  while(d<=end){out.push(today(d));d.setDate(d.getDate()+1);}
+  return out;
+}
+async function otAdminLogSubmit(){
+  const err=document.getElementById('otad-err');err.style.display='none';
+  const prog=document.getElementById('otad-progress');prog.style.display='none';
+  const employeeId=+document.getElementById('otad-emp').value||null;
+  const inOut=document.getElementById('otad-inout').value;
+  const workMode=document.getElementById('otad-mode').value;
+  const scope=document.getElementById('otad-scope').value;
+  if(!employeeId){err.textContent='Pick an employee.';err.style.display='block';return;}
+  const btn=document.getElementById('otad-submit-btn');
+  if(scope==='bulk'){
+    const fromDate=document.getElementById('otad-fromdate').value;
+    const toDate=document.getElementById('otad-todate').value;
+    const fromTime=document.getElementById('otad-fromtime').value;
+    const toTime=document.getElementById('otad-totime').value;
+    if(!fromDate||!toDate){err.textContent='Pick a From and To date.';err.style.display='block';return;}
+    if(fromDate>toDate){err.textContent='From Date must be on or before To Date.';err.style.display='block';return;}
+    if(!fromTime||!toTime){err.textContent='Pick a From and To time.';err.style.display='block';return;}
+    const dates=otAdminDateRange(fromDate,toDate);
+    if(dates.length>366){err.textContent='That range is too wide (max 366 days).';err.style.display='block';return;}
+    btn.disabled=true;
+    let ok=0,fail=0;
+    for(let i=0;i<dates.length;i++){
+      const d=dates[i];
+      prog.style.display='block';prog.textContent='Logging '+(i+1)+' / '+dates.length+' ('+d+')…';
+      const timeVal=otAdminRandTime(fromTime,toTime);
+      try{
+        await api('/api/late-sittings/admin-log',{method:'POST',body:JSON.stringify({employeeId,workDate:d,time:d+'T'+timeVal,inOut,workMode})});
+        ok++;
+      }catch(e){fail++;}
+    }
+    btn.disabled=false;
+    prog.style.display='none';
+    toast(ok+' entr'+(ok===1?'y':'ies')+' logged'+(fail?', '+fail+' failed':'')+'.',fail?'err':'ok');
+    if(canSee('Human Resources'))await otLoadAll();
+    return;
+  }
+  const workDate=document.getElementById('otad-date').value;
+  const timeVal=document.getElementById('otad-time').value;
+  if(!workDate||!timeVal){err.textContent='Pick a date and time.';err.style.display='block';return;}
+  try{
+    await api('/api/late-sittings/admin-log',{method:'POST',body:JSON.stringify({employeeId,workDate,time:workDate+'T'+timeVal+':00',inOut,workMode})});
+    toast('Entry logged.','ok');
+    document.getElementById('otad-time').value='';
+    if(canSee('Human Resources'))await otLoadAll();
+  }catch(e){err.textContent=e.message;err.style.display='block';}
+}
+// Clicking "Log Entry" never saves straight away — it freezes the exact
+// time right then (shown in the confirm dialog) and opens it for the
 // employee to actively confirm first. Whatever time is shown there is
 // exactly what gets submitted on Confirm, however long the dialog stays open.
 function otOpenConfirm(){
@@ -3240,6 +3366,9 @@ function otOpenConfirm(){
   const dateEl=document.getElementById('ot-date');
   const workDate=dateEl?dateEl.value:'';
   if(!workDate){err.textContent='Pick a date.';err.style.display='block';return;}
+  const inOutEl=document.getElementById('ot-inout');
+  const inOut=inOutEl?inOutEl.value:'';
+  if(!inOut){err.textContent='Pick In or Out.';err.style.display='block';return;}
   const modeEl=document.getElementById('ot-mode');
   const workMode=modeEl?modeEl.value:'';
   if(!workMode){err.textContent='Pick how you were working — Offsite working or Work From Home.';err.style.display='block';return;}
@@ -3247,11 +3376,12 @@ function otOpenConfirm(){
   const dateLabel=activeTab?activeTab.textContent.replace(/\s*·\s*/,' — '):workDate;
   const fileEl=document.getElementById('ot-file');
   const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
-  OT_PENDING={workDate,workMode,outTime:new Date()};
+  OT_PENDING={workDate,workMode,inOut,outTime:new Date()};
   document.getElementById('otconfirm-body').innerHTML=
-   '<div class="hint" style="margin-bottom:10px">You’re about to log this late sitting:</div>'+
+   '<div class="hint" style="margin-bottom:10px">You’re about to log this entry:</div>'+
    '<div style="background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:10px">'+
     '<div><span class="hint">Day</span><br><b>'+esc(dateLabel)+'</b></div>'+
+    '<div><span class="hint">In / Out</span><br><b>'+(inOut==='in'?'In':'Out')+'</b></div>'+
     '<div><span class="hint">Working</span><br><b>'+esc(workMode)+'</b></div>'+
     '<div><span class="hint">Time (this device, right now)</span><br><b style="font-size:19px">'+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</b></div>'+
     '<div><span class="hint">Attachment</span><br><b>'+(file?esc(file.name):'None')+'</b></div>'+
@@ -3271,6 +3401,7 @@ async function otConfirmSubmit(){
   const fd=new FormData();
   fd.append('workDate',OT_PENDING.workDate);
   fd.append('workMode',OT_PENDING.workMode);
+  fd.append('inOut',OT_PENDING.inOut);
   fd.append('outTime',otLocalIso(OT_PENDING.outTime));
   if(file)fd.append('file',file,file.name);
   const btn=document.getElementById('otconfirm-submit-btn');
@@ -3278,7 +3409,7 @@ async function otConfirmSubmit(){
   try{
     await api('/api/late-sittings',{method:'POST',body:fd});
     closeModal('otconfirmmodal');
-    toast('Late sitting logged — '+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
+    toast('Entry logged — '+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
     if(fileEl)fileEl.value='';
     OT_PENDING=null;
     await otLoadMine();
@@ -5391,7 +5522,7 @@ function evAttBuildDetailed(){
   const headers=['Sr#','Date','Day','Time In','Time Out'];
   const rows=EV_ATT_ROWS.map((r,i)=>{
     const label=rptDayTypeLabel(r);
-    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptFmtTime(r.checkIn),label?(r.leaveDocNo||''):rptFmtTime(r.checkOut)];
+    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptTimeMode(r.checkIn,r.checkInMode),label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode)];
   });
   return{headers,rows};
 }
@@ -6491,7 +6622,7 @@ function crmQuotationFormHtml(pfx,q,isEdit){
      '<div class="field"><label>Service Type <span class="hint">(cover page)</span></label><select id="'+pfx+'-servicetype"><option value="">— choose —</option>'+CRM_SERVICE_TYPES.map(o=>'<option'+((q.serviceType||'')===o?' selected':'')+'>'+o+'</option>').join('')+'</select></div>'+
      '<div class="field"><label>Client Reference No. <span class="hint">(auto)</span></label><input id="'+pfx+'-clientref" placeholder="FOT-100926-1190" value="'+esc(q.clientReferenceNo||'')+'"></div>'+
      '<div class="field"><label>Currency</label><select id="'+pfx+'-currency"></select></div>'+
-     '<div class="field"><label>SRB %</label><input id="'+pfx+'-srb" type="number" step="0.01" value="'+esc(q.srbPercent!=null?q.srbPercent:15)+'"></div>'+
+     '<div class="field"><label>Sales Tax <span class="hint">(Accounting › Taxes)</span></label><select id="'+pfx+'-taxkey" onchange="crmQtTaxPick(\''+pfx+'\')"></select><input type="hidden" id="'+pfx+'-srb" value="'+esc(q.srbPercent!=null?q.srbPercent:15)+'"><div class="hint" id="'+pfx+'-taxhint" style="display:none"></div></div>'+
      '<div class="field"><label>Payment Terms <span class="hint">(sets the days in the Terms page)</span></label><select id="'+pfx+'-paymentterms"></select></div>'+
      '<div class="field" style="grid-column:span 2"><label>Attention</label><input id="'+pfx+'-attention" placeholder="e.g. Ms. Kanza Nasim" value="'+esc(q.attentionName||'')+'"></div>'+
     '</div>'+
@@ -6505,6 +6636,28 @@ function crmQuotationFormHtml(pfx,q,isEdit){
     '</div>'+
    '</div></div>';
 }
+// Sales Tax dropdown: one option per Accounting > Taxes row ("SRB — 15%").
+// The % actually saved lives in the hidden <pfx>-srb input, so a quotation
+// saved before a rate change keeps its own % until the tax is re-picked.
+function crmQtTaxFill(pfx,key,pct){
+  const sel=document.getElementById(pfx+'-taxkey');if(!sel)return;
+  const list=ACCT_TAXES.slice();
+  if(key&&!list.some(t=>t.key===key))list.push({key,rate:+pct,missing:true});
+  sel.innerHTML=list.map(t=>'<option value="'+esc(t.key)+'">'+esc(t.key)+' — '+t.rate+'%'+(t.missing?' (saved)':'')+'</option>').join('');
+  sel.value=key||'';
+  document.getElementById(pfx+'-srb').value=pct;
+  const cur=ACCT_TAXES.find(t=>t.key===key),hint=document.getElementById(pfx+'-taxhint');
+  const differs=!!cur&&+cur.rate!==+pct;
+  if(hint){hint.style.display=differs?'':'none';hint.textContent=differs?'Saved at '+pct+'%, current '+key+' rate is '+cur.rate+'%. Pick it again to apply.':'';}
+  if(differs){const o=sel.options[sel.selectedIndex];if(o)o.textContent=key+' — '+pct+'% (saved)';}
+}
+function crmQtTaxPick(pfx){
+  const sel=document.getElementById(pfx+'-taxkey');
+  const t=ACCT_TAXES.find(x=>x.key===sel.value);
+  if(t)crmQtTaxFill(pfx,t.key,t.rate);
+  crmQtRecalcTotals(pfx);
+}
+function crmQtTaxKey(pfx){const sel=document.getElementById(pfx+'-taxkey');return (sel&&sel.value)||'SRB';}
 function crmQuotationFormCancel(){
   if(CRM_QE_EDIT)crmOpenQuotationView(CRM_QE_EDIT.id);
   else go('crm_quotations');
@@ -6515,12 +6668,15 @@ async function renderCrmQuotationAdd(){
   try{await crmLoadCustomers();}catch(e){}
   try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
   await crmLoadConfig();
+  try{await acctLoadTaxes();}catch(e){}
   CRM_QE_EDIT=null;
   CRM_QT_ITEMS=[crmQtBlankItem()];
-  const q={clientReferenceNo:crmNextClientRef(CRM_CFG.lastClientRef)||'',quotationDate:today(),srbPercent:15};
+  const defTax=ACCT_TAXES.find(t=>t.key==='SRB')||ACCT_TAXES[0]||{key:'SRB',rate:15};
+  const q={clientReferenceNo:crmNextClientRef(CRM_CFG.lastClientRef)||'',quotationDate:today(),srbPercent:defTax.rate,taxKey:defTax.key};
   c.innerHTML=crmQuotationFormHtml('qt',q,false);
   document.getElementById('qt-currency').innerHTML=CRM_CURRENCIES.map(c2=>'<option'+(c2[0]==='PKR'?' selected':'')+'>'+c2[0]+' — '+c2[1]+'</option>').join('');
   document.getElementById('qt-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option>'+esc(t)+'</option>').join('');
+  crmQtTaxFill('qt',q.taxKey,q.srbPercent);
   crmRenderQtItems('qt');
 }
 function crmOpenQuotationEditPage(id){
@@ -6532,12 +6688,14 @@ async function renderCrmQuotationEdit(){
   try{
     try{await crmLoadCustomers();}catch(e){}
     try{if(!CRM_EQUIPMENT.length)await crmLoadCatalogRef();}catch(e){}
+    try{await acctLoadTaxes();}catch(e){}
     const q=await api('/api/crm/quotations/'+CRM_QE_EDIT_ID);
     CRM_QE_EDIT=q;
     CRM_QE_ITEMS=q.items.length?q.items.map(it=>({equipmentId:it.equipmentId||'',standardId:it.standardId||'',itemDescriptionId:it.itemDescriptionId||'',size:it.size||'',unit:it.unit||'',spec:it.spec||'',scope:it.scope||'Scope',qty:it.qty==null?'':it.qty,rate:it.rate==null?'':it.rate})):[crmQtBlankItem()];
     c.innerHTML=crmQuotationFormHtml('qe',q,true);
     document.getElementById('qe-currency').innerHTML=CRM_CURRENCIES.map(c2=>'<option'+(c2[0]===(q.currency||'PKR')?' selected':'')+'>'+c2[0]+' — '+c2[1]+'</option>').join('');
     document.getElementById('qe-paymentterms').innerHTML='<option value="">— choose —</option>'+CRM_PAYMENT_TERMS.map(t=>'<option'+(t===(q.paymentTerms||'')?' selected':'')+'>'+esc(t)+'</option>').join('');
+    crmQtTaxFill('qe',q.taxKey||'SRB',q.srbPercent);
     crmRenderQtItems('qe');
   }catch(err){
     c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load: '+esc(err.message)+'</div></div></div>';
@@ -6556,6 +6714,7 @@ async function crmQuotationFormSave(pfx){
     attentionName:document.getElementById(pfx+'-attention').value.trim(),
     currency:(document.getElementById(pfx+'-currency').value||'').split(' — ')[0],
     srbPercent:document.getElementById(pfx+'-srb').value||'15',
+    taxKey:crmQtTaxKey(pfx),
     paymentTerms:document.getElementById(pfx+'-paymentterms').value,
     subject:document.getElementById(pfx+'-subject').value.trim(),
   };
@@ -6636,7 +6795,7 @@ function crmQtRecalcTotals(pfx){
   const srb=+document.getElementById(pfx+'-srb').value||0;
   const srbAmt=totalCost*srb/100;
   const el=document.getElementById(pfx+'-totals');
-  if(el)el.innerHTML='<b>Total Cost:</b> '+crmMoney(totalCost)+' &nbsp;·&nbsp; <b>SRB '+srb+'%:</b> '+crmMoney(srbAmt)+' &nbsp;·&nbsp; <b>Grand Total:</b> '+crmMoney(totalCost+srbAmt);
+  if(el)el.innerHTML='<b>Total Cost:</b> '+crmMoney(totalCost)+' &nbsp;·&nbsp; <b>'+esc(crmQtTaxKey(pfx))+' '+srb+'%:</b> '+crmMoney(srbAmt)+' &nbsp;·&nbsp; <b>Grand Total:</b> '+crmMoney(totalCost+srbAmt);
 }
 function crmQtItemsPayload(arr){
   return arr.filter(it=>it.equipmentId||it.itemDescriptionId||it.size||it.qty||it.rate||it.spec).map(it=>({
@@ -6758,7 +6917,7 @@ async function renderCrmQuotationView(){
        (itemsBody||'<tr><td colspan="9"><span class="hint">No line items.</span></td></tr>')+'</tbody></table></div>'+
       '<div style="text-align:right;margin-top:12px;font-size:13px">'+
        '<div><b>Total Cost:</b> '+crmMoney(q.totalCost)+' '+esc(q.currency)+'</div>'+
-       '<div><b>SRB '+q.srbPercent+'%:</b> '+crmMoney(q.srbAmount)+'</div>'+
+       '<div><b>'+esc(q.taxKey||'SRB')+' '+q.srbPercent+'%:</b> '+crmMoney(q.srbAmount)+'</div>'+
        '<div style="font-size:15px;margin-top:4px"><b>GRAND TOTAL:</b> '+crmMoney(q.grandTotal)+' '+esc(q.currency)+'</div>'+
       '</div>'+
      '</div></div>';
@@ -6850,60 +7009,6 @@ function crmLoadLogoJpeg(){
     img.src='/ptis-logo.png';
   });
 }
-// word-wrap a paragraph into lines that fit maxW, emitting them downward from doc.y
-function crmPdfPara(doc,x,str,maxW,size,lh,bold){
-  size=size||9;lh=lh||(size+3);
-  String(str==null?'':str).split('\n').forEach(rawline=>{
-    if(rawline.trim()===''){doc.y-=lh*0.6;return;}
-    const words=rawline.split(/\s+/);let line='';
-    words.forEach(w=>{
-      const test=line?line+' '+w:w;
-      if(doc.tw(test,size)>maxW&&line){
-        if(doc.need(lh))crmPdfPageTop(doc);
-        doc.text(x,doc.y,line,size,bold);doc.y-=lh;line=w;
-      }else line=test;
-    });
-    if(line){if(doc.need(lh))crmPdfPageTop(doc);doc.text(x,doc.y,line,size,bold);doc.y-=lh;}
-  });
-}
-function crmPdfLogo(doc,small){
-  if(!CRM_LOGO_JPEG)return;
-  // logo native 300x200 (3:2). small = top-right header; big = cover.
-  if(small){const w=110,h=w*2/3;doc.imageAt(CRM_LOGO_JPEG,doc.w-doc.mR-w,doc.h-30-h,w,h);}
-  else{const w=250,h=w*2/3;doc.imageAt(CRM_LOGO_JPEG,(doc.w-w)/2,doc.h-140-h,w,h);}
-}
-function crmPdfHeaderBand(doc){crmPdfLogo(doc,true);doc.y=doc.h-doc.mT-58;}
-function crmPdfPageTop(doc){doc.y=doc.h-doc.mT;crmPdfHeaderBand(doc);}
-// wrap a string to lines fitting maxW at a given size; returns array of lines
-function crmPdfWrap(doc,str,maxW,size){
-  const out=[];
-  String(str==null?'':str).split('\n').forEach(raw=>{
-    if(raw===''){out.push('');return;}
-    const words=raw.split(/\s+/);let line='';
-    words.forEach(w=>{
-      const test=line?line+' '+w:w;
-      if(doc.tw(test,size)>maxW&&line){out.push(line);line=w;}
-      else line=test;
-    });
-    if(line!=='')out.push(line);
-  });
-  return out;
-}
-function crmPdfPara(doc,x,str,maxW,size,lh,bold){
-  size=size||9;lh=lh||(size+4);
-  crmPdfWrap(doc,str,maxW,size).forEach(l=>{
-    if(l===''){doc.y-=lh*0.6;return;}
-    if(doc.need(lh))crmPdfPageTop(doc);
-    doc.text(x,doc.y,l,size,bold);doc.y-=lh;
-  });
-}
-// Renders contenteditable HTML terms — <p>/<div>/<li>/<h*>/<br> = line
-// breaks, <b>/<strong> + <font size> honoured. Flows across pages.
-// Renders the contenteditable terms HTML as tidy paragraphs. Each leaf
-// block (<p>/<div>/<li>/<h*>) becomes one wrapped paragraph; a block that
-// is entirely bold (or a heading) prints as a bold heading with a little
-// air around it. Uses crmPdfPara for the actual wrapping so line spacing
-// stays consistent and page breaks are handled.
 // The one sentence the Payment Terms dropdown controls, inside General
 // Terms and Conditions. "Term N Days" plugs N into the default wording;
 // the other options read as their own short clause.
@@ -6929,37 +7034,22 @@ function crmApplyPaymentTermsToHtml(html,term){
   const re=/All payments to PTIS shall be made by direct transfer[^.<]*\./i;
   return re.test(html||'')?html.replace(re,line):(html||'');
 }
-function crmPdfTerms(doc,html,x,maxW){
-  const root=document.createElement('div');
-  root.innerHTML=(html||'').replace(/<br\s*\/?>/gi,'</p><p>');
-  const leaves=[...root.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6')]
-    .filter(el=>!el.querySelector('p,div,li,h1,h2,h3,h4,h5,h6'));
-  let blocks;
-  if(leaves.length){
-    blocks=leaves.map(el=>{
-      const txt=(el.textContent||'').replace(/\s+/g,' ').trim();
-      const isHeading=/^h[1-6]$/i.test(el.tagName);
-      const onlyBold=el.children.length===1 && /^(b|strong)$/i.test(el.children[0].tagName)
-        && (el.children[0].textContent||'').replace(/\s+/g,' ').trim()===txt;
-      return {txt,bold:isHeading||onlyBold,heading:isHeading||onlyBold};
-    });
-  }else{
-    blocks=(root.textContent||'').split(/\n+/).map(t=>({txt:t.replace(/\s+/g,' ').trim(),bold:false,heading:false}));
-  }
-  blocks.forEach(b=>{
-    if(!b.txt){doc.y-=5;return;}
-    if(doc.need(15))crmPdfPageTop(doc);
-    if(b.heading)doc.y-=5;
-    crmPdfPara(doc,x,b.txt,maxW,b.heading?10.5:9,b.heading?15:13,b.bold);
-    doc.y-=b.heading?4:5;
-  });
-}
-// wrapping table: cols=[{label,w,align}], rows=[[cell,...]]
+/* ---- Quotation PDF: "Commercial Proposal" layout ----
+   Page 1 cover (dark side panel), page 2 Table of Contents, then
+   Section 1 Cover Letter, Section 2 Price Schedule, Section 3 General
+   Terms and Conditions (one sub-section per bold heading in the Terms
+   Template: 3.1, 3.2 ...). Every page after the cover carries the logo /
+   quotation no. header and the Ref / Page x of y / Confidential footer,
+   drawn last once the page count is known; the TOC is filled in last too,
+   so its page numbers follow wherever the table or terms actually broke.
+   Coordinates are PDF points, y measured up from the bottom (doc.h-top
+   converts a "distance from the top" figure). */
+const QP={L:57,R:538,TOP:105,BOT:80,
+  dark:'0.29 0.30 0.32',red:'0.84 0.10 0.12',ink:'0.17 0.18 0.21',grey:'0.40 0.42 0.45',faint:'0.55 0.57 0.60',
+  rule:'0.86 0.87 0.89',band:'0.955 0.96 0.965',white:'1 1 1',panelLine:'0.42 0.43 0.45'};
+const QP_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 // Same word-wrap as crmPdfWrap, but measured with the real Helvetica glyph
-// widths (doc.twx) instead of the crude length*size*0.5 estimate — that
-// estimate under-measures bold capitals enough that a header like
-// "Equipment Type" was overflowing into the next column instead of
-// wrapping. Table-only: crmPdfWrap/crmPdfPara (Terms text) are untouched.
+// widths (doc.twx), so a bold capitalised header can't overflow its column.
 function crmPdfWrapX(doc,str,maxW,size,bold){
   const out=[];
   String(str==null?'':str).split('\n').forEach(raw=>{
@@ -6974,116 +7064,285 @@ function crmPdfWrapX(doc,str,maxW,size,bold){
   });
   return out;
 }
-function crmPdfTable(doc,cols,rows,size){
-  size=size||8;const lh=size+4;const avail=cols.reduce((a,c)=>a+c.w,0);
-  // Header labels wrap to as many lines as they need instead of spilling
-  // into the next column, and the header band grows to fit.
-  const headWrapped=cols.map(c=>crmPdfWrapX(doc,c.label,c.w-6,size,true));
-  const headLines=Math.max(1,...headWrapped.map(w=>w.length));
-  const drawHead=()=>{
-    if(doc.need(headLines*lh+14))crmPdfPageTop(doc);
-    const ry=doc.y;
-    const lastLineY=ry-(headLines-1)*lh;
-    doc.rect(doc.mL,lastLineY-4,avail,headLines*lh+3,'0.90 0.92 0.95');
-    let cx=doc.mL+3;
-    cols.forEach((c,i)=>{
-      headWrapped[i].forEach((ln,li)=>{
-        const tx=c.align==='right'?cx+(c.w-6)-doc.twx(ln,size,true):cx;
-        doc.text(tx,ry-li*lh,ln,size,true);
-      });
-      cx+=c.w;
-    });
-    doc.line(doc.mL,lastLineY-6,doc.mL+avail,lastLineY-6);
-    doc.y=lastLineY-lh-8;           // clear gap before first row's text
+function qpFy(d){
+  const m=/^(\d{4})-(\d{2})/.exec(d||''),now=new Date();
+  const y=m?+m[1]:now.getFullYear(),mo=m?+m[2]:now.getMonth()+1,s=mo>=7?y:y-1;
+  return s+'-'+String(s+1).slice(-2);
+}
+function qpLongDate(d){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||'');return m?(+m[3])+' '+QP_MONTHS[+m[2]-1]+' '+m[1]:(d||'');}
+function qpCurName(code){const c=CRM_CURRENCIES.find(x=>x[0]===code);if(!c)return code||'';return /s$/i.test(c[1])?c[1]:c[1]+'s';}
+function qpWords(n,cur){
+  const w=amountWords(n).replace(/(^|[\s-])([a-z])/g,(m,a,b)=>a+b.toUpperCase()).replace(/ And (\d)/,' and $1');
+  return (cur?qpCurName(cur)+' ':'')+w+'.';
+}
+function qpPage(doc){doc.newPage();doc.y=doc.h-QP.TOP;}
+function qpEnsure(doc,h){if(doc.y-h<QP.BOT){qpPage(doc);return true;}return false;}
+// "SECTION 2" kicker + "2  Price Schedule" title at the top of a fresh page
+function qpSection(doc,kicker,title){
+  doc.text(QP.L,doc.h-111,kicker,7.5,true,QP.red);
+  doc.text(QP.L,doc.h-138,title,22,true,QP.ink);
+  doc.y=doc.h-163;
+}
+// the pieces of text more than one page needs
+function qpTexts(q){
+  const svc=(q.serviceType||'').trim();
+  const title=(q.subject||'').replace(/^\s*quotation\s+for\s+/i,'').trim()||(svc?svc+(/service/i.test(svc)?'':' Service'):'');
+  const place=[q.customerCity,q.customerCountry].filter(Boolean).join(', ');
+  const a=String(q.customerAddress||'').replace(/\s*\n\s*/g,', ').trim();
+  const extra=[q.customerCity,q.customerCountry].filter(x=>x&&!a.toLowerCase().includes(String(x).toLowerCase()));
+  return {
+    cust:q.customerName||'',
+    svcLine:svc?(/service/i.test(svc)?svc:svc+' Service'):'',
+    title,
+    place,
+    addr:[a,...extra].filter(Boolean).join(', '),
+    no:q.quotationNo||'',
+    date:qpLongDate(q.quotationDate),
   };
-  drawHead();
-  rows.forEach(r=>{
-    const wrapped=cols.map((c,i)=>crmPdfWrapX(doc,r[i],c.w-6,size));
-    const nLines=Math.max(1,...wrapped.map(w=>w.length));
-    if(doc.need(nLines*lh+14))drawHead();
-    const ry=doc.y;
-    let cx=doc.mL+3;
+}
+
+/* ---- page 1: cover ---- */
+function qpCover(doc,q,t){
+  const H=doc.h;
+  doc.rect(380,0,doc.w-380,H,QP.dark);
+  [420.5,440.4,460.4,519.6,539.6].forEach(x=>doc.rule(x,0,x,H-320,0.6,QP.panelLine));
+  doc.rect(474.6,0,9,H-320,QP.red);doc.rect(495.2,0,9,H-320,QP.red);
+  if(CRM_LOGO_JPEG)doc.imageAt(CRM_LOGO_JPEG,QP.L-4,H-66-107,161,107);
+  doc.rect(QP.L,H-282,40,4.5,QP.red);
+  doc.text(QP.L,H-311,'COMMERCIAL PROPOSAL  |  FY '+qpFy(q.quotationDate),8.5,true,QP.grey);
+  doc.text(QP.L,H-370,'Quotation',38,true,QP.ink);
+  let top=401;
+  if(t.svcLine){doc.text(QP.L,H-top,t.svcLine,15,false,QP.grey);top+=41;}else top+=9;
+  crmPdfWrapX(doc,t.title,300,11.5,true).slice(0,3).forEach(l=>{doc.text(QP.L,H-top,l,11.5,true,QP.ink);top+=15;});
+  doc.rule(QP.L,H-547,346,H-547,0.6,QP.rule);
+  top=569;
+  const block=(label,main,sub)=>{
+    doc.text(QP.L,H-top,label,6.5,true,QP.faint);top+=15;
+    crmPdfWrapX(doc,main,300,10.5,true).forEach(l=>{doc.text(QP.L,H-top,l,10.5,true,QP.ink);top+=13.5;});
+    if(sub)crmPdfWrapX(doc,sub,300,8.5).forEach(l=>{doc.text(QP.L,H-top,l,8.5,false,QP.grey);top+=11;});
+    top+=17;
+  };
+  block('PREPARED FOR',t.cust,[t.place,q.attentionName?'Attn: '+q.attentionName:''].filter(Boolean).join('  |  '));
+  block('PREPARED BY','Premier Tubular Inspection Service (Pvt.) Ltd.','Zamir Ahmed Khan, Chief Operating Officer');
+  block('REFERENCE',t.no,q.clientReferenceNo?'Client Ref: '+q.clientReferenceNo:'');
+}
+
+/* ---- page 2: table of contents (drawn last, onto the reserved page) ---- */
+function qpToc(doc,entries){
+  doc.cur=doc.pages[1];
+  doc.text(QP.L,doc.h-111,'CONTENTS',7.5,true,QP.red);
+  doc.text(QP.L,doc.h-138,'Table of Contents',22,true,QP.ink);
+  let top=175,prev=null;
+  entries.forEach(e=>{
+    if(prev)top+=e.lvl===1?34:28;
+    const y=doc.h-top,x=e.lvl===1?QP.L:QP.L+22,size=e.lvl===1?10.5:9.5,bold=e.lvl===1,col=e.lvl===1?'0.25 0.26 0.29':QP.grey;
+    const num=String(e.page),nw=doc.twx(num,size,bold);
+    const label=doc.fit(e.label,QP.R-x-nw-30,size,bold);
+    doc.text(x,y,label,size,bold,col);
+    doc.textR(QP.R,y,num,size,bold,col);
+    const lx1=x+doc.twx(label,size,bold)+8,lx2=QP.R-nw-8;
+    if(lx2>lx1)doc.rule(lx1,y+3.2,lx2,y+3.2,0.5,QP.rule);
+    prev=e;
+  });
+}
+
+/* ---- section 1: cover letter ---- */
+function qpCoverLetter(doc,q,t){
+  qpPage(doc);qpSection(doc,'SECTION 1','1  Cover Letter');
+  const H=doc.h,VX=136,VW=QP.R-VX;
+  let y=H-152;
+  doc.rule(QP.L,y,QP.R,y,0.6,QP.rule);
+  const row=(label,parts)=>{
+    let by=y-16;
+    doc.text(QP.L,by,label,6.5,true,QP.faint);
+    parts.filter(p=>p.s).forEach(p=>crmPdfWrapX(doc,p.s,VW,p.size,p.bold).forEach(w=>{doc.text(VX,by,w,p.size,p.bold,QP.ink);by-=13;}));
+    y=by+1;
+    doc.rule(QP.L,y,QP.R,y,0.6,QP.rule);
+  };
+  // The Quotation's own serial (e.g. "2026-27/005"), not the RFQ's — the
+  // two run on separate counters and can land on different numbers.
+  const suffix=t.no.replace(/^QTN-/,'');
+  row('TO',[{s:t.cust.toUpperCase(),size:8.5,bold:true},{s:t.addr,size:8.5,bold:false}]);
+  row('ATTENTION',[{s:q.attentionName||'—',size:9,bold:true}]);
+  row('SUBJECT',[{s:((q.subject||'')+(suffix?' ('+suffix+')':'')).trim(),size:9,bold:true}]);
+  if(q.clientReferenceNo)row('CLIENT REF',[{s:q.clientReferenceNo,size:9,bold:true}]);
+  doc.y=y-26;
+  [
+   'We wish to thank you for the kind courtesy extended to us by inviting us to quote for your esteemed organization.',
+   'We are pleased to submit our prices for the subject stated above.',
+   'We hope you will find our prices very competitive. If you require any further information or clarification, please do not hesitate to contact us.',
+   'In the meantime, we look to be of service to you and remain.',
+  ].forEach(p=>{crmPdfWrapX(doc,p,QP.R-QP.L,10).forEach(l=>{doc.text(QP.L,doc.y,l,10,false,QP.ink);doc.y-=15.5;});doc.y-=7.5;});
+  doc.y-=8;
+  doc.text(QP.L,doc.y,'With best regards,',10,false,QP.ink);
+  doc.y-=59;
+  doc.text(QP.L,doc.y,'Zamir Ahmed Khan',12,true,QP.ink);doc.y-=13;
+  doc.text(QP.L,doc.y,'Chief Operating Officer',9,false,QP.ink);doc.y-=12.5;
+  doc.text(QP.L,doc.y,'Premier Tubular Inspection Service (Pvt.) Ltd.',9,false,QP.ink);
+}
+
+/* ---- section 2: price schedule ---- */
+// cols: [{label,w,align:'right'|undefined,bold,fit}]; rows: arrays of strings.
+// Dark header band with a red rule under it, light-banded rows; a header is
+// redrawn at the top of every page the table runs onto. `fit` cells (money)
+// shrink their font rather than wrap, since a number can't break.
+function qpTable(doc,cols,rows){
+  const CW=cols.reduce((a,c)=>a+c.w,0),HS=8,BS=8.5,LH=11,PAD=5;
+  const head=cols.map(c=>crmPdfWrapX(doc,c.label,c.w-2*PAD,HS,true));
+  const hLines=Math.max(1,...head.map(h=>h.length)),headH=Math.max(30,hLines*10+18);
+  const drawHead=()=>{
+    const top=doc.y;
+    doc.rect(QP.L,top-headH,CW,headH,QP.dark);
+    let cx=QP.L;
     cols.forEach((c,i)=>{
-      wrapped[i].forEach((ln,li)=>{
-        const tx=c.align==='right'?cx+(c.w-6)-doc.twx(ln,size):cx;
-        doc.text(tx,ry-li*lh,ln,size);
+      const off=(headH-head[i].length*10)/2;
+      head[i].forEach((ln,li)=>{
+        const by=top-off-7.5-li*10;
+        if(c.align==='right')doc.textR(cx+c.w-PAD,by,ln,HS,true,QP.white);else doc.text(cx+PAD,by,ln,HS,true,QP.white);
       });
       cx+=c.w;
     });
-    const bottom=ry-(nLines-1)*lh-4;   // 4pt below the last text baseline (clears descenders)
-    doc.line(doc.mL,bottom,doc.mL+avail,bottom);
-    doc.y=bottom-9;                     // gap before the next row's text
+    doc.rect(QP.L,top-headH-2,CW,2,QP.red);
+    doc.y=top-headH-2;
+  };
+  qpEnsure(doc,headH+44);drawHead();
+  rows.forEach((r,ri)=>{
+    const cells=cols.map((c,i)=>{
+      const s=r[i]==null?'':String(r[i]);
+      if(c.fit){let sz=BS;while(sz>6.5&&doc.twx(s,sz,c.bold)>c.w-2*PAD)sz-=0.25;return {lines:[s],size:sz};}
+      return {lines:crmPdfWrapX(doc,s,c.w-2*PAD,BS,c.bold),size:BS};
+    });
+    const n=Math.max(1,...cells.map(x=>x.lines.length)),rowH=n*LH+18;
+    if(doc.y-rowH<QP.BOT){qpPage(doc);drawHead();}
+    const top=doc.y;
+    if(ri%2===0)doc.rect(QP.L,top-rowH,CW,rowH,QP.band);
+    let cx=QP.L;
+    cols.forEach((c,i)=>{
+      const cell=cells[i],off=(rowH-cell.lines.length*LH)/2;
+      cell.lines.forEach((ln,li)=>{
+        const by=top-off-8.2-li*LH;
+        if(c.align==='right')doc.textR(cx+c.w-PAD,by,ln,cell.size,c.bold,QP.ink);else doc.text(cx+PAD,by,ln,cell.size,c.bold,QP.ink);
+      });
+      cx+=c.w;
+    });
+    doc.rule(QP.L,top-rowH,QP.L+CW,top-rowH,0.5,QP.rule);
+    doc.y=top-rowH;
   });
-  doc.y-=6;
+}
+function qpPriceSchedule(doc,q){
+  qpPage(doc);qpSection(doc,'SECTION 2','2  Price Schedule');
+  const H=doc.h,money=n=>n==null?'':crmMoney(n),cur=q.currency||'';
+  doc.text(QP.L,H-155,'Quotation '+(q.quotationNo||'')+'  |  All amounts in '+qpCurName(cur)+(cur?' ('+cur+')':''),9,false,QP.grey);
+  doc.y=H-171;
+  const cols=[
+    {label:'#',w:18},{label:'Description',w:90,bold:true},{label:'Equipment Type',w:58},{label:'Category',w:52},
+    {label:'Size',w:44},{label:'Unit',w:34},{label:'Scope',w:38},{label:'Qty',w:24,align:'right'},
+    {label:'Rate',w:58,align:'right',fit:true},
+  ];
+  cols.push({label:'Total',w:(QP.R-QP.L)-cols.reduce((a,c)=>a+c.w,0),align:'right',fit:true,bold:true});
+  const items=q.items||[];
+  const rows=items.length
+    ?items.map((it,i)=>[String(i+1),it.itemDescription||'',it.equipmentName||'',it.standardName||'',it.size||'',it.unit||'',it.scope||'Scope',it.qty!=null?String(it.qty):'',money(it.rate),money(it.total)])
+    :[['','No line items.','','','','','','','','']];
+  qpTable(doc,cols,rows);
+
+  // amount in words + note (left), totals (right)
+  if(doc.y-26-100<QP.BOT)qpPage(doc);else doc.y-=26;
+  const top=doc.y,LW=230;
+  let ly=top;
+  doc.text(QP.L,ly,'Amount in words',8.5,true,QP.ink);ly-=13;
+  crmPdfWrapX(doc,qpWords(q.grandTotal,cur),LW,8.5).forEach(l=>{doc.text(QP.L,ly,l,8.5,false,QP.grey);ly-=13;});
+  ly-=14;
+  doc.text(QP.L,ly,'Please note',8.5,true,QP.ink);ly-=13;
+  crmPdfWrapX(doc,'Prices are exclusive of General Sales Tax (GST), which is added on top of the invoice amount. See Section 3 for the full terms.',LW,8.5).forEach(l=>{doc.text(QP.L,ly,l,8.5,false,QP.grey);ly-=13;});
+  const X0=306,TX=316,VX=530,b=top-7;
+  doc.text(TX,b,'Total Cost',8.5,false,QP.ink);doc.textR(VX,b,money(q.totalCost),8.5,false,QP.ink);
+  doc.rule(X0,b-13,QP.R,b-13,0.5,QP.rule);
+  doc.text(TX,b-26,(q.taxKey||'SRB')+' '+q.srbPercent+'%',8.5,false,QP.ink);doc.textR(VX,b-26,money(q.srbAmount),8.5,false,QP.ink);
+  doc.rect(X0,b-66,QP.R-X0,26,QP.red);
+  doc.text(TX,b-56,'GRAND TOTAL'+(cur?' ('+cur+')':''),8.5,true,QP.white);
+  let gs=12;const gv=money(q.grandTotal);while(gs>8&&doc.twx(gv,gs,true)>VX-TX-110)gs-=0.5;
+  doc.textR(VX,b-57,gv,gs,true,QP.white);
+  doc.y=Math.min(ly,b-66)-20;
+}
+
+/* ---- section 3: general terms and conditions ---- */
+// Template HTML -> blocks. A heading tag, or a block that is entirely bold,
+// is a sub-heading; everything else is one bullet paragraph.
+function qpTermBlocks(html){
+  const root=document.createElement('div');
+  root.innerHTML=(html||'').replace(/<br\s*\/?>/gi,'</p><p>');
+  const leaves=[...root.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6')].filter(el=>!el.querySelector('p,div,li,h1,h2,h3,h4,h5,h6'));
+  if(!leaves.length)return (root.textContent||'').split(/\n+/).map(s=>({txt:s.replace(/\s+/g,' ').trim(),heading:false}));
+  return leaves.map(el=>{
+    const txt=(el.textContent||'').replace(/\s+/g,' ').trim();
+    const isH=/^h[1-6]$/i.test(el.tagName);
+    const onlyBold=el.children.length===1&&/^(b|strong)$/i.test(el.children[0].tagName)&&(el.children[0].textContent||'').replace(/\s+/g,' ').trim()===txt;
+    return {txt,heading:isH||onlyBold};
+  });
+}
+// returns the TOC entries for the 3.x sub-sections
+function qpTerms(doc,html){
+  qpPage(doc);qpSection(doc,'SECTION 3','3  General Terms and Conditions');
+  const subs=[],BX=74,BW=QP.R-BX;
+  let n=0,first=true;
+  qpTermBlocks(html).forEach(b=>{
+    if(!b.txt)return;
+    if(b.heading){
+      // the old single-block template's own title repeats the section's
+      if(/^general terms (and|&) conditions[:.]?$/i.test(b.txt))return;
+      const title=b.txt.replace(/^\s*\d+(\.\d+)*[.)]?\s+/,'');
+      n++;
+      if(!first)doc.y-=15.5;
+      qpEnsure(doc,52);
+      const label='3.'+n+'  '+title;
+      crmPdfWrapX(doc,label,QP.R-QP.L,13,true).forEach((l,i)=>{if(i)doc.y-=16;doc.text(QP.L,doc.y,l,13,true,QP.ink);});
+      subs.push({lvl:2,label,page:doc.pages.length});
+      doc.y-=20;first=false;
+      return;
+    }
+    crmPdfWrapX(doc,b.txt,BW,9.5).forEach((l,i)=>{
+      qpEnsure(doc,14);
+      if(i===0)doc.rect(QP.L+0.5,doc.y+2.3,3.4,3.4,QP.red);
+      doc.text(BX,doc.y,l,9.5,false,QP.ink);
+      doc.y-=14.2;
+    });
+    doc.y-=4.5;first=false;
+  });
+  return subs;
+}
+
+/* ---- header / footer on every page but the cover ---- */
+function qpChrome(doc,t){
+  const n=doc.pages.length,sub=[t.title,t.date].filter(Boolean).join('  |  ');
+  const conf='Confidential. Prepared exclusively for '+t.cust.toUpperCase()+(/\.$/.test(t.cust)?'':'.');
+  doc.pages.forEach((p,i)=>{
+    if(i===0)return;
+    doc.cur=p;
+    if(CRM_LOGO_JPEG)doc.imageAt(CRM_LOGO_JPEG,QP.L-3,doc.h-30-47,70,47);
+    doc.textR(QP.R,doc.h-41,'Quotation No. '+t.no,9,true,QP.ink);
+    if(sub)doc.textR(QP.R,doc.h-52,doc.fit(sub,300,7.5),7.5,false,QP.grey);
+    doc.rule(QP.L,52,QP.R,52,0.5,QP.rule);
+    doc.text(QP.L,42,'Premier Tubular Inspection Service (Pvt.) Ltd.  |  Ref: '+t.no,7,false,QP.grey);
+    doc.textR(QP.R,42,'Page '+(i+1)+' of '+n,7,false,QP.grey);
+    doc.text(QP.L,32,doc.fit(conf,QP.R-QP.L,6.5),6.5,'i',QP.grey);
+  });
 }
 
 function crmBuildQuotationPdf(q,termsHtml){
   const doc=new PdfDoc();doc.noFooter=true;
-  const cust=q.customerName||'';
-  const addrLines=[q.customerAddress,[q.customerCity,q.customerCountry].filter(Boolean).join(', ')].filter(Boolean);
-  const money=n=>crmMoney(n);
-  const CL=doc.mL,CR=doc.w-doc.mR,CW=CR-CL;
-
-  /* ---- Page 1: cover ---- */
-  crmPdfLogo(doc,false);
-  doc.y=doc.h-420;
-  const svc=(q.serviceType||'').trim();
-  const t1='Quotation For '+(svc||'')+(svc?' Service':'');
-  doc.textC(doc.w/2,doc.y,t1,17,true,'0.10 0.28 0.55');
-  doc.y-=48;
-  doc.line(CL+90,doc.y+16,CR-90,doc.y+16);
-  doc.textC(doc.w/2,doc.y,cust,13,true);
-  doc.line(CL+90,doc.y-8,CR-90,doc.y-8);
-
-  /* ---- Page 2: cover letter ---- */
-  doc.newPage();crmPdfHeaderBand(doc);
-  doc.y-=6;
-  doc.text(CL,doc.y,cust,10,true);
-  if(q.clientReferenceNo)doc.textR(CR,doc.y,q.clientReferenceNo,9);
-  doc.y-=14;
-  addrLines.forEach(l=>{doc.text(CL,doc.y,l,9);doc.y-=12;});
-  doc.y-=16;
-  doc.text(CL,doc.y,'Attention:',9,true);doc.text(CL+62,doc.y,q.attentionName||'',9,true);doc.y-=15;
-  doc.text(CL,doc.y,'Subject:',9,true);
-  // The Quotation's own serial (e.g. "2026-27/005"), not the RFQ's — the
-  // two run on separate counters and can land on different numbers.
-  const qtnSuffix=String(q.quotationNo||'').replace(/^QTN-/,'');
-  crmPdfPara(doc,CL+62,(q.subject||'')+(qtnSuffix?'  ('+qtnSuffix+')':''),CW-62,9,13,true);
-  doc.y-=10;
-  [
-   'We wish to thank you for the kind courtesy extended to us by inviting us to quote for your esteemed organization.',
-   'We are pleased to submit our prices for the subject stated as above.',
-   'We hope you will find our prices very competitive. If you require any further information or clarification, please do not hesitate to contact us.',
-   'In the meantime, we look to be of service to you and remain.',
-   'With best Regards,'
-  ].forEach(p=>{crmPdfPara(doc,CL,p,CW,9,13);doc.y-=6;});
-  doc.y-=26;
-  doc.text(CL,doc.y,'Zamir Ahmed Khan',9,true);doc.y-=12;
-  doc.text(CL,doc.y,'Chief Operating Officer',8);doc.y-=11;
-  doc.text(CL,doc.y,'Premier Tubular Inspection Service (Pvt.) Ltd.',8);
-
-  /* ---- Page 3: priced table ---- */
-  doc.newPage();crmPdfHeaderBand(doc);
-  doc.y-=10;
-  doc.text(CL,doc.y,'QUOTATION  '+(q.quotationNo||''),12,true,'0.10 0.28 0.55');
-  doc.y-=22;
-  const cols=[
-   {label:'Sr#',w:20},{label:'Equipment Type',w:56},{label:'Category',w:54},{label:'Inspection Description',w:92},
-   {label:'Size',w:52},{label:'Unit',w:28},{label:'Scope',w:47},{label:'Qty',w:24,align:'right'},{label:'Rate',w:68,align:'right'},
-   {label:'Total',w:CW-(20+56+54+92+52+28+47+24+68),align:'right'}
-  ];
-  const rows=q.items.map((it,i)=>[String(i+1),it.equipmentName||'',it.standardName||'',it.itemDescription||'',it.size||'',it.unit||'',it.scope||'Scope',it.qty!=null?String(it.qty):'',money(it.rate),money(it.total)]);
-  crmPdfTable(doc,cols,rows,7.5);
-  doc.y-=6;
-  const rx=CR-190;
-  doc.text(rx,doc.y,'Total Cost',9,true);doc.textR(CR,doc.y,money(q.totalCost),9);doc.y-=13;
-  doc.text(rx,doc.y,'SRB '+q.srbPercent+'%',9,true);doc.textR(CR,doc.y,money(q.srbAmount),9);doc.y-=14;
-  doc.text(rx,doc.y,'GRAND TOTAL ('+(q.currency||'')+')',10,true);doc.textR(CR,doc.y,money(q.grandTotal),10,true);
-
-  /* ---- Terms (single flowing section, 1+ pages) ---- */
-  doc.newPage();crmPdfHeaderBand(doc);doc.y-=6;
-  crmPdfTerms(doc,termsHtml,CL,CW);
-
+  const t=qpTexts(q);
+  qpCover(doc,q,t);
+  doc.newPage();                       // page 2: Table of Contents, filled in below
+  const toc=[];
+  qpCoverLetter(doc,q,t);    toc.push({lvl:1,label:'1  Cover Letter',page:doc.pages.length});
+  const psPage=doc.pages.length+1;
+  qpPriceSchedule(doc,q);    toc.push({lvl:1,label:'2  Price Schedule',page:psPage});
+  const tcPage=doc.pages.length+1;
+  const subs=qpTerms(doc,termsHtml);
+  toc.push({lvl:1,label:'3  General Terms and Conditions',page:tcPage},...subs);
+  qpToc(doc,toc);
+  qpChrome(doc,t);
   return doc;
 }
 async function crmDownloadQuotationPdf(id){
@@ -7107,7 +7366,7 @@ function crmQuotationXlsx(q){
   q.items.forEach((it,i)=>grid.push([i+1,it.equipmentName||'',it.standardName||'',it.itemDescription||'',it.size||'',it.unit||'',it.spec||'',it.scope||'',it.qty!=null?it.qty:'',it.rate!=null?it.rate:'',it.total!=null?it.total:'']));
   grid.push([]);
   grid.push(['','','','','','','','','','Total Cost',q.totalCost]);
-  grid.push(['','','','','','','','','','SRB '+q.srbPercent+'%',q.srbAmount]);
+  grid.push(['','','','','','','','','',(q.taxKey||'SRB')+' '+q.srbPercent+'%',q.srbAmount]);
   grid.push(['','','','','','','','','','GRAND TOTAL',q.grandTotal]);
   return grid.map(r=>r.map(c=>c==null?'':String(c)));
 }
@@ -7542,7 +7801,7 @@ async function recBootstrap(){
   const res=await Promise.all([...SERVER_MODS].filter(k=>MODULES[k]&&canSee(MODULES[k].g)).map(k=>recPull(k,true)));
   if(res.some(Boolean)&&!editId)render();
 }
-function recClearCache(){SERVER_MODS.forEach(k=>{lsDel(k);delete REC_AT[k];});lsDel('quotes');CRM_QREF_AT=0;}
+function recClearCache(){SERVER_MODS.forEach(k=>{lsDel(k);delete REC_AT[k];});lsDel('quotes');CRM_QREF_AT=0;CTR_REF_AT=0;ACCT_COMPANIES=null;CTR_WON_QTNS=null;}
 function refOptions(collName,dk,sel){
   return '<option value=""></option>'+coll(collName).map(r=>{const v=r[dk]||'';return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>';}).join('');
 }
@@ -7789,6 +8048,22 @@ document.addEventListener('click',()=>document.querySelectorAll('.selx.open').fo
 function fieldInput(f,v,idPrefix,onSelectChange){
   idPrefix=idPrefix||'f-';
   v=v==null?'':v;
+  /* Client Contract: the Accounting company whose code prefixes the
+     contract no. (PTIS-CTR-2026-27-00001). Stores the code. */
+  if(f.t==='acctco'){
+    const cur=String(v||ctrDefaultCompanyCode());
+    const items=(ACCT_COMPANIES||[]).filter(c=>c.code).map(c=>({id:c.code,label:c.code+(c.name?' — '+c.name:'')}));
+    if(cur&&!items.some(it=>it.id===cur))items.unshift({id:cur,label:cur});
+    return selxId(idPrefix+f.k,cur,items,onSelectChange||null,'— choose company —');
+  }
+  /* Client Contract: a CRM quotation whose status is Won. Stores the
+     quotation no.; picking one fills the contract (ctrApplyQuote). */
+  if(f.t==='wonqt'){
+    const cur=String(v);
+    const items=(CTR_WON_QTNS||[]).map(q=>({id:q.quotationNo,label:q.quotationNo+(q.customerName?' — '+q.customerName:'')}));
+    if(cur&&!items.some(it=>it.id===cur))items.unshift({id:cur,label:cur});
+    return selxId(idPrefix+f.k,cur,items,onSelectChange||null,(CTR_WON_QTNS&&!CTR_WON_QTNS.length)?'— no Won quotations —':'— choose quotation —');
+  }
   /* Approving is the HOD's act on the live system, so the option is not
      put in front of somebody who may not take it - though a record that
      is already Approved still shows it. */
@@ -7973,6 +8248,7 @@ function renderModule(){
   if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
   if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
   if(m.plist)crmEquipRefEnsure(); // Equipment/Standard/Item Description dropdowns in the price list grid
+  if(k==='contracts')ctrRefsEnsure(); // Company codes (contract no.) + Won quotations (Quotation dropdown)
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
   if(m.polines&&!renderModule._lk){POL=(rec.polines&&rec.polines.length)?JSON.parse(JSON.stringify(rec.polines)):[{}];}
   if(m.smlines&&!renderModule._lk){SML=(rec.smlines&&rec.smlines.length)?JSON.parse(JSON.stringify(rec.smlines)):[{}];}
@@ -7994,7 +8270,7 @@ function renderModule(){
     '<div class="fgrid"'+(m.cols?' style="grid-template-columns:repeat('+m.cols+',minmax(0,1fr))"':'')+'>'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-f-'+f.k+'"><label>'+f.l+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+
       // auto-numbered fields preview the number this record will get; a
       // file field gets the record's id instead of a value (see fieldInput)
-      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',(k==='salesorders'&&f.k==='quote')?()=>soApplyQuoteRef('f-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null))+'</div>').join('')+'</div>'+
+      fieldInput(f,f.t==='file'?rec.id:((rec[f.k]==null||rec[f.k]==='')&&f.auto?f.fn(rec):rec[f.k]),'f-',(m.onPick&&m.onPick[f.k])?()=>m.onPick[f.k]('f-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'f-'):null))+'</div>').join('')+'</div>'+
     (m.lines?'<div id="ql-zone">'+qlGrid(rec)+'</div>':'')+
     (m.plist?'<div id="pl-zone">'+plGrid(rec)+'</div>':'')+
     (m.wlist?'<div id="wl-zone">'+wlGrid(rec)+'</div>':'')+
@@ -8131,7 +8407,7 @@ function editRecModalNow(id){
   m.fields.forEach(f=>{if(f.narrowOn)watchedFields.add(f.narrowOn);});
   const mlk=APPR_MODS.has(k)&&apprLocked(r);
   document.getElementById('recedit-body').className=mlk?'appr-locked':'';
-  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',(k==='salesorders'&&f.k==='quote')?()=>soApplyQuoteRef('mf-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null))+'</div>').join('')+'</div>'+
+  document.getElementById('recedit-body').innerHTML=(mlk?apprBarHtml(r):'')+'<div class="fgrid">'+m.fields.map(f=>'<div class="field'+(f.t==='area'&&!f.half?' full':'')+'" id="fw-mf-'+f.k+'"><label>'+esc(f.l)+(f.req?' <span style="color:#DC2626">*</span>':'')+'</label>'+fieldInput(f,f.t==='file'?id:(f.t==='computed'?f.fn(r):r[f.k]),'mf-',(m.onPick&&m.onPick[f.k])?()=>m.onPick[f.k]('mf-'):(watchedFields.has(f.k)?()=>applyConditionalFields(m,'mf-'):null))+'</div>').join('')+'</div>'+
     filePreviewHtml(id,m);
   document.getElementById('recedit-err').style.display='none';
   if(watchedFields.size)applyConditionalFields(m,'mf-');
@@ -8618,6 +8894,78 @@ function qlPickItem(i,name){
   const it=coll('items').find(x=>x.name===name);if(!it)return;
   if(it.unit&&!QL[i].unit)QL[i].unit=it.unit;if(it.cost&&!QL[i].price)QL[i].price=it.cost;qlRefresh();qlRefreshTotals();}
 /* ============ contract price list (rate sheet grid) ============ */
+/* ============ Client Contracts — company code, contract no., Won quotation ============
+   Contract no. = <company code>-CTR-<financial year>-<5-digit seq>, e.g.
+   PTIS-CTR-2026-27-00001; the sequence runs per company code per FY
+   (Jul–Jun, financialYearLabelJs) and is assigned on first save like every
+   other auto-number here. Company codes come from Accounting > Companies
+   (routes/accounting.js /companies — readable without Accounting access);
+   the default is whichever company is selected in Accounting. */
+let ACCT_COMPANIES=null,CTR_WON_QTNS=null,CTR_REF_AT=0;
+function ctrDefaultCompanyCode(){
+  const list=ACCT_COMPANIES||[];
+  const act=lsGet('gl_activeco',null);
+  const c=list.find(x=>x.id===act&&x.code)||list.find(x=>String(x.code).toUpperCase()==='PTIS')||list.find(x=>x.code);
+  return c?String(c.code):'PTIS';
+}
+function nextContractNo(code){
+  code=String(code||ctrDefaultCompanyCode()).trim().toUpperCase().replace(/\s+/g,'');
+  const prefix=code+'-CTR-'+financialYearLabelJs()+'-';
+  const re=new RegExp('^'+prefix.replace(/[.*+?^${}()|[\]\\\/]/g,'\\$&')+'(\\d+)$');
+  const maxSeq=coll('contracts').reduce((mx,r)=>{const mt=re.exec(r.no||'');return mt?Math.max(mx,+mt[1]):mx;},0);
+  return prefix+String(maxSeq+1).padStart(5,'0');
+}
+function ctrRefsEnsure(){
+  if(Date.now()-CTR_REF_AT<15000&&ACCT_COMPANIES&&CTR_WON_QTNS)return;
+  CTR_REF_AT=Date.now();
+  Promise.all([
+    api('/api/accounting/companies').then(r=>{ACCT_COMPANIES=r;}).catch(()=>{ACCT_COMPANIES=ACCT_COMPANIES||[];}),
+    api('/api/crm/won-quotations').then(r=>{CTR_WON_QTNS=r;}).catch(()=>{CTR_WON_QTNS=CTR_WON_QTNS||[];}),
+  ]).then(()=>{if(route==='m_contracts')ctrRefreshWidgets();});
+}
+// Re-draw just the Company / Quotation pickers once their lists arrive —
+// the rest of the form (anything already typed) is left alone.
+function ctrRefreshWidgets(){
+  const m=MODULES.contracts;
+  ['company','quote'].forEach(k=>{
+    const w=document.getElementById('selx-f-'+k),h=document.getElementById('f-'+k);if(!w||!h)return;
+    const f=m.fields.find(x=>x.k===k);
+    w.outerHTML=fieldInput(f,h.value,'f-',()=>m.onPick[k]('f-'));
+  });
+  ctrCompanyPicked('f-');
+}
+function ctrCompanyPicked(pfx){
+  if(editId)return; // a saved contract keeps the number it was given
+  const no=document.getElementById(pfx+'no'),co=document.getElementById(pfx+'company');
+  if(no&&co)no.value=nextContractNo(co.value);
+}
+// Quotation picked: carry over everything the quotation already knows —
+// client, currency, value, subject, client reference, prepared-by, payment
+// terms — and its line items into the price list. Discount / terms and
+// anything else the quotation doesn't hold stays to be filled by hand.
+function ctrApplyQuote(pfx){
+  const h=document.getElementById(pfx+'quote');
+  const q=(CTR_WON_QTNS||[]).find(x=>x.quotationNo===(h?h.value:''));
+  if(!q)return;
+  const setv=(k,v,onlyIfEmpty)=>{const el=document.getElementById(pfx+k);if(!el||(onlyIfEmpty&&el.value.trim()))return;el.value=v==null?'':v;};
+  if(q.customerName)selxPick(pfx+'client',q.customerName);
+  if(q.currency)selxPick(pfx+'cur',q.currency);
+  setv('value',q.grandTotal!=null?q.grandTotal:'');
+  if(q.subject)setv('scope',q.subject);
+  if(q.clientReferenceNo)setv('rates',q.clientReferenceNo);
+  if(q.createdByName)setv('kam',q.createdByName,true);
+  if(q.paymentTerms)setv('notes','Payment terms: '+q.paymentTerms,true);
+  const items=(q.items||[]).filter(it=>it.itemDescriptionId||it.itemDescription||it.rate!=null);
+  if(!items.length)return;
+  const hasLines=PL.some(l=>l.desc||l.rate||l.equipId);
+  if(hasLines&&!confirm('Replace the current price list with the '+items.length+' line(s) from '+q.quotationNo+'?'))return;
+  PL=items.map(it=>({
+    equipId:it.equipmentId||null,stdId:it.standardId||null,itemDescId:it.itemDescriptionId||null,
+    desc:it.itemDescription||'',code:it.itemCode||'',unit:it.unit||'',
+    rate:it.rate!=null?String(it.rate):'',disc:'',rem:it.size||'',
+  }));
+  plRefresh();
+}
 let PL=[{}];
 // Equipment -> Standard -> Item Description cascade, same reference data
 // as the Service Catalogue (CRM_EQUIPMENT/CRM_STANDARDS/CRM_ITEMDESCS,
@@ -10062,20 +10410,22 @@ PdfDoc.prototype={
  // has to stay inside a ruled cell measures with twx().
  twx(s,size,bold){
    s=String(s==null?'':s);
-   const w=bold?PDF_W_B:PDF_W_N;let t=0;
+   const B=!!bold&&bold!=='i'; // 'i' = Helvetica-Oblique: same widths as regular
+   const w=B?PDF_W_B:PDF_W_N;let t=0;
    for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);
      // a mark we can print has a width of its own; anything we
      // cannot print at all is dropped and takes no room
      if(c>=32&&c<=126){t+=w[c-32];continue;}
      const m=PDF_MARK_W[s[i]];
-     if(m){t+=m[bold?1:0];continue;}
+     if(m){t+=m[B?1:0];continue;}
      const sp=PDF_SPELL[s[i]];
      if(sp)for(let k=0;k<sp.length;k++)t+=w[sp.charCodeAt(k)-32];
    }
    return t*size/1000;
  },
+ // bold: truthy = Helvetica-Bold, 'i' = Helvetica-Oblique
  text(x,y,s,size,bold,color){size=size||9;
-   this.cur.ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
+   this.cur.ops.push('BT /'+(bold==='i'?'F3':bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
  // Some certified sheets set a narrow column's heading on its side, reading
  // bottom to top. The text matrix turns the glyphs; (x,y) is where the
  // baseline starts, at the foot of the heading.
@@ -10339,11 +10689,12 @@ PdfDoc.prototype={
    const fontN=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
    const fontB=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
    /* Inter, for a page that wrote in it (the calibration certificates -
-      see calTtObjects). Nothing else ever does, so every other report's
-      bytes are exactly what they were. */
+     see calTtObjects). Nothing else ever does, so every other report's
+     bytes are exactly what they were. */
    const ttIds={};
    Object.keys(this.ttUsed||{}).forEach(k=>{ ttIds[k]=calTtObjects(add,k,this.ttUsed[k]); });
    const ttRes=Object.keys(ttIds).map(k=>' /T'+k+' '+ttIds[k]+' 0 R').join('');
+   const fontI=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
    const imgIds=this.imgs.map(im=>add({stream:im.bin,dict:'<< /Type /XObject /Subtype /Image /Width '+im.iw+' /Height '+im.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.bin.length+' >>'}));
    const pageIds=[];const contentIds=[];
    this.pages.forEach((p,pi)=>{
@@ -10354,7 +10705,7 @@ PdfDoc.prototype={
    const pagesId=objs.length+this.pages.length+1;
    this.pages.forEach((p,pi)=>{
      let xo=p.imgs.map(ii=>'/Im'+ii+' '+imgIds[ii]+' 0 R').join(' ');
-     pageIds.push(add('<< /Type /Page /Parent '+pagesId+' 0 R /MediaBox [0 0 '+this.w+' '+this.h+'] /Contents '+contentIds[pi]+' 0 R /Resources << /Font << /F1 '+fontN+' 0 R /F2 '+fontB+' 0 R'+ttRes+' >>'+(xo?' /XObject << '+xo+' >>':'')+' >> >>'));
+     pageIds.push(add('<< /Type /Page /Parent '+pagesId+' 0 R /MediaBox [0 0 '+this.w+' '+this.h+'] /Contents '+contentIds[pi]+' 0 R /Resources << /Font << /F1 '+fontN+' 0 R /F2 '+fontB+' 0 R /F3 '+fontI+' 0 R'+ttRes+' >>'+(xo?' /XObject << '+xo+' >>':'')+' >> >>'));
    });
    const pid=add('<< /Type /Pages /Kids ['+pageIds.map(i=>i+' 0 R').join(' ')+'] /Count '+pageIds.length+' >>');
    const cat=add('<< /Type /Catalog /Pages '+pid+' 0 R >>');
@@ -12257,6 +12608,59 @@ function renderGlCons(){
 // lists, at which point HBL_BANK_CODES/HBL_PURPOSE_CODES above get edited
 // directly. (The two source PDFs themselves aren't hosted here — only
 // their contents, transcribed into these two tables.)
+/* ================================================================
+   Accounting > Taxes — sales-tax-on-services keys and rates (KPK, SRB,
+   ICT, BRA, PRA ...), kept server-side in erp_tax_rates (routes/
+   accounting.js). CRM Quotations take their tax key + % from this list.
+   ================================================================ */
+let ACCT_TAXES=[];
+async function acctLoadTaxes(){ACCT_TAXES=await api('/api/accounting/taxes');return ACCT_TAXES;}
+function acctTaxCanEdit(){return !!SESSION&&SESSION.role!=='Viewer';}
+async function renderGlTaxes(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Loading…</div></div></div>';
+  try{await acctLoadTaxes();}catch(e){c.innerHTML='<div class="card"><div class="card-b"><div class="empty">Failed to load taxes: '+esc(e.message)+'</div></div></div>';return;}
+  const ed=acctTaxCanEdit();
+  c.innerHTML='<div class="card"><div class="card-h">Taxes<span class="sp"></span>'+(ed?'<button class="btn" onclick="glTaxAddRow()">+ Add tax</button>':'')+'</div><div class="card-b tblwrap">'+
+   '<table><thead><tr><th style="width:120px">Key</th><th>Description</th><th class="num" style="width:140px">Rate %</th>'+(ed?'<th style="width:150px"></th>':'')+'</tr></thead><tbody id="gltax-body">'+
+   (ACCT_TAXES.length?ACCT_TAXES.map(t=>glTaxRowHtml(t,ed)).join(''):'<tr><td colspan="4"><span class="hint">No taxes yet.</span></td></tr>')+
+   '</tbody></table>'+
+   '<div class="hint">CRM › Quotations › Sales Tax picks its key and % from this list. A changed rate applies to quotations saved after the change; a quotation already saved keeps its own % until it is edited and the tax is picked again.</div></div></div>';
+}
+function glTaxRowHtml(t,ed){
+  if(!ed)return '<tr><td><b>'+esc(t.key)+'</b></td><td>'+esc(t.description)+'</td><td class="num">'+t.rate+'%</td></tr>';
+  return '<tr><td><input id="gltax-key-'+t.id+'" value="'+esc(t.key)+'" style="width:100%;text-transform:uppercase;font-weight:700"></td>'+
+   '<td><input id="gltax-desc-'+t.id+'" value="'+esc(t.description)+'" style="width:100%"></td>'+
+   '<td><input id="gltax-rate-'+t.id+'" type="number" step="0.01" min="0" max="100" class="num" value="'+t.rate+'" style="width:100%"></td>'+
+   '<td style="white-space:nowrap"><button class="btn small" onclick="glTaxSave('+t.id+')">Save</button> <button class="del" title="Delete" onclick="glTaxDel('+t.id+')">🗑</button></td></tr>';
+}
+function glTaxAddRow(){
+  if(document.getElementById('gltax-key-new'))return;
+  const tb=document.getElementById('gltax-body');if(!tb)return;
+  if(!ACCT_TAXES.length)tb.innerHTML='';
+  tb.insertAdjacentHTML('beforeend','<tr><td><input id="gltax-key-new" placeholder="e.g. AJK" style="width:100%;text-transform:uppercase;font-weight:700"></td>'+
+   '<td><input id="gltax-desc-new" placeholder="Authority / description" style="width:100%"></td>'+
+   '<td><input id="gltax-rate-new" type="number" step="0.01" min="0" max="100" class="num" style="width:100%"></td>'+
+   '<td style="white-space:nowrap"><button class="btn small" onclick="glTaxSave(\'new\')">Add</button> <button class="btn ghost small" onclick="render()">Cancel</button></td></tr>');
+  document.getElementById('gltax-key-new').focus();
+}
+async function glTaxSave(id){
+  const key=document.getElementById('gltax-key-'+id).value.trim().toUpperCase();
+  const description=document.getElementById('gltax-desc-'+id).value.trim();
+  const rate=document.getElementById('gltax-rate-'+id).value;
+  if(!key)return toast('Tax key is required.','err');
+  if(rate===''||isNaN(+rate)||+rate<0||+rate>100)return toast('Rate must be a number between 0 and 100.','err');
+  try{
+    if(id==='new')await api('/api/accounting/taxes',{method:'POST',body:JSON.stringify({key,description,rate:+rate})});
+    else await api('/api/accounting/taxes/'+id,{method:'PUT',body:JSON.stringify({key,description,rate:+rate})});
+    toast('Saved.','ok');render();
+  }catch(e){toast(e.message,'err');}
+}
+async function glTaxDel(id){
+  const t=ACCT_TAXES.find(x=>x.id===id);
+  if(!confirm('Delete tax "'+(t?t.key:'')+'"? Quotations already saved with it keep their % and label.'))return;
+  try{await api('/api/accounting/taxes/'+id,{method:'DELETE'});toast('Deleted.','ok');render();}catch(e){toast(e.message,'err');}
+}
 function renderGlRefs(){
   document.getElementById('content').innerHTML=
   '<div class="card"><div class="card-h">1-Link Bank Codes<span class="sp"></span>'+expBtns('xt-bankcodes','hbl-bank-codes')+'</div><div class="card-b tblwrap" id="xt-bankcodes">'+
@@ -18212,7 +18616,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Remote Work Attendance'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_taxes:['Accounting','Taxes'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}
@@ -18226,7 +18630,7 @@ function render(){
   if(route.startsWith('m_')){const m=MODULES[modKey()];crumb=m.g;title=m.name;renderModule();}
   else{
     const t=TITLES[route]||['Home','Dashboard'];crumb=t[0];title=t[1];
-    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_add:renderCrmQuotationAdd,crm_quotation_edit:renderCrmQuotationEdit,crm_quotation_view:renderCrmQuotationView,crm_quotation_recyclebin:renderCrmQuotationRecycleBin,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
+    ({dashboard:renderDashboard,leave_requests:renderLeaveRequests,overtime:renderOvertime,crm_customers:renderCrmCustomers,crm_customer_form:renderCrmCustomerForm,crm_services:renderCrmServices,crm_rfqs:renderCrmRfqs,crm_rfq_view:renderCrmRfqView,crm_quotations:renderCrmQuotations,crm_quotation_add:renderCrmQuotationAdd,crm_quotation_edit:renderCrmQuotationEdit,crm_quotation_view:renderCrmQuotationView,crm_quotation_recyclebin:renderCrmQuotationRecycleBin,crm_recyclebin:renderCrmRecycleBin,hr_employees:renderHrEmployees,hr_employee_view:renderEmpView,hr_attendance:renderLiveAttendance,hr_report:renderAttendanceReport,hr_holidays:renderHolidays,hr_payroll:renderPayroll,hr_leave_records:renderLeaveRecords,hr_payroll_slips:renderPayrollSlips,gl_companies:renderGlCompanies,gl_fx:renderGlFx,gl_coa:renderGlCoa,gl_je:renderGlJe,gl_ledger:renderGlLedger,gl_tb:renderGlTb,tax_calc:renderTaxCalc,gl_pl:renderGlPl,gl_bs:renderGlBs,gl_cons:renderGlCons,gl_taxes:renderGlTaxes,gl_refs:renderGlRefs,insp_report:renderInspReport,insp_list:renderInspList,insp_wo_view:renderWoView,insp_map:renderInspMap,inv_stock_report:renderStockReport,dcr_list:renderDcrList,users:renderUsers}[route]||renderDashboard)();
   }
   document.getElementById('crumb').textContent=crumb.toUpperCase();
   document.getElementById('title').textContent=title;

@@ -250,15 +250,19 @@ async function computeAttendanceRows(from, to, filter = {}) {
   const [employees] = await pool.query(empSql, empParams);
 
   const [punchRows] = await pool.query(
-    `SELECT DATE_FORMAT(punch_time, '%Y-%m-%d') AS day, employee_id, punch_time, in_out_mode, source, device_location
-     FROM erp_attendance_logs WHERE employee_id IS NOT NULL AND DATE(punch_time) BETWEEN ? AND ?${filter.employeeIds && filter.employeeIds.length ? ` AND employee_id IN (${filter.employeeIds.map(() => '?').join(',')})` : ''}`,
+    // Remote Work Attendance entries (source 'late-sitting') carry their
+    // Offsite / WFH label in erp_late_sittings — joined in so the report can
+    // show it next to the time.
+    `SELECT DATE_FORMAT(l.punch_time, '%Y-%m-%d') AS day, l.employee_id, l.punch_time, l.in_out_mode, l.source, l.device_location, ls.work_mode
+     FROM erp_attendance_logs l LEFT JOIN erp_late_sittings ls ON ls.attendance_log_id = l.id
+     WHERE l.employee_id IS NOT NULL AND DATE(l.punch_time) BETWEEN ? AND ?${filter.employeeIds && filter.employeeIds.length ? ` AND l.employee_id IN (${filter.employeeIds.map(() => '?').join(',')})` : ''}`,
     [ymd(monthStart), ymd(monthEnd), ...(filter.employeeIds && filter.employeeIds.length ? filter.employeeIds : [])]
   );
   const punchesByEmpDay = new Map(); // "empId|day" -> [{time, mode, source, location}]
   for (const r of punchRows) {
     const key = r.employee_id + '|' + r.day;
     if (!punchesByEmpDay.has(key)) punchesByEmpDay.set(key, []);
-    punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source, location: r.device_location });
+    punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source, location: r.device_location, workMode: r.work_mode || null });
   }
   // Earliest first, always. The query has no ORDER BY, so rows otherwise come
   // back in insertion order — and a punch added later (a backfill, a device
@@ -344,11 +348,15 @@ async function computeAttendanceRows(from, to, filter = {}) {
       // shift; every other employment type works Saturday on their normal start.
       const shiftStart = (dow === 6 && emp.employment_type === 'Permanent') ? SATURDAY_SHIFT_START_PERMANENT : weekdayShiftStart;
 
+      let checkInMode = null, checkOutMode = null;
       let checkIn = null, checkOut = null, late = false, lateMinutes = 0, lateSitting = false, lateSittingMinutes = 0;
       if (punches.length) {
         const hasKnownStatus = punches.some((p) => p.mode !== null && p.mode !== undefined);
         if (hasKnownStatus) {
-          const ins = punches.filter((p) => p.mode === 0);
+          // A Remote Work Attendance "In" (routes/lateSitting.js) is written
+          // as OT-in (4) with source 'late-sitting' — it's the day's check-in.
+          // A real device OT-in stays a mid-day event and isn't counted.
+          const ins = punches.filter((p) => p.mode === 0 || (p.mode === 4 && p.source === 'late-sitting'));
           // Check-out (1) and OT-out (5) are the same event as far as the
           // day's recorded "out" time is concerned — whichever one the K70
           // reports, and whichever of them is latest, is THE check-out time
@@ -357,6 +365,8 @@ async function computeAttendanceRows(from, to, filter = {}) {
           const outs = punches.filter((p) => p.mode === 1 || p.mode === 5);
           checkIn = ins.length ? ins[0].time : null;
           checkOut = outs.length ? outs[outs.length - 1].time : null;
+          checkInMode = ins.length ? ins[0].workMode : null;
+          checkOutMode = outs.length ? outs[outs.length - 1].workMode : null;
         } else {
           checkIn = punches[0].time;
           checkOut = punches.length > 1 ? punches[punches.length - 1].time : null;
@@ -445,7 +455,7 @@ async function computeAttendanceRows(from, to, filter = {}) {
         unmapped: false, department: emp.department, location: punchLoc || emp.location,
         checkIn, checkOut, punches: punches.length,
         shiftStart, graceMinutes: emp.grace_minutes, late, lateMinutes, lateSitting, lateSittingMinutes,
-        dayType, workMode, holidayName: holiday ? holiday.name : null,
+        dayType, workMode, checkInMode, checkOutMode, holidayName: holiday ? holiday.name : null,
         onLeave: dayType === 'Leave' || dayType === 'LeaveWithoutPay',
         // dayOfWeek (0=Sunday..6=Saturday) so a WeeklyOff day can be shown/
         // counted as "Gazetted Holiday (Sunday)" vs a rotational Saturday

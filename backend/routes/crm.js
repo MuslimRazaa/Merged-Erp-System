@@ -55,6 +55,12 @@ router.use((req, res, next) => {
   // /rfqs* carries its own reqProc gate per-route below; everything else
   // in this router is CRM.
   if (req.path === '/rfqs' || req.path.startsWith('/rfqs/')) return next();
+  // Client Contracts (Inspection) pick from the Won quotations, so an
+  // Inspection user without CRM access can still read that one list.
+  if (req.path === '/won-quotations') {
+    if (canAccess(req.erpUser.role, 'CRM') || canAccess(req.erpUser.role, 'Inspection')) return next();
+    return res.status(403).json({ error: `Your role (${req.erpUser.role}) has no access to CRM or Inspection.` });
+  }
   return reqCrm(req, res, next);
 });
 
@@ -783,25 +789,9 @@ router.delete('/services/:id', async (req, res) => {
 // Single shared Quotation terms block — edited once (rich HTML), used on
 // every quotation PDF (pages 4-5 in the paper document). This is the
 // best-effort seed; VERIFY against the authoritative wording.
-const DEFAULT_TERMS_HTML =
-  '<p><b>General Terms and Conditions</b></p>' +
-  '<p>PTIS will issue invoice after the completion of job attached with all supporting documentation and delivery notes and will submit to the finance department.</p>' +
-  '<p>All payments to PTIS shall be made by direct transfer within 15 days from the day of the submission of all invoices.</p>' +
-  "<p>Client shall provide PTIS team with accommodation and meals, which shall be of the standard as applicable to customer's own senior staff.</p>" +
-  '<p>Proof loads, Crane, Fork lifter and other accessories for load testing, Pipe racks, handling and dope to be supplied by the client.</p>' +
-  '<p>Client to support our services by providing Forklift, air pump and power supply for onsite jobs.</p>' +
-  '<p>PTIS shall provide two signed and stamped original hard copies of the inspection report upon completion of the job.</p>' +
-  '<p>Client must give a minimum notice of 24 hours before the start of the job.</p>' +
-  '<p>Day is considered as maximum of 10 working hours.</p>' +
-  '<p>General Sales Tax shall be added on top of the invoice amount (as all prices are exclusive of GST).</p>' +
-  '<p>All Covid-19 Protocols shall be adhered to as per the client policy but any charges shall be charged back to the client At Actual along with proof.</p>' +
-  '<p><b>Removal of Equipment / Grease</b></p>' +
-  '<p>The client is responsible for safely disassembling or removing any equipment, grease, or unwanted compounds that are attached to the equipment or plant that requires calibration.</p>' +
-  '<p>The client should ensure that the equipment is in a safe and suitable condition for calibration, including ensuring that all relevant accessories or attachments are in place.</p>' +
-  '<p><b>Functional Testing</b></p>' +
-  "<p>Prior to calibration, the PTIS calibration team will conduct a functional test of the equipment in the presence of the client's representative.</p>" +
-  '<p>The purpose of this test is to ensure that the equipment is in working order and its functional / operating parameters are within the standard for testing and measurement.</p>' +
-  '<p>Any discrepancies or issues identified during the functional testing will be reported to the client for necessary corrective actions.</p>';
+// (3.1 Invoicing and Payment ... 3.5 Functional Testing) — see
+// backend/quotationTerms.js, shared with migrate.js.
+const { DEFAULT_TERMS_HTML } = require('../quotationTerms');
 
 async function getCrmConfig() {
   const [rows] = await pool.query('SELECT last_client_ref, quotation_terms_html FROM erp_crm_config WHERE id = 1');
@@ -853,6 +843,7 @@ function shapeQuotationItem(it) {
   return {
     id: it.id, equipmentId: it.equipment_id, standardId: it.standard_id, itemDescriptionId: it.item_description_id,
     equipmentName: it.equipment_name || null, standardName: it.standard_name || null, itemDescription: it.item_description || null,
+    itemCode: it.item_code || null,
     size: it.size, unit: it.unit, qty, rate, spec: it.spec || null, scope: it.scope || null,
     total: qty != null && rate != null ? +(qty * rate).toFixed(2) : null,
   };
@@ -866,7 +857,7 @@ function shapeQuotation(q, items) {
     id: q.id, quotationNo: q.quotation_no, rfqId: q.rfq_id, rfqNo: q.rfq_no, rfqSubject: q.rfq_subject,
     revision: q.revision, quotationDate: dstr(q.quotation_date), serviceType: q.service_type,
     clientReferenceNo: q.client_reference_no, attentionName: q.attention_name, subject: q.subject,
-    currency: q.currency, srbPercent, status: q.status, paymentTerms: q.payment_terms,
+    currency: q.currency, srbPercent, taxKey: q.tax_key || 'SRB', status: q.status, paymentTerms: q.payment_terms,
     customerId: q.customer_id, customerName: q.customer_name, customerCode: q.customer_code,
     customerAddress: q.customer_address, customerCity: q.customer_city, customerCountry: q.customer_country,
     customerContact: q.customer_contact,
@@ -878,7 +869,7 @@ function shapeQuotation(q, items) {
 
 async function fetchQuotationItems(quotationId) {
   const [rows] = await pool.query(
-    `SELECT qi.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description
+    `SELECT qi.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description, it.code AS item_code
      FROM erp_crm_quotation_items qi
      LEFT JOIN erp_crm_equipment eq ON eq.id = qi.equipment_id
      LEFT JOIN erp_crm_standards st ON st.id = qi.standard_id
@@ -960,11 +951,11 @@ router.post('/rfq-quotation', upload.array('attachments', 10), handleUploadError
   const quotationDate = String(b.quotationDate || receivedDate).trim();
   const [qtnRes] = await pool.query(
     `INSERT INTO erp_crm_quotations
-       (rfq_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, payment_terms, status, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (rfq_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, tax_key, payment_terms, status, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [rfqId, 0, quotationDate, b.serviceType || null, clientRef, b.attentionName || null,
      b.subject || null, b.currency || 'PKR',
-     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, b.paymentTerms || null, 'Draft', req.erpUser.id]
+     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, String(b.taxKey || 'SRB').slice(0, 20), b.paymentTerms || null, 'Draft', req.erpUser.id]
   );
   const quotationId = qtnRes.insertId;
   const quotationNo = await nextQuotationSerial(quotationDate);
@@ -999,11 +990,11 @@ router.post('/quotations', async (req, res) => {
 
   const [qtnRes] = await pool.query(
     `INSERT INTO erp_crm_quotations
-       (customer_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, payment_terms, status, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (customer_id, revision, quotation_date, service_type, client_reference_no, attention_name, subject, currency, srb_percent, tax_key, payment_terms, status, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [customerId, 0, quotationDate, b.serviceType || null, clientRef, b.attentionName || null,
      b.subject || null, b.currency || 'PKR',
-     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, b.paymentTerms || null, 'Draft', req.erpUser.id]
+     b.srbPercent === undefined || b.srbPercent === '' ? 15 : b.srbPercent, String(b.taxKey || 'SRB').slice(0, 20), b.paymentTerms || null, 'Draft', req.erpUser.id]
   );
   const quotationId = qtnRes.insertId;
   const quotationNo = await nextQuotationSerial(quotationDate);
@@ -1018,12 +1009,12 @@ router.post('/quotations', async (req, res) => {
   res.status(201).json({ ...shapeQuotation(qrows[0], await fetchQuotationItems(quotationId)), termsHtml: cfg.quotationTermsHtml });
 });
 
-router.get('/quotations', async (req, res) => {
-  const [rows] = await pool.query(`${QTN_SELECT} WHERE q.deleted_at IS NULL ORDER BY q.id DESC`);
-  if (!rows.length) return res.json([]);
+async function listQuotations(extraWhere) {
+  const [rows] = await pool.query(`${QTN_SELECT} WHERE q.deleted_at IS NULL${extraWhere || ''} ORDER BY q.id DESC`);
+  if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
   const [items] = await pool.query(
-    `SELECT qi.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description
+    `SELECT qi.*, eq.name AS equipment_name, st.name AS standard_name, it.description AS item_description, it.code AS item_code
      FROM erp_crm_quotation_items qi
      LEFT JOIN erp_crm_equipment eq ON eq.id = qi.equipment_id
      LEFT JOIN erp_crm_standards st ON st.id = qi.standard_id
@@ -1033,7 +1024,14 @@ router.get('/quotations', async (req, res) => {
   );
   const byQtn = new Map();
   for (const it of items) { if (!byQtn.has(it.quotation_id)) byQtn.set(it.quotation_id, []); byQtn.get(it.quotation_id).push(it); }
-  res.json(rows.map((q) => shapeQuotation(q, byQtn.get(q.id))));
+  return rows.map((q) => shapeQuotation(q, byQtn.get(q.id)));
+}
+router.get('/quotations', async (req, res) => {
+  res.json(await listQuotations());
+});
+// Won quotations only — the Client Contract form's "Quotation" dropdown.
+router.get('/won-quotations', async (req, res) => {
+  res.json(await listQuotations(" AND q.status = 'Won'"));
 });
 
 router.get('/quotations/:id', async (req, res) => {
@@ -1046,7 +1044,7 @@ router.get('/quotations/:id', async (req, res) => {
 const QUOTATION_FIELD_MAP = {
   customerId: 'customer_id', quotationDate: 'quotation_date', serviceType: 'service_type', clientReferenceNo: 'client_reference_no',
   attentionName: 'attention_name', subject: 'subject', currency: 'currency', srbPercent: 'srb_percent',
-  status: 'status', revision: 'revision', paymentTerms: 'payment_terms',
+  status: 'status', revision: 'revision', paymentTerms: 'payment_terms', taxKey: 'tax_key',
 };
 router.put('/quotations/:id', async (req, res) => {
   if (req.erpUser.role === 'Viewer') return res.status(403).json({ error: 'Viewer accounts are read-only.' });

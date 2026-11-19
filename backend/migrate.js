@@ -576,6 +576,8 @@ async function migrate() {
     ['erp_crm_quotations', 'deleted_at TIMESTAMP NULL'],
     ['erp_crm_quotations', 'payment_terms VARCHAR(60) NULL'],
     ['erp_crm_quotations', 'customer_id INT NULL'],
+    // which Accounting > Taxes key the % came from (SRB, KPK, ICT, BRA, PRA)
+    ['erp_crm_quotations', "tax_key VARCHAR(20) NULL"],
     ['erp_crm_quotation_items', 'spec VARCHAR(500) NULL'],
     ['erp_crm_quotation_items', "scope VARCHAR(20) NULL"],
   ]) {
@@ -613,6 +615,23 @@ async function migrate() {
     )
   `);
   await pool.query('INSERT IGNORE INTO erp_crm_config (id) VALUES (1)');
+  // One-time: the saved Terms template moves to the sectioned layout of
+  // the new quotation PDF (3.1 Invoicing and Payment ... 3.5 Functional
+  // Testing). The payment-days sentence already in the saved template is
+  // carried over; after this runs once, edits made on the Terms Template
+  // screen are never touched again.
+  try { await pool.query('ALTER TABLE erp_crm_config ADD COLUMN terms_layout_v TINYINT NOT NULL DEFAULT 0'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  {
+    const { quotationTermsHtml, PAYMENT_SENTENCE_RE } = require('./quotationTerms');
+    const [[cfg]] = await pool.query('SELECT quotation_terms_html, terms_layout_v FROM erp_crm_config WHERE id = 1');
+    if (cfg && !cfg.terms_layout_v) {
+      const saved = cfg.quotation_terms_html || '';
+      const m = PAYMENT_SENTENCE_RE.exec(saved);
+      const html = saved ? quotationTermsHtml(m ? m[0] : undefined) : null; // NULL keeps using the (new) default
+      await pool.query('UPDATE erp_crm_config SET quotation_terms_html = ?, terms_layout_v = 1 WHERE id = 1', [html]);
+    }
+  }
 
   // Server-side storage for the generic register modules (Compliance, and
   // later Inventory / Procurement / Fixed Assets) — one row per record, data
@@ -789,6 +808,12 @@ async function migrate() {
   // logged before this field existed stay valid, just unlabeled.
   try { await pool.query("ALTER TABLE erp_late_sittings ADD COLUMN work_mode VARCHAR(30) NULL AFTER out_time"); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Was always an OT-out (in_out_mode 5) entry — the Overtime tab is now an
+  // Offsite/WFH time log, not just a late-sitting checkout, so it can be
+  // either an In or an Out punch. Nullable + defaults to 5 (Out) so every
+  // row logged before this column existed reads exactly as it always did.
+  try { await pool.query("ALTER TABLE erp_late_sittings ADD COLUMN in_out_mode TINYINT NOT NULL DEFAULT 5 AFTER work_mode"); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_allowances JSON NULL AFTER field_allowance'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_deductions JSON NULL AFTER other_allowances'); }
@@ -835,7 +860,37 @@ async function migrate() {
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN late_deduction_waived TINYINT(1) NULL DEFAULT 0 AFTER employment_type'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
-  console.log('[erp-migrate] erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
+  // Accounting > Taxes — the provincial / federal sales-tax-on-services
+  // rates. CRM Quotations pick their tax key + % from here (shown on the
+  // quotation and its PDF as e.g. "SRB 15%"). Seeded once; edited on the
+  // Accounting > Taxes screen afterwards.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS erp_tax_rates (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      tax_key     VARCHAR(20) NOT NULL UNIQUE,
+      description VARCHAR(160) NULL,
+      rate        DECIMAL(6,2) NOT NULL DEFAULT 0,
+      sort_order  INT NOT NULL DEFAULT 0,
+      updated_by  INT NULL,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  const [[taxCount]] = await pool.query('SELECT COUNT(*) AS n FROM erp_tax_rates');
+  if (!taxCount.n) {
+    const seed = [
+      ['KPK', 'Khyber Pakhtunkhwa Revenue Authority', 15],
+      ['SRB', 'Sindh Revenue Board', 15],
+      ['ICT', 'Islamabad Capital Territory', 15],
+      ['BRA', 'Balochistan Revenue Authority', 15],
+      ['PRA', 'Punjab Revenue Authority', 16],
+    ];
+    for (let i = 0; i < seed.length; i++) {
+      await pool.query('INSERT INTO erp_tax_rates (tax_key, description, rate, sort_order) VALUES (?,?,?,?)', [...seed[i], i + 1]);
+    }
+  }
+
+  console.log('[erp-migrate] erp_tax_rates, erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;

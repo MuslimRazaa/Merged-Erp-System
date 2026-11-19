@@ -51,6 +51,22 @@ function requireHr(req, res, next) {
   if (!canAccess(req.erpUser.role, 'Human Resources')) return res.status(403).json({ error: `Your role (${req.erpUser.role}) has no access to Human Resources.` });
   next();
 }
+// Hidden admin-only flow (see POST /admin-log below and the matching card
+// in public/index.html's renderOvertime()): exactly one person, by employee
+// code, can log a WFH/Offsite entry on ANY employee's behalf, any date, as
+// either an In or an Out punch. OT_ADMIN_LOG_ENABLED is the single switch —
+// flip it to false and the route 404s for EVERYONE, including that one
+// employee code, and the front end's card never renders either. Not a
+// role check on purpose: this isn't "any HR user", it's exactly one person.
+const OT_ADMIN_LOG_ENABLED = true;
+const OT_ADMIN_EMP_CODE = '1551';
+// The every-employee list (GET /) and deleting entries are for that same one
+// HR account only — not any HR role. Not tied to OT_ADMIN_LOG_ENABLED.
+// employee_id is an INT column, so compare as strings.
+function requireRemoteAdmin(req, res, next) {
+  if (String(req.erpUser.employeeId) !== OT_ADMIN_EMP_CODE) return res.status(403).json({ error: "Only HR can see every employee's entries." });
+  next();
+}
 // Local-calendar-day arithmetic — see attendance.js's identical note: NOT
 // toISOString(), which is UTC-based and shifts a date back a day in
 // timezones ahead of UTC (Pakistan Standard Time).
@@ -62,33 +78,34 @@ const ymdLocal = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStar
 // one it was, not just that a late sitting happened.
 const WORK_MODES = ['Offsite working', 'Work From Home'];
 
+const inOutLabel = (m) => (m === 4 ? 'in' : 'out');
 function shapeMine(r) {
-  return { id: r.id, workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, hasAttachment: !!r.attachment_name, submittedAt: r.created_at };
+  return { id: r.id, workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, inOut: inOutLabel(r.in_out_mode), hasAttachment: !!r.attachment_name, submittedAt: r.created_at };
 }
 
 // GET /api/late-sittings/mine — the signed-in employee's own submissions,
 // most recent first.
 router.get('/mine', async (req, res) => {
   const [rows] = await pool.query(
-    'SELECT id, work_date, out_time, work_mode, attachment_name, created_at FROM erp_late_sittings WHERE employee_id = ? ORDER BY work_date DESC, out_time DESC',
+    'SELECT id, work_date, out_time, work_mode, in_out_mode, attachment_name, created_at FROM erp_late_sittings WHERE employee_id = ? ORDER BY work_date DESC, out_time DESC',
     [req.erpUser.id]
   );
   res.json(rows.map(shapeMine));
 });
 
 // GET /api/late-sittings — EVERY employee's submissions. HR/Admin only —
-// this is the audit list: who logged a manual late sitting, which day, what
-// time, which work mode, and whether they attached proof.
-router.get('/', requireHr, async (req, res) => {
+// this is the audit list: who logged an Offsite/WFH entry, which day, what
+// time, In or Out, which work mode, and whether they attached proof.
+router.get('/', requireRemoteAdmin, async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.work_mode, ls.attachment_name, ls.created_at,
+    `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.work_mode, ls.in_out_mode, ls.attachment_name, ls.created_at,
             e.employee_id AS emp_code, e.full_name AS emp_name, e.department
      FROM erp_late_sittings ls JOIN employees e ON e.id = ls.employee_id
      ORDER BY ls.work_date DESC, ls.out_time DESC`
   );
   res.json(rows.map((r) => ({
     id: r.id, employeeId: r.employee_id, employeeCode: r.emp_code, employeeName: r.emp_name, department: r.department,
-    workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, hasAttachment: !!r.attachment_name, submittedAt: r.created_at,
+    workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, inOut: inOutLabel(r.in_out_mode), hasAttachment: !!r.attachment_name, submittedAt: r.created_at,
   })));
 });
 
@@ -109,6 +126,14 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
 
   const workMode = String(req.body.workMode || '');
   if (!WORK_MODES.includes(workMode)) return res.status(400).json({ error: 'Pick whether you were working offsite or from home.' });
+
+  // This used to only ever log an Out (OT-out) checkout; it's now a full
+  // Offsite/WFH time log, so either end of the day can be logged. Defaults
+  // to 'out' so an older client that never sends inOut keeps behaving
+  // exactly as before.
+  const inOut = String(req.body.inOut || 'out');
+  if (!['in', 'out'].includes(inOut)) return res.status(400).json({ error: 'Pick In or Out.' });
+  const inOutMode = inOut === 'in' ? 4 : 5;
 
   const now = new Date();
   const today = ymdLocal(now);
@@ -148,17 +173,17 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
       const [logResult] = await conn.query(
         `INSERT INTO erp_attendance_logs (device_user_id, device_user_name, employee_id, punch_time, verify_mode, in_out_mode, source)
          VALUES (?,?,?,?,?,?,?)`,
-        [emp.employeeId, emp.name, emp.id, outTime, null, 5, 'late-sitting']
+        [emp.employeeId, emp.name, emp.id, outTime, null, inOutMode, 'late-sitting']
       );
       logId = logResult.insertId;
     } catch (e) {
-      if (e.code === 'ER_DUP_ENTRY') { await conn.rollback(); return res.status(409).json({ error: 'You already logged a late sitting at this exact time.' }); }
+      if (e.code === 'ER_DUP_ENTRY') { await conn.rollback(); return res.status(409).json({ error: 'You already logged an entry at this exact time.' }); }
       throw e;
     }
     const [result] = await conn.query(
-      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id, attachment_name, attachment_mime, attachment_data)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [emp.id, workDate, outTime, workMode, logId, fileName, file ? file.mimetype : null, file ? file.buffer : null]
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, in_out_mode, attendance_log_id, attachment_name, attachment_mime, attachment_data)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [emp.id, workDate, outTime, workMode, inOutMode, logId, fileName, file ? file.mimetype : null, file ? file.buffer : null]
     );
     await conn.commit();
     await audit(emp.employeeId, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)} (${workMode})${file ? ' (with attachment)' : ''}`);
@@ -218,13 +243,76 @@ router.post('/backdated', requireHr, async (req, res) => {
       throw e;
     }
     const [result] = await conn.query(
-      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id)
-       VALUES (?,?,?,?,?)`,
-      [emp.id, workDate, outTime, workMode, logId]
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, in_out_mode, attendance_log_id)
+       VALUES (?,?,?,?,?,?)`,
+      [emp.id, workDate, outTime, workMode, 5, logId]
     );
     await conn.commit();
     await audit(emp.employee_id, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)} (${workMode})`);
     res.status(201).json({ id: result.insertId, workDate, outTime, workMode, hasAttachment: false, submittedAt: new Date() });
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+});
+
+// POST /api/late-sittings/admin-log — hidden, exactly-one-person flow (see
+// OT_ADMIN_LOG_ENABLED/OT_ADMIN_EMP_CODE above). Picks any employee, any
+// date/time, an In or Out punch (in_out_mode 4/5 — OT-in/OT-out, same
+// scheme attendance.js already uses), Offsite working or Work From Home.
+// Written into the exact same two tables as self-service, under the
+// chosen employee's own id, same audit action name — indistinguishable
+// from an entry that employee logged themselves.
+router.post('/admin-log', async (req, res) => {
+  // employee_id is an INT column (mysql2 hands it back as a number), so
+  // compare as strings rather than risk a number-vs-string false negative.
+  if (!OT_ADMIN_LOG_ENABLED || String(req.erpUser.employeeId) !== OT_ADMIN_EMP_CODE) return res.status(404).json({ error: 'Not found.' });
+
+  const employeeId = +req.body.employeeId;
+  if (!Number.isFinite(employeeId)) return res.status(400).json({ error: 'Pick an employee.' });
+  const [empRows] = await pool.query('SELECT id, employee_id, full_name FROM employees WHERE id = ?', [employeeId]);
+  if (!empRows.length) return res.status(404).json({ error: 'Employee not found.' });
+  const emp = empRows[0];
+
+  const workDate = String(req.body.workDate || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return res.status(400).json({ error: 'workDate must be YYYY-MM-DD.' });
+
+  const workMode = String(req.body.workMode || '');
+  if (!WORK_MODES.includes(workMode)) return res.status(400).json({ error: 'Pick Offsite working or Work From Home.' });
+
+  const inOut = String(req.body.inOut || '');
+  if (!['in', 'out'].includes(inOut)) return res.status(400).json({ error: 'Pick In or Out.' });
+  const inOutMode = inOut === 'in' ? 4 : 5;
+
+  const punchTime = new Date(String(req.body.time || ''));
+  if (isNaN(punchTime.getTime())) return res.status(400).json({ error: 'time is not a valid date/time.' });
+  if (ymdLocal(punchTime) !== workDate) return res.status(400).json({ error: 'The time must fall on the selected date.' });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    let logId;
+    try {
+      const [logResult] = await conn.query(
+        `INSERT INTO erp_attendance_logs (device_user_id, device_user_name, employee_id, punch_time, verify_mode, in_out_mode, source)
+         VALUES (?,?,?,?,?,?,?)`,
+        [emp.employee_id, emp.full_name, emp.id, punchTime, null, inOutMode, 'late-sitting']
+      );
+      logId = logResult.insertId;
+    } catch (e) {
+      if (e.code === 'ER_DUP_ENTRY') { await conn.rollback(); return res.status(409).json({ error: 'This employee already has an entry logged at this exact time.' }); }
+      throw e;
+    }
+    const [result] = await conn.query(
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, in_out_mode, attendance_log_id)
+       VALUES (?,?,?,?,?,?)`,
+      [emp.id, workDate, punchTime, workMode, inOutMode, logId]
+    );
+    await conn.commit();
+    await audit(emp.employee_id, 'late-sitting-logged', `${workDate} ${punchTime.toTimeString().slice(0, 5)} (${workMode})`);
+    res.status(201).json({ id: result.insertId, workDate, outTime: punchTime, workMode, hasAttachment: false, submittedAt: new Date() });
   } catch (e) {
     await conn.rollback();
     throw e;
@@ -242,7 +330,7 @@ router.get('/:id/attachment', async (req, res) => {
   );
   if (!rows.length || !rows[0].attachment_data) return res.status(404).json({ error: 'No attachment on this entry.' });
   const row = rows[0];
-  if (row.employee_id !== req.erpUser.id && !canAccess(req.erpUser.role, 'Human Resources')) {
+  if (row.employee_id !== req.erpUser.id && String(req.erpUser.employeeId) !== OT_ADMIN_EMP_CODE) {
     return res.status(403).json({ error: 'You cannot view this.' });
   }
   res.setHeader('Content-Type', row.attachment_mime || 'application/octet-stream');
@@ -254,7 +342,7 @@ router.get('/:id/attachment', async (req, res) => {
 // erp_attendance_logs row it wrote (if any), so a mistaken/test entry's
 // effect on Attendance Report/Payroll is fully undone too, not just hidden
 // from this feature's own list.
-router.delete('/:id', requireHr, async (req, res) => {
+router.delete('/:id', requireRemoteAdmin, async (req, res) => {
   const [rows] = await pool.query('SELECT attendance_log_id FROM erp_late_sittings WHERE id = ?', [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'Entry not found.' });
   if (rows[0].attendance_log_id) {
