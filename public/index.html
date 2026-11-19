@@ -1258,7 +1258,7 @@ insplocs:{g:'Inspection',ic:'◉',name:'Add Location',admin:1,cols:2,
           {...T('subloc','Sub Location','Site A'),req:1}],
   list:['loc','subloc']},
 
-contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,onPick:{company:ctrCompanyPicked,quote:ctrApplyQuote},fields:[{k:'no',l:'Contract no.',t:'computed',auto:1,fn:r=>r.no||nextContractNo(r.company)},{k:'company',l:'Company',t:'acctco'},REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),{k:'quote',l:'Quotation',t:'wonqt'},A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Client Reference','Optional'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','quote','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
+contracts:{g:'Inspection',ic:'☷',name:'Client Contracts',att:1,plist:true,onPick:{company:ctrCompanyPicked,quote:ctrApplyQuote,cur:()=>plRecalc()},fields:[{k:'no',l:'Contract no.',t:'computed',auto:1,fn:r=>r.no||nextContractNo(r.company)},{k:'company',l:'Company',t:'acctco'},REF('client','Client','customers','name'),S('ctype','Contract type',['Master service agreement','Frame agreement','Call-off contract','Rate agreement','Spot PO','Tender award']),{k:'quote',l:'Quotation',t:'wonqt'},A('scope','Scope of services'),D('start','Start date'),D('end','End date'),N('value','Contract value'),S('cur','Currency',['AED','USD','PKR','SAR','QAR','KWD','BHD','OMR','EUR','GBP']),T('rates','Client Reference','Optional'),T('kam','Account manager'),S('status','Status',['Draft','Active','Suspended','Expired','Closed']),A('notes','Notes')],list:['no','client','ctype','quote','start','end','value','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Active').length,l:'Active contracts'},{n:d.filter(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5).length,l:'Expiring within 45 days',warn:d.some(r=>r.status==='Active'&&r.end&&(new Date(r.end)-Date.now())<45*864e5)}]},/* Field-for-field mirror of the printed Premier Tubular work-order form
    (see woPdf() — every field below prints, and nothing prints that isn't
    entered here). `contract`/`status` are the only two ERP-only extras:
    they drive the contract map + KPIs and stay off the printed sheet. */
@@ -8246,7 +8246,7 @@ function renderModule(){
   let kpis='';
   if(m.kpi){kpis='<div class="kpis">'+m.kpi(data).map(x=>'<div class="kpi"><span>'+x.l+'</span><b'+(x.warn?' class="warn"':'')+'>'+x.n+'</b></div>').join('')+'</div>';}
   if(m.lines&&!renderModule._lk){QL=(rec.lines&&rec.lines.length)?JSON.parse(JSON.stringify(rec.lines)):[{}];}
-  if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];}
+  if(m.plist&&!renderModule._lk){PL=(rec.pricelist&&rec.pricelist.length)?JSON.parse(JSON.stringify(rec.pricelist)):[{}];PLTAX={key:rec.taxKey||'',pct:rec.taxPct!=null?rec.taxPct:''};}
   if(m.plist)crmEquipRefEnsure(); // Equipment/Standard/Item Description dropdowns in the price list grid
   if(k==='contracts')ctrRefsEnsure(); // Company codes (contract no.) + Won quotations (Quotation dropdown)
   if(m.wlist&&!renderModule._lk){WL=(rec.wlines&&rec.wlines.length)?JSON.parse(JSON.stringify(rec.wlines)):[{}];}
@@ -8545,7 +8545,13 @@ async function saveRec(){
   // itself is confirmed saved (so its id is definitely known) — see
   // fileFieldApplyStaged. Nothing to assign to rec[f.k] here.
   if(m.lines){rec.lines=QL.filter(l=>l.desc||l.qty||l.price);const t=qlTotals(rec);rec.amount=t.grand.toFixed(2);}
-  if(m.plist){rec.pricelist=PL.filter(l=>l.desc||l.rate);}
+  if(m.plist){
+    rec.pricelist=PL.filter(l=>l.desc||l.rate);
+    // the totals block under the price list (Total Cost / tax / Grand Total)
+    const t=plTotals();
+    rec.taxKey=PLTAX.key||'';rec.taxPct=PLTAX.key?(+PLTAX.pct||0):null;
+    rec.totalCost=+t.cost.toFixed(2);rec.taxAmount=t.tax;rec.grandTotal=+t.grand.toFixed(2);
+  }
   if(m.wlist){rec.wlines=WL.filter(l=>l.cat||l.svc||l.equip||l.eqdesc||l.qty);}
   if(m.polines){rec.polines=POL.filter(l=>l.item||l.qty||l.price);rec.amount=poTotals().grand.toFixed(2);rec.capex=rec.potype==='PO_FA';}
   if(m.smlines){rec.smlines=SML.filter(l=>l.item||l.qty);rec.itemsSummary=rec.smlines.map(l=>(l.item||'')+(l.qty?' x'+l.qty:'')).filter(Boolean).join(', ');}
@@ -8921,7 +8927,8 @@ function ctrRefsEnsure(){
   Promise.all([
     api('/api/accounting/companies').then(r=>{ACCT_COMPANIES=r;}).catch(()=>{ACCT_COMPANIES=ACCT_COMPANIES||[];}),
     api('/api/crm/won-quotations').then(r=>{CTR_WON_QTNS=r;}).catch(()=>{CTR_WON_QTNS=CTR_WON_QTNS||[];}),
-  ]).then(()=>{if(route==='m_contracts')ctrRefreshWidgets();});
+    acctLoadTaxes().catch(()=>{}),  // tax dropdown under the price list
+  ]).then(()=>{if(route==='m_contracts'){ctrRefreshWidgets();if(document.getElementById('pl-zone'))plRefresh();}});
 }
 // Re-draw just the Company / Quotation pickers once their lists arrive —
 // the rest of the form (anything already typed) is left alone.
@@ -8962,9 +8969,11 @@ function ctrApplyQuote(pfx){
   PL=items.map(it=>({
     equipId:it.equipmentId||null,stdId:it.standardId||null,itemDescId:it.itemDescriptionId||null,
     desc:it.itemDescription||'',code:it.itemCode||'',unit:it.unit||'',
-    rate:it.rate!=null?String(it.rate):'',disc:'',rem:it.size||'',
+    qty:it.qty!=null?String(it.qty):'',rate:it.rate!=null?String(it.rate):'',disc:'',rem:it.size||'',
   }));
+  PLTAX={key:q.taxKey||'SRB',pct:q.srbPercent!=null?q.srbPercent:''};
   plRefresh();
+  plRecalc();
 }
 let PL=[{}];
 // Equipment -> Standard -> Item Description cascade, same reference data
@@ -8990,7 +8999,7 @@ function plItemPick(i,val){
 }
 function plGrid(rec){
   return '<div style="margin:14px 0 4px;font-weight:700;font-size:13px">Contract price list <button class="btn ghost small" style="margin-left:8px" onclick="PL.push({});plRefresh()">+ Add line</button><span style="font-weight:400;color:var(--faint,#98A2B3);font-size:12px;margin-left:10px">Pick Equipment → Standard → Item Description from the Service Catalogue — rate stays editable</span></div>'+
-  '<div class="tblwrap pl-lines-wrap pogrid"><table style="min-width:1330px;table-layout:fixed"><thead><tr><th style="width:26px">#</th><th style="width:150px">Item code</th><th style="width:190px">Equipment</th><th style="width:190px">Standard</th><th style="width:250px">Item Description</th><th style="width:90px">Unit</th><th style="width:100px" class="num">Rate</th><th style="width:130px">Discount / terms</th><th style="width:150px">Remarks</th><th style="width:40px"></th></tr></thead><tbody>'+
+  '<div class="tblwrap pl-lines-wrap pogrid"><table style="min-width:1530px;table-layout:fixed"><thead><tr><th style="width:26px">#</th><th style="width:150px">Item code</th><th style="width:190px">Equipment</th><th style="width:190px">Standard</th><th style="width:250px">Item Description</th><th style="width:90px">Unit</th><th style="width:80px" class="num">Qty</th><th style="width:100px" class="num">Rate</th><th style="width:120px" class="num">Total</th><th style="width:130px">Discount / terms</th><th style="width:150px">Remarks</th><th style="width:40px"></th></tr></thead><tbody>'+
   PL.map((l,i)=>{
     const equipId=l.equipId||'',stdId=l.stdId||'',itemDescId=(l.itemDescId&&l.itemDescId!=='__custom__')?l.itemDescId:'';
     return '<tr><td class="num">'+(i+1)+'</td>'+
@@ -8999,13 +9008,58 @@ function plGrid(rec){
      '<td>'+(equipId?selxId('pl-std-'+i,stdId,plStdItems(equipId),(v)=>plStdPick(i,v),'— choose standard —'):plLockedCell('Choose Equipment first'))+'</td>'+
      '<td>'+((equipId&&stdId)?selxId('pl-item-'+i,itemDescId,plItemItems(stdId),(v)=>plItemPick(i,v),'— choose item description —'):plLockedCell(equipId?'Choose Standard first':'Choose Equipment & Standard first'))+'</td>'+
      '<td><input value="'+esc(l.unit||'')+'" oninput="PL['+i+'].unit=this.value" placeholder="per joint"></td>'+
-     '<td><input type="number" step="0.01" class="num" value="'+esc(l.rate||'')+'" oninput="PL['+i+'].rate=this.value"></td>'+
+     '<td><input type="number" step="any" class="num" value="'+esc(l.qty==null?'':l.qty)+'" oninput="PL['+i+'].qty=this.value;plRecalc()" placeholder="—"></td>'+
+     '<td><input type="number" step="0.01" class="num" value="'+esc(l.rate||'')+'" oninput="PL['+i+'].rate=this.value;plRecalc()"></td>'+
+     '<td class="num" id="pl-tot-'+i+'" style="font-weight:600">'+plLineTotalTxt(l)+'</td>'+
      '<td><input value="'+esc(l.disc||'')+'" oninput="PL['+i+'].disc=this.value" placeholder="e.g. 5% >500 jts"></td>'+
      '<td><input value="'+esc(l.rem||'')+'" oninput="PL['+i+'].rem=this.value"></td>'+
      '<td><button class="del" onclick="PL.splice('+i+',1);plRefresh()">✕</button></td></tr>';
   }).join('')+
   '</tbody></table></div>'+
-  '<div class="hint" style="margin-top:6px">'+PL.filter(l=>l.desc||l.rate).length+' rate line(s). Saved with the contract — use "Update record" to store changes.</div>';
+  '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:8px">'+
+   '<div class="hint">'+PL.filter(l=>l.desc||l.rate).length+' rate line(s). Saved with the contract — use "Update record" to store changes.</div>'+
+   plTotalsHtml()+
+  '</div>';
+}
+/* Totals under the price list, same as a quotation's: Total Cost (sum of
+   Qty x Rate), the sales tax picked from Accounting > Taxes (carried over
+   from the quotation when one is picked), and the Grand Total. A line
+   with no Qty is a plain rate and adds nothing to the totals. */
+let PLTAX={key:'',pct:''};
+function plLineTotal(l){return (l.qty===''||l.qty==null||l.rate===''||l.rate==null)?null:(+l.qty||0)*(+l.rate||0);}
+function plLineTotalTxt(l){const t=plLineTotal(l);return t==null?'<span style="opacity:.4">—</span>':crmMoney(t);}
+function plTotals(){
+  const cost=PL.reduce((s,l)=>s+(plLineTotal(l)||0),0);
+  const pct=PLTAX.key?(+PLTAX.pct||0):0,tax=+(cost*pct/100).toFixed(2);
+  return {cost,pct,tax,grand:cost+tax};
+}
+function plTotalsHtml(){
+  const t=plTotals(),list=(ACCT_TAXES||[]).slice();
+  if(PLTAX.key&&!list.some(x=>x.key===PLTAX.key))list.push({key:PLTAX.key,rate:+PLTAX.pct,missing:true});
+  const opts='<option value="">No tax</option>'+list.map(x=>{
+    const shown=(x.key===PLTAX.key&&+x.rate!==+PLTAX.pct)?+PLTAX.pct:x.rate;
+    return '<option value="'+esc(x.key)+'"'+(x.key===PLTAX.key?' selected':'')+'>'+esc(x.key)+' '+shown+'%'+(x.missing||shown!==x.rate?' (saved)':'')+'</option>';
+  }).join('');
+  return '<div id="pl-totals" style="text-align:right;font-size:13px;line-height:1.9;min-width:280px">'+
+   '<div><b>Total Cost:</b> <span id="pl-tc">'+crmMoney(t.cost)+'</span> <span class="pl-cur">'+esc(plCur())+'</span></div>'+
+   '<div><select onchange="plTaxPick(this.value)" style="width:auto;padding:2px 6px;font-weight:700">'+opts+'</select>: <span id="pl-taxamt">'+crmMoney(t.tax)+'</span></div>'+
+   '<div style="font-size:15px"><b>GRAND TOTAL:</b> <span id="pl-gt">'+crmMoney(t.grand)+'</span> <span class="pl-cur">'+esc(plCur())+'</span></div>'+
+  '</div>';
+}
+function plCur(){const el=document.getElementById('f-cur');return el?el.value:'';}
+function plTaxPick(key){
+  const x=(ACCT_TAXES||[]).find(t=>t.key===key);
+  PLTAX=key?{key,pct:x?x.rate:PLTAX.pct}:{key:'',pct:''};
+  plRecalc();
+}
+// Live update while typing — no grid re-render, so the cursor stays put.
+// Contract value follows the Grand Total whenever the lines have one.
+function plRecalc(){
+  PL.forEach((l,i)=>{const c=document.getElementById('pl-tot-'+i);if(c)c.innerHTML=plLineTotalTxt(l);});
+  const t=plTotals(),set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('pl-tc',crmMoney(t.cost));set('pl-taxamt',crmMoney(t.tax));set('pl-gt',crmMoney(t.grand));
+  document.querySelectorAll('#pl-totals .pl-cur').forEach(e=>e.textContent=plCur());
+  if(t.cost>0){const v=document.getElementById('f-value');if(v)v.value=t.grand.toFixed(2);}
 }
 function plRefresh(){renderModule._lk=true;const z=document.getElementById('pl-zone');if(z)z.innerHTML=plGrid(null);}
 /* ============ work order line grid ============================
