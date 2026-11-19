@@ -7009,60 +7009,6 @@ function crmLoadLogoJpeg(){
     img.src='/ptis-logo.png';
   });
 }
-// word-wrap a paragraph into lines that fit maxW, emitting them downward from doc.y
-function crmPdfPara(doc,x,str,maxW,size,lh,bold){
-  size=size||9;lh=lh||(size+3);
-  String(str==null?'':str).split('\n').forEach(rawline=>{
-    if(rawline.trim()===''){doc.y-=lh*0.6;return;}
-    const words=rawline.split(/\s+/);let line='';
-    words.forEach(w=>{
-      const test=line?line+' '+w:w;
-      if(doc.tw(test,size)>maxW&&line){
-        if(doc.need(lh))crmPdfPageTop(doc);
-        doc.text(x,doc.y,line,size,bold);doc.y-=lh;line=w;
-      }else line=test;
-    });
-    if(line){if(doc.need(lh))crmPdfPageTop(doc);doc.text(x,doc.y,line,size,bold);doc.y-=lh;}
-  });
-}
-function crmPdfLogo(doc,small){
-  if(!CRM_LOGO_JPEG)return;
-  // logo native 300x200 (3:2). small = top-right header; big = cover.
-  if(small){const w=110,h=w*2/3;doc.imageAt(CRM_LOGO_JPEG,doc.w-doc.mR-w,doc.h-30-h,w,h);}
-  else{const w=250,h=w*2/3;doc.imageAt(CRM_LOGO_JPEG,(doc.w-w)/2,doc.h-140-h,w,h);}
-}
-function crmPdfHeaderBand(doc){crmPdfLogo(doc,true);doc.y=doc.h-doc.mT-58;}
-function crmPdfPageTop(doc){doc.y=doc.h-doc.mT;crmPdfHeaderBand(doc);}
-// wrap a string to lines fitting maxW at a given size; returns array of lines
-function crmPdfWrap(doc,str,maxW,size){
-  const out=[];
-  String(str==null?'':str).split('\n').forEach(raw=>{
-    if(raw===''){out.push('');return;}
-    const words=raw.split(/\s+/);let line='';
-    words.forEach(w=>{
-      const test=line?line+' '+w:w;
-      if(doc.tw(test,size)>maxW&&line){out.push(line);line=w;}
-      else line=test;
-    });
-    if(line!=='')out.push(line);
-  });
-  return out;
-}
-function crmPdfPara(doc,x,str,maxW,size,lh,bold){
-  size=size||9;lh=lh||(size+4);
-  crmPdfWrap(doc,str,maxW,size).forEach(l=>{
-    if(l===''){doc.y-=lh*0.6;return;}
-    if(doc.need(lh))crmPdfPageTop(doc);
-    doc.text(x,doc.y,l,size,bold);doc.y-=lh;
-  });
-}
-// Renders contenteditable HTML terms — <p>/<div>/<li>/<h*>/<br> = line
-// breaks, <b>/<strong> + <font size> honoured. Flows across pages.
-// Renders the contenteditable terms HTML as tidy paragraphs. Each leaf
-// block (<p>/<div>/<li>/<h*>) becomes one wrapped paragraph; a block that
-// is entirely bold (or a heading) prints as a bold heading with a little
-// air around it. Uses crmPdfPara for the actual wrapping so line spacing
-// stays consistent and page breaks are handled.
 // The one sentence the Payment Terms dropdown controls, inside General
 // Terms and Conditions. "Term N Days" plugs N into the default wording;
 // the other options read as their own short clause.
@@ -7088,37 +7034,22 @@ function crmApplyPaymentTermsToHtml(html,term){
   const re=/All payments to PTIS shall be made by direct transfer[^.<]*\./i;
   return re.test(html||'')?html.replace(re,line):(html||'');
 }
-function crmPdfTerms(doc,html,x,maxW){
-  const root=document.createElement('div');
-  root.innerHTML=(html||'').replace(/<br\s*\/?>/gi,'</p><p>');
-  const leaves=[...root.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6')]
-    .filter(el=>!el.querySelector('p,div,li,h1,h2,h3,h4,h5,h6'));
-  let blocks;
-  if(leaves.length){
-    blocks=leaves.map(el=>{
-      const txt=(el.textContent||'').replace(/\s+/g,' ').trim();
-      const isHeading=/^h[1-6]$/i.test(el.tagName);
-      const onlyBold=el.children.length===1 && /^(b|strong)$/i.test(el.children[0].tagName)
-        && (el.children[0].textContent||'').replace(/\s+/g,' ').trim()===txt;
-      return {txt,bold:isHeading||onlyBold,heading:isHeading||onlyBold};
-    });
-  }else{
-    blocks=(root.textContent||'').split(/\n+/).map(t=>({txt:t.replace(/\s+/g,' ').trim(),bold:false,heading:false}));
-  }
-  blocks.forEach(b=>{
-    if(!b.txt){doc.y-=5;return;}
-    if(doc.need(15))crmPdfPageTop(doc);
-    if(b.heading)doc.y-=5;
-    crmPdfPara(doc,x,b.txt,maxW,b.heading?10.5:9,b.heading?15:13,b.bold);
-    doc.y-=b.heading?4:5;
-  });
-}
-// wrapping table: cols=[{label,w,align}], rows=[[cell,...]]
+/* ---- Quotation PDF: "Commercial Proposal" layout ----
+   Page 1 cover (dark side panel), page 2 Table of Contents, then
+   Section 1 Cover Letter, Section 2 Price Schedule, Section 3 General
+   Terms and Conditions (one sub-section per bold heading in the Terms
+   Template: 3.1, 3.2 ...). Every page after the cover carries the logo /
+   quotation no. header and the Ref / Page x of y / Confidential footer,
+   drawn last once the page count is known; the TOC is filled in last too,
+   so its page numbers follow wherever the table or terms actually broke.
+   Coordinates are PDF points, y measured up from the bottom (doc.h-top
+   converts a "distance from the top" figure). */
+const QP={L:57,R:538,TOP:105,BOT:80,
+  dark:'0.29 0.30 0.32',red:'0.84 0.10 0.12',ink:'0.17 0.18 0.21',grey:'0.40 0.42 0.45',faint:'0.55 0.57 0.60',
+  rule:'0.86 0.87 0.89',band:'0.955 0.96 0.965',white:'1 1 1',panelLine:'0.42 0.43 0.45'};
+const QP_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 // Same word-wrap as crmPdfWrap, but measured with the real Helvetica glyph
-// widths (doc.twx) instead of the crude length*size*0.5 estimate — that
-// estimate under-measures bold capitals enough that a header like
-// "Equipment Type" was overflowing into the next column instead of
-// wrapping. Table-only: crmPdfWrap/crmPdfPara (Terms text) are untouched.
+// widths (doc.twx), so a bold capitalised header can't overflow its column.
 function crmPdfWrapX(doc,str,maxW,size,bold){
   const out=[];
   String(str==null?'':str).split('\n').forEach(raw=>{
@@ -7133,116 +7064,285 @@ function crmPdfWrapX(doc,str,maxW,size,bold){
   });
   return out;
 }
-function crmPdfTable(doc,cols,rows,size){
-  size=size||8;const lh=size+4;const avail=cols.reduce((a,c)=>a+c.w,0);
-  // Header labels wrap to as many lines as they need instead of spilling
-  // into the next column, and the header band grows to fit.
-  const headWrapped=cols.map(c=>crmPdfWrapX(doc,c.label,c.w-6,size,true));
-  const headLines=Math.max(1,...headWrapped.map(w=>w.length));
-  const drawHead=()=>{
-    if(doc.need(headLines*lh+14))crmPdfPageTop(doc);
-    const ry=doc.y;
-    const lastLineY=ry-(headLines-1)*lh;
-    doc.rect(doc.mL,lastLineY-4,avail,headLines*lh+3,'0.90 0.92 0.95');
-    let cx=doc.mL+3;
-    cols.forEach((c,i)=>{
-      headWrapped[i].forEach((ln,li)=>{
-        const tx=c.align==='right'?cx+(c.w-6)-doc.twx(ln,size,true):cx;
-        doc.text(tx,ry-li*lh,ln,size,true);
-      });
-      cx+=c.w;
-    });
-    doc.line(doc.mL,lastLineY-6,doc.mL+avail,lastLineY-6);
-    doc.y=lastLineY-lh-8;           // clear gap before first row's text
+function qpFy(d){
+  const m=/^(\d{4})-(\d{2})/.exec(d||''),now=new Date();
+  const y=m?+m[1]:now.getFullYear(),mo=m?+m[2]:now.getMonth()+1,s=mo>=7?y:y-1;
+  return s+'-'+String(s+1).slice(-2);
+}
+function qpLongDate(d){const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||'');return m?(+m[3])+' '+QP_MONTHS[+m[2]-1]+' '+m[1]:(d||'');}
+function qpCurName(code){const c=CRM_CURRENCIES.find(x=>x[0]===code);if(!c)return code||'';return /s$/i.test(c[1])?c[1]:c[1]+'s';}
+function qpWords(n,cur){
+  const w=amountWords(n).replace(/(^|[\s-])([a-z])/g,(m,a,b)=>a+b.toUpperCase()).replace(/ And (\d)/,' and $1');
+  return (cur?qpCurName(cur)+' ':'')+w+'.';
+}
+function qpPage(doc){doc.newPage();doc.y=doc.h-QP.TOP;}
+function qpEnsure(doc,h){if(doc.y-h<QP.BOT){qpPage(doc);return true;}return false;}
+// "SECTION 2" kicker + "2  Price Schedule" title at the top of a fresh page
+function qpSection(doc,kicker,title){
+  doc.text(QP.L,doc.h-111,kicker,7.5,true,QP.red);
+  doc.text(QP.L,doc.h-138,title,22,true,QP.ink);
+  doc.y=doc.h-163;
+}
+// the pieces of text more than one page needs
+function qpTexts(q){
+  const svc=(q.serviceType||'').trim();
+  const title=(q.subject||'').replace(/^\s*quotation\s+for\s+/i,'').trim()||(svc?svc+(/service/i.test(svc)?'':' Service'):'');
+  const place=[q.customerCity,q.customerCountry].filter(Boolean).join(', ');
+  const a=String(q.customerAddress||'').replace(/\s*\n\s*/g,', ').trim();
+  const extra=[q.customerCity,q.customerCountry].filter(x=>x&&!a.toLowerCase().includes(String(x).toLowerCase()));
+  return {
+    cust:q.customerName||'',
+    svcLine:svc?(/service/i.test(svc)?svc:svc+' Service'):'',
+    title,
+    place,
+    addr:[a,...extra].filter(Boolean).join(', '),
+    no:q.quotationNo||'',
+    date:qpLongDate(q.quotationDate),
   };
-  drawHead();
-  rows.forEach(r=>{
-    const wrapped=cols.map((c,i)=>crmPdfWrapX(doc,r[i],c.w-6,size));
-    const nLines=Math.max(1,...wrapped.map(w=>w.length));
-    if(doc.need(nLines*lh+14))drawHead();
-    const ry=doc.y;
-    let cx=doc.mL+3;
+}
+
+/* ---- page 1: cover ---- */
+function qpCover(doc,q,t){
+  const H=doc.h;
+  doc.rect(380,0,doc.w-380,H,QP.dark);
+  [420.5,440.4,460.4,519.6,539.6].forEach(x=>doc.rule(x,0,x,H-320,0.6,QP.panelLine));
+  doc.rect(474.6,0,9,H-320,QP.red);doc.rect(495.2,0,9,H-320,QP.red);
+  if(CRM_LOGO_JPEG)doc.imageAt(CRM_LOGO_JPEG,QP.L-4,H-66-107,161,107);
+  doc.rect(QP.L,H-282,40,4.5,QP.red);
+  doc.text(QP.L,H-311,'COMMERCIAL PROPOSAL  |  FY '+qpFy(q.quotationDate),8.5,true,QP.grey);
+  doc.text(QP.L,H-370,'Quotation',38,true,QP.ink);
+  let top=401;
+  if(t.svcLine){doc.text(QP.L,H-top,t.svcLine,15,false,QP.grey);top+=41;}else top+=9;
+  crmPdfWrapX(doc,t.title,300,11.5,true).slice(0,3).forEach(l=>{doc.text(QP.L,H-top,l,11.5,true,QP.ink);top+=15;});
+  doc.rule(QP.L,H-547,346,H-547,0.6,QP.rule);
+  top=569;
+  const block=(label,main,sub)=>{
+    doc.text(QP.L,H-top,label,6.5,true,QP.faint);top+=15;
+    crmPdfWrapX(doc,main,300,10.5,true).forEach(l=>{doc.text(QP.L,H-top,l,10.5,true,QP.ink);top+=13.5;});
+    if(sub)crmPdfWrapX(doc,sub,300,8.5).forEach(l=>{doc.text(QP.L,H-top,l,8.5,false,QP.grey);top+=11;});
+    top+=17;
+  };
+  block('PREPARED FOR',t.cust,[t.place,q.attentionName?'Attn: '+q.attentionName:''].filter(Boolean).join('  |  '));
+  block('PREPARED BY','Premier Tubular Inspection Service (Pvt.) Ltd.','Zamir Ahmed Khan, Chief Operating Officer');
+  block('REFERENCE',t.no,q.clientReferenceNo?'Client Ref: '+q.clientReferenceNo:'');
+}
+
+/* ---- page 2: table of contents (drawn last, onto the reserved page) ---- */
+function qpToc(doc,entries){
+  doc.cur=doc.pages[1];
+  doc.text(QP.L,doc.h-111,'CONTENTS',7.5,true,QP.red);
+  doc.text(QP.L,doc.h-138,'Table of Contents',22,true,QP.ink);
+  let top=175,prev=null;
+  entries.forEach(e=>{
+    if(prev)top+=e.lvl===1?34:28;
+    const y=doc.h-top,x=e.lvl===1?QP.L:QP.L+22,size=e.lvl===1?10.5:9.5,bold=e.lvl===1,col=e.lvl===1?'0.25 0.26 0.29':QP.grey;
+    const num=String(e.page),nw=doc.twx(num,size,bold);
+    const label=doc.fit(e.label,QP.R-x-nw-30,size,bold);
+    doc.text(x,y,label,size,bold,col);
+    doc.textR(QP.R,y,num,size,bold,col);
+    const lx1=x+doc.twx(label,size,bold)+8,lx2=QP.R-nw-8;
+    if(lx2>lx1)doc.rule(lx1,y+3.2,lx2,y+3.2,0.5,QP.rule);
+    prev=e;
+  });
+}
+
+/* ---- section 1: cover letter ---- */
+function qpCoverLetter(doc,q,t){
+  qpPage(doc);qpSection(doc,'SECTION 1','1  Cover Letter');
+  const H=doc.h,VX=136,VW=QP.R-VX;
+  let y=H-152;
+  doc.rule(QP.L,y,QP.R,y,0.6,QP.rule);
+  const row=(label,parts)=>{
+    let by=y-16;
+    doc.text(QP.L,by,label,6.5,true,QP.faint);
+    parts.filter(p=>p.s).forEach(p=>crmPdfWrapX(doc,p.s,VW,p.size,p.bold).forEach(w=>{doc.text(VX,by,w,p.size,p.bold,QP.ink);by-=13;}));
+    y=by+1;
+    doc.rule(QP.L,y,QP.R,y,0.6,QP.rule);
+  };
+  // The Quotation's own serial (e.g. "2026-27/005"), not the RFQ's — the
+  // two run on separate counters and can land on different numbers.
+  const suffix=t.no.replace(/^QTN-/,'');
+  row('TO',[{s:t.cust.toUpperCase(),size:8.5,bold:true},{s:t.addr,size:8.5,bold:false}]);
+  row('ATTENTION',[{s:q.attentionName||'—',size:9,bold:true}]);
+  row('SUBJECT',[{s:((q.subject||'')+(suffix?' ('+suffix+')':'')).trim(),size:9,bold:true}]);
+  if(q.clientReferenceNo)row('CLIENT REF',[{s:q.clientReferenceNo,size:9,bold:true}]);
+  doc.y=y-26;
+  [
+   'We wish to thank you for the kind courtesy extended to us by inviting us to quote for your esteemed organization.',
+   'We are pleased to submit our prices for the subject stated above.',
+   'We hope you will find our prices very competitive. If you require any further information or clarification, please do not hesitate to contact us.',
+   'In the meantime, we look to be of service to you and remain.',
+  ].forEach(p=>{crmPdfWrapX(doc,p,QP.R-QP.L,10).forEach(l=>{doc.text(QP.L,doc.y,l,10,false,QP.ink);doc.y-=15.5;});doc.y-=7.5;});
+  doc.y-=8;
+  doc.text(QP.L,doc.y,'With best regards,',10,false,QP.ink);
+  doc.y-=59;
+  doc.text(QP.L,doc.y,'Zamir Ahmed Khan',12,true,QP.ink);doc.y-=13;
+  doc.text(QP.L,doc.y,'Chief Operating Officer',9,false,QP.ink);doc.y-=12.5;
+  doc.text(QP.L,doc.y,'Premier Tubular Inspection Service (Pvt.) Ltd.',9,false,QP.ink);
+}
+
+/* ---- section 2: price schedule ---- */
+// cols: [{label,w,align:'right'|undefined,bold,fit}]; rows: arrays of strings.
+// Dark header band with a red rule under it, light-banded rows; a header is
+// redrawn at the top of every page the table runs onto. `fit` cells (money)
+// shrink their font rather than wrap, since a number can't break.
+function qpTable(doc,cols,rows){
+  const CW=cols.reduce((a,c)=>a+c.w,0),HS=8,BS=8.5,LH=11,PAD=5;
+  const head=cols.map(c=>crmPdfWrapX(doc,c.label,c.w-2*PAD,HS,true));
+  const hLines=Math.max(1,...head.map(h=>h.length)),headH=Math.max(30,hLines*10+18);
+  const drawHead=()=>{
+    const top=doc.y;
+    doc.rect(QP.L,top-headH,CW,headH,QP.dark);
+    let cx=QP.L;
     cols.forEach((c,i)=>{
-      wrapped[i].forEach((ln,li)=>{
-        const tx=c.align==='right'?cx+(c.w-6)-doc.twx(ln,size):cx;
-        doc.text(tx,ry-li*lh,ln,size);
+      const off=(headH-head[i].length*10)/2;
+      head[i].forEach((ln,li)=>{
+        const by=top-off-7.5-li*10;
+        if(c.align==='right')doc.textR(cx+c.w-PAD,by,ln,HS,true,QP.white);else doc.text(cx+PAD,by,ln,HS,true,QP.white);
       });
       cx+=c.w;
     });
-    const bottom=ry-(nLines-1)*lh-4;   // 4pt below the last text baseline (clears descenders)
-    doc.line(doc.mL,bottom,doc.mL+avail,bottom);
-    doc.y=bottom-9;                     // gap before the next row's text
+    doc.rect(QP.L,top-headH-2,CW,2,QP.red);
+    doc.y=top-headH-2;
+  };
+  qpEnsure(doc,headH+44);drawHead();
+  rows.forEach((r,ri)=>{
+    const cells=cols.map((c,i)=>{
+      const s=r[i]==null?'':String(r[i]);
+      if(c.fit){let sz=BS;while(sz>6.5&&doc.twx(s,sz,c.bold)>c.w-2*PAD)sz-=0.25;return {lines:[s],size:sz};}
+      return {lines:crmPdfWrapX(doc,s,c.w-2*PAD,BS,c.bold),size:BS};
+    });
+    const n=Math.max(1,...cells.map(x=>x.lines.length)),rowH=n*LH+18;
+    if(doc.y-rowH<QP.BOT){qpPage(doc);drawHead();}
+    const top=doc.y;
+    if(ri%2===0)doc.rect(QP.L,top-rowH,CW,rowH,QP.band);
+    let cx=QP.L;
+    cols.forEach((c,i)=>{
+      const cell=cells[i],off=(rowH-cell.lines.length*LH)/2;
+      cell.lines.forEach((ln,li)=>{
+        const by=top-off-8.2-li*LH;
+        if(c.align==='right')doc.textR(cx+c.w-PAD,by,ln,cell.size,c.bold,QP.ink);else doc.text(cx+PAD,by,ln,cell.size,c.bold,QP.ink);
+      });
+      cx+=c.w;
+    });
+    doc.rule(QP.L,top-rowH,QP.L+CW,top-rowH,0.5,QP.rule);
+    doc.y=top-rowH;
   });
-  doc.y-=6;
+}
+function qpPriceSchedule(doc,q){
+  qpPage(doc);qpSection(doc,'SECTION 2','2  Price Schedule');
+  const H=doc.h,money=n=>n==null?'':crmMoney(n),cur=q.currency||'';
+  doc.text(QP.L,H-155,'Quotation '+(q.quotationNo||'')+'  |  All amounts in '+qpCurName(cur)+(cur?' ('+cur+')':''),9,false,QP.grey);
+  doc.y=H-171;
+  const cols=[
+    {label:'#',w:18},{label:'Description',w:90,bold:true},{label:'Equipment Type',w:58},{label:'Category',w:52},
+    {label:'Size',w:44},{label:'Unit',w:34},{label:'Scope',w:38},{label:'Qty',w:24,align:'right'},
+    {label:'Rate',w:58,align:'right',fit:true},
+  ];
+  cols.push({label:'Total',w:(QP.R-QP.L)-cols.reduce((a,c)=>a+c.w,0),align:'right',fit:true,bold:true});
+  const items=q.items||[];
+  const rows=items.length
+    ?items.map((it,i)=>[String(i+1),it.itemDescription||'',it.equipmentName||'',it.standardName||'',it.size||'',it.unit||'',it.scope||'Scope',it.qty!=null?String(it.qty):'',money(it.rate),money(it.total)])
+    :[['','No line items.','','','','','','','','']];
+  qpTable(doc,cols,rows);
+
+  // amount in words + note (left), totals (right)
+  if(doc.y-26-100<QP.BOT)qpPage(doc);else doc.y-=26;
+  const top=doc.y,LW=230;
+  let ly=top;
+  doc.text(QP.L,ly,'Amount in words',8.5,true,QP.ink);ly-=13;
+  crmPdfWrapX(doc,qpWords(q.grandTotal,cur),LW,8.5).forEach(l=>{doc.text(QP.L,ly,l,8.5,false,QP.grey);ly-=13;});
+  ly-=14;
+  doc.text(QP.L,ly,'Please note',8.5,true,QP.ink);ly-=13;
+  crmPdfWrapX(doc,'Prices are exclusive of General Sales Tax (GST), which is added on top of the invoice amount. See Section 3 for the full terms.',LW,8.5).forEach(l=>{doc.text(QP.L,ly,l,8.5,false,QP.grey);ly-=13;});
+  const X0=306,TX=316,VX=530,b=top-7;
+  doc.text(TX,b,'Total Cost',8.5,false,QP.ink);doc.textR(VX,b,money(q.totalCost),8.5,false,QP.ink);
+  doc.rule(X0,b-13,QP.R,b-13,0.5,QP.rule);
+  doc.text(TX,b-26,(q.taxKey||'SRB')+' '+q.srbPercent+'%',8.5,false,QP.ink);doc.textR(VX,b-26,money(q.srbAmount),8.5,false,QP.ink);
+  doc.rect(X0,b-66,QP.R-X0,26,QP.red);
+  doc.text(TX,b-56,'GRAND TOTAL'+(cur?' ('+cur+')':''),8.5,true,QP.white);
+  let gs=12;const gv=money(q.grandTotal);while(gs>8&&doc.twx(gv,gs,true)>VX-TX-110)gs-=0.5;
+  doc.textR(VX,b-57,gv,gs,true,QP.white);
+  doc.y=Math.min(ly,b-66)-20;
+}
+
+/* ---- section 3: general terms and conditions ---- */
+// Template HTML -> blocks. A heading tag, or a block that is entirely bold,
+// is a sub-heading; everything else is one bullet paragraph.
+function qpTermBlocks(html){
+  const root=document.createElement('div');
+  root.innerHTML=(html||'').replace(/<br\s*\/?>/gi,'</p><p>');
+  const leaves=[...root.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6')].filter(el=>!el.querySelector('p,div,li,h1,h2,h3,h4,h5,h6'));
+  if(!leaves.length)return (root.textContent||'').split(/\n+/).map(s=>({txt:s.replace(/\s+/g,' ').trim(),heading:false}));
+  return leaves.map(el=>{
+    const txt=(el.textContent||'').replace(/\s+/g,' ').trim();
+    const isH=/^h[1-6]$/i.test(el.tagName);
+    const onlyBold=el.children.length===1&&/^(b|strong)$/i.test(el.children[0].tagName)&&(el.children[0].textContent||'').replace(/\s+/g,' ').trim()===txt;
+    return {txt,heading:isH||onlyBold};
+  });
+}
+// returns the TOC entries for the 3.x sub-sections
+function qpTerms(doc,html){
+  qpPage(doc);qpSection(doc,'SECTION 3','3  General Terms and Conditions');
+  const subs=[],BX=74,BW=QP.R-BX;
+  let n=0,first=true;
+  qpTermBlocks(html).forEach(b=>{
+    if(!b.txt)return;
+    if(b.heading){
+      // the old single-block template's own title repeats the section's
+      if(/^general terms (and|&) conditions[:.]?$/i.test(b.txt))return;
+      const title=b.txt.replace(/^\s*\d+(\.\d+)*[.)]?\s+/,'');
+      n++;
+      if(!first)doc.y-=15.5;
+      qpEnsure(doc,52);
+      const label='3.'+n+'  '+title;
+      crmPdfWrapX(doc,label,QP.R-QP.L,13,true).forEach((l,i)=>{if(i)doc.y-=16;doc.text(QP.L,doc.y,l,13,true,QP.ink);});
+      subs.push({lvl:2,label,page:doc.pages.length});
+      doc.y-=20;first=false;
+      return;
+    }
+    crmPdfWrapX(doc,b.txt,BW,9.5).forEach((l,i)=>{
+      qpEnsure(doc,14);
+      if(i===0)doc.rect(QP.L+0.5,doc.y+2.3,3.4,3.4,QP.red);
+      doc.text(BX,doc.y,l,9.5,false,QP.ink);
+      doc.y-=14.2;
+    });
+    doc.y-=4.5;first=false;
+  });
+  return subs;
+}
+
+/* ---- header / footer on every page but the cover ---- */
+function qpChrome(doc,t){
+  const n=doc.pages.length,sub=[t.title,t.date].filter(Boolean).join('  |  ');
+  const conf='Confidential. Prepared exclusively for '+t.cust.toUpperCase()+(/\.$/.test(t.cust)?'':'.');
+  doc.pages.forEach((p,i)=>{
+    if(i===0)return;
+    doc.cur=p;
+    if(CRM_LOGO_JPEG)doc.imageAt(CRM_LOGO_JPEG,QP.L-3,doc.h-30-47,70,47);
+    doc.textR(QP.R,doc.h-41,'Quotation No. '+t.no,9,true,QP.ink);
+    if(sub)doc.textR(QP.R,doc.h-52,doc.fit(sub,300,7.5),7.5,false,QP.grey);
+    doc.rule(QP.L,52,QP.R,52,0.5,QP.rule);
+    doc.text(QP.L,42,'Premier Tubular Inspection Service (Pvt.) Ltd.  |  Ref: '+t.no,7,false,QP.grey);
+    doc.textR(QP.R,42,'Page '+(i+1)+' of '+n,7,false,QP.grey);
+    doc.text(QP.L,32,doc.fit(conf,QP.R-QP.L,6.5),6.5,'i',QP.grey);
+  });
 }
 
 function crmBuildQuotationPdf(q,termsHtml){
   const doc=new PdfDoc();doc.noFooter=true;
-  const cust=q.customerName||'';
-  const addrLines=[q.customerAddress,[q.customerCity,q.customerCountry].filter(Boolean).join(', ')].filter(Boolean);
-  const money=n=>crmMoney(n);
-  const CL=doc.mL,CR=doc.w-doc.mR,CW=CR-CL;
-
-  /* ---- Page 1: cover ---- */
-  crmPdfLogo(doc,false);
-  doc.y=doc.h-420;
-  const svc=(q.serviceType||'').trim();
-  const t1='Quotation For '+(svc||'')+(svc?' Service':'');
-  doc.textC(doc.w/2,doc.y,t1,17,true,'0.10 0.28 0.55');
-  doc.y-=48;
-  doc.line(CL+90,doc.y+16,CR-90,doc.y+16);
-  doc.textC(doc.w/2,doc.y,cust,13,true);
-  doc.line(CL+90,doc.y-8,CR-90,doc.y-8);
-
-  /* ---- Page 2: cover letter ---- */
-  doc.newPage();crmPdfHeaderBand(doc);
-  doc.y-=6;
-  doc.text(CL,doc.y,cust,10,true);
-  if(q.clientReferenceNo)doc.textR(CR,doc.y,q.clientReferenceNo,9);
-  doc.y-=14;
-  addrLines.forEach(l=>{doc.text(CL,doc.y,l,9);doc.y-=12;});
-  doc.y-=16;
-  doc.text(CL,doc.y,'Attention:',9,true);doc.text(CL+62,doc.y,q.attentionName||'',9,true);doc.y-=15;
-  doc.text(CL,doc.y,'Subject:',9,true);
-  // The Quotation's own serial (e.g. "2026-27/005"), not the RFQ's — the
-  // two run on separate counters and can land on different numbers.
-  const qtnSuffix=String(q.quotationNo||'').replace(/^QTN-/,'');
-  crmPdfPara(doc,CL+62,(q.subject||'')+(qtnSuffix?'  ('+qtnSuffix+')':''),CW-62,9,13,true);
-  doc.y-=10;
-  [
-   'We wish to thank you for the kind courtesy extended to us by inviting us to quote for your esteemed organization.',
-   'We are pleased to submit our prices for the subject stated as above.',
-   'We hope you will find our prices very competitive. If you require any further information or clarification, please do not hesitate to contact us.',
-   'In the meantime, we look to be of service to you and remain.',
-   'With best Regards,'
-  ].forEach(p=>{crmPdfPara(doc,CL,p,CW,9,13);doc.y-=6;});
-  doc.y-=26;
-  doc.text(CL,doc.y,'Zamir Ahmed Khan',9,true);doc.y-=12;
-  doc.text(CL,doc.y,'Chief Operating Officer',8);doc.y-=11;
-  doc.text(CL,doc.y,'Premier Tubular Inspection Service (Pvt.) Ltd.',8);
-
-  /* ---- Page 3: priced table ---- */
-  doc.newPage();crmPdfHeaderBand(doc);
-  doc.y-=10;
-  doc.text(CL,doc.y,'QUOTATION  '+(q.quotationNo||''),12,true,'0.10 0.28 0.55');
-  doc.y-=22;
-  const cols=[
-   {label:'Sr#',w:20},{label:'Equipment Type',w:56},{label:'Category',w:54},{label:'Inspection Description',w:92},
-   {label:'Size',w:52},{label:'Unit',w:28},{label:'Scope',w:47},{label:'Qty',w:24,align:'right'},{label:'Rate',w:68,align:'right'},
-   {label:'Total',w:CW-(20+56+54+92+52+28+47+24+68),align:'right'}
-  ];
-  const rows=q.items.map((it,i)=>[String(i+1),it.equipmentName||'',it.standardName||'',it.itemDescription||'',it.size||'',it.unit||'',it.scope||'Scope',it.qty!=null?String(it.qty):'',money(it.rate),money(it.total)]);
-  crmPdfTable(doc,cols,rows,7.5);
-  doc.y-=6;
-  const rx=CR-190;
-  doc.text(rx,doc.y,'Total Cost',9,true);doc.textR(CR,doc.y,money(q.totalCost),9);doc.y-=13;
-  doc.text(rx,doc.y,(q.taxKey||'SRB')+' '+q.srbPercent+'%',9,true);doc.textR(CR,doc.y,money(q.srbAmount),9);doc.y-=14;
-  doc.text(rx,doc.y,'GRAND TOTAL ('+(q.currency||'')+')',10,true);doc.textR(CR,doc.y,money(q.grandTotal),10,true);
-
-  /* ---- Terms (single flowing section, 1+ pages) ---- */
-  doc.newPage();crmPdfHeaderBand(doc);doc.y-=6;
-  crmPdfTerms(doc,termsHtml,CL,CW);
-
+  const t=qpTexts(q);
+  qpCover(doc,q,t);
+  doc.newPage();                       // page 2: Table of Contents, filled in below
+  const toc=[];
+  qpCoverLetter(doc,q,t);    toc.push({lvl:1,label:'1  Cover Letter',page:doc.pages.length});
+  const psPage=doc.pages.length+1;
+  qpPriceSchedule(doc,q);    toc.push({lvl:1,label:'2  Price Schedule',page:psPage});
+  const tcPage=doc.pages.length+1;
+  const subs=qpTerms(doc,termsHtml);
+  toc.push({lvl:1,label:'3  General Terms and Conditions',page:tcPage},...subs);
+  qpToc(doc,toc);
+  qpChrome(doc,t);
   return doc;
 }
 async function crmDownloadQuotationPdf(id){
@@ -10310,20 +10410,22 @@ PdfDoc.prototype={
  // has to stay inside a ruled cell measures with twx().
  twx(s,size,bold){
    s=String(s==null?'':s);
-   const w=bold?PDF_W_B:PDF_W_N;let t=0;
+   const B=!!bold&&bold!=='i'; // 'i' = Helvetica-Oblique: same widths as regular
+   const w=B?PDF_W_B:PDF_W_N;let t=0;
    for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);
      // a mark we can print has a width of its own; anything we
      // cannot print at all is dropped and takes no room
      if(c>=32&&c<=126){t+=w[c-32];continue;}
      const m=PDF_MARK_W[s[i]];
-     if(m){t+=m[bold?1:0];continue;}
+     if(m){t+=m[B?1:0];continue;}
      const sp=PDF_SPELL[s[i]];
      if(sp)for(let k=0;k<sp.length;k++)t+=w[sp.charCodeAt(k)-32];
    }
    return t*size/1000;
  },
+ // bold: truthy = Helvetica-Bold, 'i' = Helvetica-Oblique
  text(x,y,s,size,bold,color){size=size||9;
-   this.cur.ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
+   this.cur.ops.push('BT /'+(bold==='i'?'F3':bold?'F2':'F1')+' '+size+' Tf '+(color||'0 0 0')+' rg '+x.toFixed(1)+' '+y.toFixed(1)+' Td ('+this.esc(s)+') Tj ET');},
  // Some certified sheets set a narrow column's heading on its side, reading
  // bottom to top. The text matrix turns the glyphs; (x,y) is where the
  // baseline starts, at the foot of the heading.
@@ -10586,6 +10688,7 @@ PdfDoc.prototype={
       at those two places. */
    const fontN=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
    const fontB=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+   const fontI=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
    const imgIds=this.imgs.map(im=>add({stream:im.bin,dict:'<< /Type /XObject /Subtype /Image /Width '+im.iw+' /Height '+im.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.bin.length+' >>'}));
    const pageIds=[];const contentIds=[];
    this.pages.forEach((p,pi)=>{
@@ -10596,7 +10699,7 @@ PdfDoc.prototype={
    const pagesId=objs.length+this.pages.length+1;
    this.pages.forEach((p,pi)=>{
      let xo=p.imgs.map(ii=>'/Im'+ii+' '+imgIds[ii]+' 0 R').join(' ');
-     pageIds.push(add('<< /Type /Page /Parent '+pagesId+' 0 R /MediaBox [0 0 '+this.w+' '+this.h+'] /Contents '+contentIds[pi]+' 0 R /Resources << /Font << /F1 '+fontN+' 0 R /F2 '+fontB+' 0 R >>'+(xo?' /XObject << '+xo+' >>':'')+' >> >>'));
+     pageIds.push(add('<< /Type /Page /Parent '+pagesId+' 0 R /MediaBox [0 0 '+this.w+' '+this.h+'] /Contents '+contentIds[pi]+' 0 R /Resources << /Font << /F1 '+fontN+' 0 R /F2 '+fontB+' 0 R /F3 '+fontI+' 0 R >>'+(xo?' /XObject << '+xo+' >>':'')+' >> >>'));
    });
    const pid=add('<< /Type /Pages /Kids ['+pageIds.map(i=>i+' 0 R').join(' ')+'] /Count '+pageIds.length+' >>');
    const cat=add('<< /Type /Catalog /Pages '+pid+' 0 R >>');

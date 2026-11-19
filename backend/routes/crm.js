@@ -789,25 +789,9 @@ router.delete('/services/:id', async (req, res) => {
 // Single shared Quotation terms block — edited once (rich HTML), used on
 // every quotation PDF (pages 4-5 in the paper document). This is the
 // best-effort seed; VERIFY against the authoritative wording.
-const DEFAULT_TERMS_HTML =
-  '<p><b>General Terms and Conditions</b></p>' +
-  '<p>PTIS will issue invoice after the completion of job attached with all supporting documentation and delivery notes and will submit to the finance department.</p>' +
-  '<p>All payments to PTIS shall be made by direct transfer within 15 days from the day of the submission of all invoices.</p>' +
-  "<p>Client shall provide PTIS team with accommodation and meals, which shall be of the standard as applicable to customer's own senior staff.</p>" +
-  '<p>Proof loads, Crane, Fork lifter and other accessories for load testing, Pipe racks, handling and dope to be supplied by the client.</p>' +
-  '<p>Client to support our services by providing Forklift, air pump and power supply for onsite jobs.</p>' +
-  '<p>PTIS shall provide two signed and stamped original hard copies of the inspection report upon completion of the job.</p>' +
-  '<p>Client must give a minimum notice of 24 hours before the start of the job.</p>' +
-  '<p>Day is considered as maximum of 10 working hours.</p>' +
-  '<p>General Sales Tax shall be added on top of the invoice amount (as all prices are exclusive of GST).</p>' +
-  '<p>All Covid-19 Protocols shall be adhered to as per the client policy but any charges shall be charged back to the client At Actual along with proof.</p>' +
-  '<p><b>Removal of Equipment / Grease</b></p>' +
-  '<p>The client is responsible for safely disassembling or removing any equipment, grease, or unwanted compounds that are attached to the equipment or plant that requires calibration.</p>' +
-  '<p>The client should ensure that the equipment is in a safe and suitable condition for calibration, including ensuring that all relevant accessories or attachments are in place.</p>' +
-  '<p><b>Functional Testing</b></p>' +
-  "<p>Prior to calibration, the PTIS calibration team will conduct a functional test of the equipment in the presence of the client's representative.</p>" +
-  '<p>The purpose of this test is to ensure that the equipment is in working order and its functional / operating parameters are within the standard for testing and measurement.</p>' +
-  '<p>Any discrepancies or issues identified during the functional testing will be reported to the client for necessary corrective actions.</p>';
+// (3.1 Invoicing and Payment ... 3.5 Functional Testing) — see
+// backend/quotationTerms.js, shared with migrate.js.
+const { DEFAULT_TERMS_HTML } = require('../quotationTerms');
 
 async function getCrmConfig() {
   const [rows] = await pool.query('SELECT last_client_ref, quotation_terms_html FROM erp_crm_config WHERE id = 1');

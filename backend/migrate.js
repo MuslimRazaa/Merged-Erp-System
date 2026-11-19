@@ -615,6 +615,23 @@ async function migrate() {
     )
   `);
   await pool.query('INSERT IGNORE INTO erp_crm_config (id) VALUES (1)');
+  // One-time: the saved Terms template moves to the sectioned layout of
+  // the new quotation PDF (3.1 Invoicing and Payment ... 3.5 Functional
+  // Testing). The payment-days sentence already in the saved template is
+  // carried over; after this runs once, edits made on the Terms Template
+  // screen are never touched again.
+  try { await pool.query('ALTER TABLE erp_crm_config ADD COLUMN terms_layout_v TINYINT NOT NULL DEFAULT 0'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  {
+    const { quotationTermsHtml, PAYMENT_SENTENCE_RE } = require('./quotationTerms');
+    const [[cfg]] = await pool.query('SELECT quotation_terms_html, terms_layout_v FROM erp_crm_config WHERE id = 1');
+    if (cfg && !cfg.terms_layout_v) {
+      const saved = cfg.quotation_terms_html || '';
+      const m = PAYMENT_SENTENCE_RE.exec(saved);
+      const html = saved ? quotationTermsHtml(m ? m[0] : undefined) : null; // NULL keeps using the (new) default
+      await pool.query('UPDATE erp_crm_config SET quotation_terms_html = ?, terms_layout_v = 1 WHERE id = 1', [html]);
+    }
+  }
 
   // Server-side storage for the generic register modules (Compliance, and
   // later Inventory / Procurement / Fixed Assets) — one row per record, data
