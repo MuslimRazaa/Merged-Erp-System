@@ -1318,7 +1318,7 @@ function calibMigrate(){
 /* ============ navigation / routing ============ */
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
-  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Remote Work Attendance'}],
+  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Overtime'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations'}],
   'Inventory':[{id:'inv_stock_report',ic:'📊',name:'Stock Reports'}],
   // RFQ used to live under CRM > Quotations — now its own Procurement
@@ -1367,7 +1367,7 @@ function bootGoTake(){
 // A group not listed here keeps the old default (all EXTRA_NAV items,
 // then all MODULES items, each in their own definition order).
 const GROUP_NAV_ORDER={
-  'CRM':['crm_customers','crm_services','crm_quotations','salesorders','leads','activities'],
+  'CRM':['crm_customers','crm_services','leads','activities','crm_quotations','salesorders'],
   'Inspection':['insp_report','insp_list','woalloc','insplocs','contracts','workorders','insp_wo_view','insp_map'],
   'Inventory':['items','stockmoves','inv_stock_report'],
 };
