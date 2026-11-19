@@ -71,33 +71,34 @@ const ymdLocal = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStar
 // one it was, not just that a late sitting happened.
 const WORK_MODES = ['Offsite working', 'Work From Home'];
 
+const inOutLabel = (m) => (m === 4 ? 'in' : 'out');
 function shapeMine(r) {
-  return { id: r.id, workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, hasAttachment: !!r.attachment_name, submittedAt: r.created_at };
+  return { id: r.id, workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, inOut: inOutLabel(r.in_out_mode), hasAttachment: !!r.attachment_name, submittedAt: r.created_at };
 }
 
 // GET /api/late-sittings/mine — the signed-in employee's own submissions,
 // most recent first.
 router.get('/mine', async (req, res) => {
   const [rows] = await pool.query(
-    'SELECT id, work_date, out_time, work_mode, attachment_name, created_at FROM erp_late_sittings WHERE employee_id = ? ORDER BY work_date DESC, out_time DESC',
+    'SELECT id, work_date, out_time, work_mode, in_out_mode, attachment_name, created_at FROM erp_late_sittings WHERE employee_id = ? ORDER BY work_date DESC, out_time DESC',
     [req.erpUser.id]
   );
   res.json(rows.map(shapeMine));
 });
 
 // GET /api/late-sittings — EVERY employee's submissions. HR/Admin only —
-// this is the audit list: who logged a manual late sitting, which day, what
-// time, which work mode, and whether they attached proof.
+// this is the audit list: who logged an Offsite/WFH entry, which day, what
+// time, In or Out, which work mode, and whether they attached proof.
 router.get('/', requireHr, async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.work_mode, ls.attachment_name, ls.created_at,
+    `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.work_mode, ls.in_out_mode, ls.attachment_name, ls.created_at,
             e.employee_id AS emp_code, e.full_name AS emp_name, e.department
      FROM erp_late_sittings ls JOIN employees e ON e.id = ls.employee_id
      ORDER BY ls.work_date DESC, ls.out_time DESC`
   );
   res.json(rows.map((r) => ({
     id: r.id, employeeId: r.employee_id, employeeCode: r.emp_code, employeeName: r.emp_name, department: r.department,
-    workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, hasAttachment: !!r.attachment_name, submittedAt: r.created_at,
+    workDate: ymdLocal(new Date(r.work_date)), outTime: r.out_time, workMode: r.work_mode, inOut: inOutLabel(r.in_out_mode), hasAttachment: !!r.attachment_name, submittedAt: r.created_at,
   })));
 });
 
@@ -118,6 +119,14 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
 
   const workMode = String(req.body.workMode || '');
   if (!WORK_MODES.includes(workMode)) return res.status(400).json({ error: 'Pick whether you were working offsite or from home.' });
+
+  // This used to only ever log an Out (OT-out) checkout; it's now a full
+  // Offsite/WFH time log, so either end of the day can be logged. Defaults
+  // to 'out' so an older client that never sends inOut keeps behaving
+  // exactly as before.
+  const inOut = String(req.body.inOut || 'out');
+  if (!['in', 'out'].includes(inOut)) return res.status(400).json({ error: 'Pick In or Out.' });
+  const inOutMode = inOut === 'in' ? 4 : 5;
 
   const now = new Date();
   const today = ymdLocal(now);
@@ -157,17 +166,17 @@ router.post('/', upload.single('file'), handleUploadErrors, async (req, res) => 
       const [logResult] = await conn.query(
         `INSERT INTO erp_attendance_logs (device_user_id, device_user_name, employee_id, punch_time, verify_mode, in_out_mode, source)
          VALUES (?,?,?,?,?,?,?)`,
-        [emp.employeeId, emp.name, emp.id, outTime, null, 5, 'late-sitting']
+        [emp.employeeId, emp.name, emp.id, outTime, null, inOutMode, 'late-sitting']
       );
       logId = logResult.insertId;
     } catch (e) {
-      if (e.code === 'ER_DUP_ENTRY') { await conn.rollback(); return res.status(409).json({ error: 'You already logged a late sitting at this exact time.' }); }
+      if (e.code === 'ER_DUP_ENTRY') { await conn.rollback(); return res.status(409).json({ error: 'You already logged an entry at this exact time.' }); }
       throw e;
     }
     const [result] = await conn.query(
-      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id, attachment_name, attachment_mime, attachment_data)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [emp.id, workDate, outTime, workMode, logId, fileName, file ? file.mimetype : null, file ? file.buffer : null]
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, in_out_mode, attendance_log_id, attachment_name, attachment_mime, attachment_data)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [emp.id, workDate, outTime, workMode, inOutMode, logId, fileName, file ? file.mimetype : null, file ? file.buffer : null]
     );
     await conn.commit();
     await audit(emp.employeeId, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)} (${workMode})${file ? ' (with attachment)' : ''}`);
@@ -227,9 +236,9 @@ router.post('/backdated', requireHr, async (req, res) => {
       throw e;
     }
     const [result] = await conn.query(
-      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id)
-       VALUES (?,?,?,?,?)`,
-      [emp.id, workDate, outTime, workMode, logId]
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, in_out_mode, attendance_log_id)
+       VALUES (?,?,?,?,?,?)`,
+      [emp.id, workDate, outTime, workMode, 5, logId]
     );
     await conn.commit();
     await audit(emp.employee_id, 'late-sitting-logged', `${workDate} ${outTime.toTimeString().slice(0, 5)} (${workMode})`);
@@ -290,9 +299,9 @@ router.post('/admin-log', async (req, res) => {
       throw e;
     }
     const [result] = await conn.query(
-      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, attendance_log_id)
-       VALUES (?,?,?,?,?)`,
-      [emp.id, workDate, punchTime, workMode, logId]
+      `INSERT INTO erp_late_sittings (employee_id, work_date, out_time, work_mode, in_out_mode, attendance_log_id)
+       VALUES (?,?,?,?,?,?)`,
+      [emp.id, workDate, punchTime, workMode, inOutMode, logId]
     );
     await conn.commit();
     await audit(emp.employee_id, 'late-sitting-logged', `${workDate} ${punchTime.toTimeString().slice(0, 5)} (${workMode})`);

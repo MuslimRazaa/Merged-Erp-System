@@ -407,11 +407,11 @@ body.locked #app{display:none}
 </div></div>
 
 <div class="modal" id="otconfirmmodal"><div class="box" style="max-width:440px">
-  <h3>Confirm Late Sitting</h3>
+  <h3>Confirm Entry</h3>
   <div id="otconfirm-body"></div>
   <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:12.5px;cursor:pointer;line-height:1.5">
     <input type="checkbox" id="otconfirm-check" style="margin-top:3px">
-    <span>I confirm this is accurate — this is really the time I was working late, read from my own device's clock.</span>
+    <span>I confirm this is accurate — this is really the time I was working, read from my own device's clock.</span>
   </label>
   <div class="lerr" id="otconfirm-err" style="display:none"></div>
   <div class="actions" style="justify-content:flex-end">
@@ -3138,13 +3138,18 @@ function otPickMode(btn){
   btn.classList.add('on');
   const el=document.getElementById('ot-mode');if(el)el.value=btn.dataset.v;
 }
+function otPickInOut(btn){
+  btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const el=document.getElementById('ot-inout');if(el)el.value=btn.dataset.v;
+}
 async function renderOvertime(){
   const hasHr=canSee('Human Resources');
   const c=document.getElementById('content');
   const opts=otDateOptions();
   c.innerHTML=
-   '<div class="card"><div class="card-h">⏱ Log a Late Sitting</div><div class="card-b">'+
-    '<div class="hint" style="margin-bottom:16px">Only you can log your own late sitting. The time below is read straight off this device\'s clock and counts exactly like a normal machine check-out — log it from here while you\'re actually working late, or right after.</div>'+
+   '<div class="card"><div class="card-h">⏱ Log Offsite / WFH Time</div><div class="card-b">'+
+    '<div class="hint" style="margin-bottom:16px">Only you can log your own Offsite/WFH time. The time below is read straight off this device\'s clock and counts exactly like a normal machine punch — log it from here while you\'re actually working, or right after.</div>'+
     '<div style="background:linear-gradient(135deg,var(--brand),#0b4fa8);border-radius:14px;padding:22px 26px;color:#fff;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
      '<div>'+
       '<div style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;opacity:.8;margin-bottom:6px">This device’s current time</div>'+
@@ -3158,6 +3163,11 @@ async function renderOvertime(){
      opts.map((o,i)=>'<button type="button" class="att-tab'+(i===0?' on':'')+'" data-v="'+esc(o.v)+'" onclick="otPickDate(this)">'+o.label+' <span style="opacity:.6;font-weight:400">· '+o.sub+'</span></button>').join('')+
     '</div>'+
     '<input type="hidden" id="ot-date" value="'+esc(opts[0].v)+'">'+
+    '<div style="font-weight:700;font-size:12.5px;margin:16px 0 8px">In or Out?</div>'+
+    '<div class="att-tabs" id="ot-inout-tabs">'+
+     [['out','Out'],['in','In']].map(([v,l])=>'<button type="button" class="att-tab" data-v="'+v+'" onclick="otPickInOut(this)">'+l+'</button>').join('')+
+    '</div>'+
+    '<input type="hidden" id="ot-inout" value="">'+
     '<div style="font-weight:700;font-size:12.5px;margin:16px 0 8px">How were you working?</div>'+
     '<div class="att-tabs" id="ot-mode-tabs">'+
      OT_WORK_MODES.map((wm)=>'<button type="button" class="att-tab" data-v="'+esc(wm)+'" onclick="otPickMode(this)">'+esc(wm)+'</button>').join('')+
@@ -3165,13 +3175,13 @@ async function renderOvertime(){
     '<input type="hidden" id="ot-mode" value="">'+
     '<div class="field full" style="margin:18px 0 0;max-width:460px">'+
      '<label>Attachment (optional)</label><input type="file" id="ot-file" accept="image/*,.pdf">'+
-     '<div class="hint" style="margin-top:4px">A screenshot of the email/message that shows you were working late — optional, but helps if this is ever questioned.</div>'+
+     '<div class="hint" style="margin-top:4px">A screenshot of the email/message that backs this up — optional, but helps if this is ever questioned.</div>'+
     '</div>'+
     '<div class="lerr" id="ot-err" style="display:none"></div>'+
-    '<div class="actions" style="margin-top:18px"><button class="btn" id="ot-submit-btn" onclick="otOpenConfirm()">Log Late Sitting</button></div>'+
+    '<div class="actions" style="margin-top:18px"><button class="btn" id="ot-submit-btn" onclick="otOpenConfirm()">Log Entry</button></div>'+
    '</div></div>'+
-   '<div class="card"><div class="card-h">My Late Sittings</div><div class="card-b" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
-   (hasHr?'<div class="card"><div class="card-h">All Employees — Late Sitting Log<span class="hint" style="font-weight:400"> — every manually logged late sitting, newest first</span></div><div class="card-b">'+
+   '<div class="card"><div class="card-h">My Offsite / WFH Log</div><div class="card-b" id="ot-mine-body"><div class="empty">Loading…</div></div></div>'+
+   (hasHr?'<div class="card"><div class="card-h">All Employees — Offsite / WFH Log<span class="hint" style="font-weight:400"> — every manually logged entry, newest first</span></div><div class="card-b">'+
      '<div class="kpis" id="ot-all-kpis" style="margin-bottom:16px"></div>'+
      '<div class="tblwrap" id="ot-all-body"><div class="empty">Loading…</div></div>'+
     '</div></div>':'')+
@@ -3186,7 +3196,7 @@ function otFeedRow(r,withEmployee){
   return '<div class="att-row">'+
    '<span style="font-size:17px;flex:0 0 auto">🕗</span>'+
    '<div style="flex:1;min-width:0">'+
-    '<b>'+rptFmtDate(r.workDate)+'</b>'+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
+    '<b>'+rptFmtDate(r.workDate)+'</b>'+(r.inOut?' <span class="pill '+(r.inOut==='in'?'g':'a')+'" style="margin-left:4px">'+(r.inOut==='in'?'In':'Out')+'</span>':'')+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
    '</div>'+
    (r.hasAttachment?'<button class="btn ghost small" onclick="otViewAttachment('+r.id+')">📎 View</button>':'<span class="hint" style="white-space:nowrap">No attachment</span>')+
    (withEmployee?' <button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="otDelete('+r.id+')">🗑</button>':'')+
@@ -3196,7 +3206,7 @@ async function otLoadMine(){
   const el=document.getElementById('ot-mine-body');if(!el)return;
   try{
     OT_MINE=await api('/api/late-sittings/mine');
-    el.innerHTML=OT_MINE.length?'<div class="att-feed">'+OT_MINE.map(r=>otFeedRow(r,false)).join('')+'</div>':'<div class="empty">No late sittings logged yet.</div>';
+    el.innerHTML=OT_MINE.length?'<div class="att-feed">'+OT_MINE.map(r=>otFeedRow(r,false)).join('')+'</div>':'<div class="empty">No entries logged yet.</div>';
   }catch(e){el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 async function otLoadAll(){
@@ -3207,15 +3217,15 @@ async function otLoadAll(){
     const byEmp={};
     OT_ALL.forEach(r=>{(byEmp[r.employeeCode]=byEmp[r.employeeCode]||{name:r.employeeName,days:new Set()}).days.add(r.workDate);});
     if(kEl)kEl.innerHTML='<div class="kpi"><span>Total entries</span><b>'+OT_ALL.length+'</b></div>'+
-     '<div class="kpi"><span>Employees with manual lates</span><b>'+Object.keys(byEmp).length+'</b></div>';
+     '<div class="kpi"><span>Employees with manual entries</span><b>'+Object.keys(byEmp).length+'</b></div>';
     const summaryRows=Object.entries(byEmp).sort((a,b)=>b[1].days.size-a[1].days.size)
      .map(([code,v])=>'<tr><td>'+esc(code)+'</td><td>'+esc(v.name)+'</td><td class="num">'+v.days.size+'</td></tr>').join('');
     bEl.innerHTML=
      (OT_ALL.length?'<div style="font-weight:700;margin-bottom:8px">By Employee</div>'+
-      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Late Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
+      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Entry Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
      '<div style="font-weight:700;margin-bottom:8px">Every Entry</div>'+
      (OT_ALL.length?'<div class="att-feed">'+OT_ALL.map(r=>otFeedRow(r,true)).join('')+'</div>'
-      :'<div class="empty">No late sittings logged by anyone yet.</div>');
+      :'<div class="empty">No entries logged by anyone yet.</div>');
   }catch(e){bEl.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';}
 }
 async function otViewAttachment(id){
@@ -3229,7 +3239,7 @@ async function otViewAttachment(id){
   }catch(e){toast('Could not open attachment — '+e.message,'err');}
 }
 async function otDelete(id){
-  if(!confirm('Delete this late-sitting entry? This also removes the matching time from Attendance Report/Payroll. This cannot be undone.'))return;
+  if(!confirm('Delete this entry? This also removes the matching time from Attendance Report/Payroll. This cannot be undone.'))return;
   try{
     await api('/api/late-sittings/'+id,{method:'DELETE'});
     toast('Entry deleted.','ok');
@@ -3342,8 +3352,8 @@ async function otAdminLogSubmit(){
     if(canSee('Human Resources'))await otLoadAll();
   }catch(e){err.textContent=e.message;err.style.display='block';}
 }
-// Clicking "Log Late Sitting" never saves straight away — it freezes the
-// exact time right then (shown in the confirm dialog) and opens it for the
+// Clicking "Log Entry" never saves straight away — it freezes the exact
+// time right then (shown in the confirm dialog) and opens it for the
 // employee to actively confirm first. Whatever time is shown there is
 // exactly what gets submitted on Confirm, however long the dialog stays open.
 function otOpenConfirm(){
@@ -3351,6 +3361,9 @@ function otOpenConfirm(){
   const dateEl=document.getElementById('ot-date');
   const workDate=dateEl?dateEl.value:'';
   if(!workDate){err.textContent='Pick a date.';err.style.display='block';return;}
+  const inOutEl=document.getElementById('ot-inout');
+  const inOut=inOutEl?inOutEl.value:'';
+  if(!inOut){err.textContent='Pick In or Out.';err.style.display='block';return;}
   const modeEl=document.getElementById('ot-mode');
   const workMode=modeEl?modeEl.value:'';
   if(!workMode){err.textContent='Pick how you were working — Offsite working or Work From Home.';err.style.display='block';return;}
@@ -3358,11 +3371,12 @@ function otOpenConfirm(){
   const dateLabel=activeTab?activeTab.textContent.replace(/\s*·\s*/,' — '):workDate;
   const fileEl=document.getElementById('ot-file');
   const file=fileEl&&fileEl.files[0]?fileEl.files[0]:null;
-  OT_PENDING={workDate,workMode,outTime:new Date()};
+  OT_PENDING={workDate,workMode,inOut,outTime:new Date()};
   document.getElementById('otconfirm-body').innerHTML=
-   '<div class="hint" style="margin-bottom:10px">You’re about to log this late sitting:</div>'+
+   '<div class="hint" style="margin-bottom:10px">You’re about to log this entry:</div>'+
    '<div style="background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:10px">'+
     '<div><span class="hint">Day</span><br><b>'+esc(dateLabel)+'</b></div>'+
+    '<div><span class="hint">In / Out</span><br><b>'+(inOut==='in'?'In':'Out')+'</b></div>'+
     '<div><span class="hint">Working</span><br><b>'+esc(workMode)+'</b></div>'+
     '<div><span class="hint">Time (this device, right now)</span><br><b style="font-size:19px">'+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</b></div>'+
     '<div><span class="hint">Attachment</span><br><b>'+(file?esc(file.name):'None')+'</b></div>'+
@@ -3382,6 +3396,7 @@ async function otConfirmSubmit(){
   const fd=new FormData();
   fd.append('workDate',OT_PENDING.workDate);
   fd.append('workMode',OT_PENDING.workMode);
+  fd.append('inOut',OT_PENDING.inOut);
   fd.append('outTime',otLocalIso(OT_PENDING.outTime));
   if(file)fd.append('file',file,file.name);
   const btn=document.getElementById('otconfirm-submit-btn');
@@ -3389,7 +3404,7 @@ async function otConfirmSubmit(){
   try{
     await api('/api/late-sittings',{method:'POST',body:fd});
     closeModal('otconfirmmodal');
-    toast('Late sitting logged — '+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
+    toast('Entry logged — '+OT_PENDING.outTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.','ok');
     if(fileEl)fileEl.value='';
     OT_PENDING=null;
     await otLoadMine();

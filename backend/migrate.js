@@ -789,6 +789,12 @@ async function migrate() {
   // logged before this field existed stay valid, just unlabeled.
   try { await pool.query("ALTER TABLE erp_late_sittings ADD COLUMN work_mode VARCHAR(30) NULL AFTER out_time"); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  // Was always an OT-out (in_out_mode 5) entry — the Overtime tab is now an
+  // Offsite/WFH time log, not just a late-sitting checkout, so it can be
+  // either an In or an Out punch. Nullable + defaults to 5 (Out) so every
+  // row logged before this column existed reads exactly as it always did.
+  try { await pool.query("ALTER TABLE erp_late_sittings ADD COLUMN in_out_mode TINYINT NOT NULL DEFAULT 5 AFTER work_mode"); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_allowances JSON NULL AFTER field_allowance'); }
   catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   try { await pool.query('ALTER TABLE erp_employee_profile ADD COLUMN other_deductions JSON NULL AFTER other_allowances'); }
