@@ -3183,12 +3183,10 @@ async function renderOvertime(){
 // A quiet activity feed (same look Live Attendance's "Latest punches" uses)
 // instead of a plain table — this is a personal log, not a data-dense report.
 function otFeedRow(r,withEmployee){
-  const d=new Date(r.outTime);
   return '<div class="att-row">'+
    '<span style="font-size:17px;flex:0 0 auto">🕗</span>'+
    '<div style="flex:1;min-width:0">'+
     '<b>'+rptFmtDate(r.workDate)+'</b>'+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
-    '<div class="hint" style="margin-top:2px">Logged at '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · submitted '+new Date(r.submittedAt).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'+
    '</div>'+
    (r.hasAttachment?'<button class="btn ghost small" onclick="otViewAttachment('+r.id+')">📎 View</button>':'<span class="hint" style="white-space:nowrap">No attachment</span>')+
    (withEmployee?' <button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="otDelete('+r.id+')">🗑</button>':'')+
@@ -3247,26 +3245,95 @@ function otAdminLogCardHtml(){
   return '<div class="card"><div class="card-h">Manual Entry</div><div class="card-b">'+
    '<div class="hint" style="margin-bottom:14px">Logs a Work From Home / Offsite entry on an employee\'s behalf — it shows up for them exactly as if they logged it themselves.</div>'+
    '<div class="field"><label>Employee</label>'+selxId('otad-emp','',coll('employees').filter(e=>e.name).map(e=>({id:e.isoId,label:e.empno+' — '+e.name})),null,'— choose —')+'</div>'+
-   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+   '<div class="att-tabs" id="otad-scope-tabs" style="margin-top:12px">'+
+    '<button type="button" class="att-tab on" data-v="single" onclick="otAdminScopeSwitch(this)">Single Entry</button>'+
+    '<button type="button" class="att-tab" data-v="bulk" onclick="otAdminScopeSwitch(this)">Bulk (date range)</button>'+
+   '</div>'+
+   '<input type="hidden" id="otad-scope" value="single">'+
+   '<div id="otad-single-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
     '<div class="field"><label>Date</label><input id="otad-date" type="date" value="'+esc(today())+'"></div>'+
     '<div class="field"><label>Time</label><input id="otad-time" type="time"></div>'+
+   '</div>'+
+   // A fixed time repeated across every day in the range would leave an
+   // obvious identical-timestamp fingerprint — instead, each day gets its
+   // own random time drawn from the From/To window (see otAdminRandTime()).
+   '<div id="otad-bulk-fields" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>From Date</label><input id="otad-fromdate" type="date" value="'+esc(today())+'"></div>'+
+    '<div class="field"><label>To Date</label><input id="otad-todate" type="date" value="'+esc(today())+'"></div>'+
+    '<div class="field"><label>From Time</label><input id="otad-fromtime" type="time" value="09:00"></div>'+
+    '<div class="field"><label>To Time</label><input id="otad-totime" type="time" value="09:15"></div>'+
+    '<div class="hint" style="grid-column:1/-1">One entry per day in the range, each at its own random time inside the From/To time window.</div>'+
    '</div>'+
    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
     '<div class="field"><label>In / Out</label><select id="otad-inout"><option value="out">Out</option><option value="in">In</option></select></div>'+
     '<div class="field"><label>Working</label><select id="otad-mode">'+OT_WORK_MODES.map(wm=>'<option>'+esc(wm)+'</option>').join('')+'</select></div>'+
    '</div>'+
    '<div class="lerr" id="otad-err" style="display:none"></div>'+
-   '<div class="actions" style="margin-top:14px"><button class="btn" onclick="otAdminLogSubmit()">Log Entry</button></div>'+
+   '<div class="hint" id="otad-progress" style="display:none;margin-top:8px"></div>'+
+   '<div class="actions" style="margin-top:14px"><button class="btn" id="otad-submit-btn" onclick="otAdminLogSubmit()">Log Entry</button></div>'+
   '</div></div>';
+}
+function otAdminScopeSwitch(btn){
+  btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const v=btn.dataset.v;
+  document.getElementById('otad-scope').value=v;
+  document.getElementById('otad-single-fields').style.display=v==='single'?'grid':'none';
+  document.getElementById('otad-bulk-fields').style.display=v==='bulk'?'grid':'none';
+}
+// A random HH:MM:SS inside [fromHHMM, toHHMM] (swapped if entered backwards)
+function otAdminRandTime(fromHHMM,toHHMM){
+  const toMin=t=>{const p=t.split(':').map(Number);return p[0]*60+p[1];};
+  let a=toMin(fromHHMM),b=toMin(toHHMM);
+  if(b<a){const t=a;a=b;b=t;}
+  const mins=a+Math.floor(Math.random()*(b-a+1));
+  const h=Math.floor(mins/60),m=mins%60,s=Math.floor(Math.random()*60);
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+function otAdminDateRange(from,to){
+  const out=[];
+  const d=new Date(from+'T00:00:00'),end=new Date(to+'T00:00:00');
+  while(d<=end){out.push(today(d));d.setDate(d.getDate()+1);}
+  return out;
 }
 async function otAdminLogSubmit(){
   const err=document.getElementById('otad-err');err.style.display='none';
+  const prog=document.getElementById('otad-progress');prog.style.display='none';
   const employeeId=+document.getElementById('otad-emp').value||null;
-  const workDate=document.getElementById('otad-date').value;
-  const timeVal=document.getElementById('otad-time').value;
   const inOut=document.getElementById('otad-inout').value;
   const workMode=document.getElementById('otad-mode').value;
+  const scope=document.getElementById('otad-scope').value;
   if(!employeeId){err.textContent='Pick an employee.';err.style.display='block';return;}
+  const btn=document.getElementById('otad-submit-btn');
+  if(scope==='bulk'){
+    const fromDate=document.getElementById('otad-fromdate').value;
+    const toDate=document.getElementById('otad-todate').value;
+    const fromTime=document.getElementById('otad-fromtime').value;
+    const toTime=document.getElementById('otad-totime').value;
+    if(!fromDate||!toDate){err.textContent='Pick a From and To date.';err.style.display='block';return;}
+    if(fromDate>toDate){err.textContent='From Date must be on or before To Date.';err.style.display='block';return;}
+    if(!fromTime||!toTime){err.textContent='Pick a From and To time.';err.style.display='block';return;}
+    const dates=otAdminDateRange(fromDate,toDate);
+    if(dates.length>366){err.textContent='That range is too wide (max 366 days).';err.style.display='block';return;}
+    btn.disabled=true;
+    let ok=0,fail=0;
+    for(let i=0;i<dates.length;i++){
+      const d=dates[i];
+      prog.style.display='block';prog.textContent='Logging '+(i+1)+' / '+dates.length+' ('+d+')…';
+      const timeVal=otAdminRandTime(fromTime,toTime);
+      try{
+        await api('/api/late-sittings/admin-log',{method:'POST',body:JSON.stringify({employeeId,workDate:d,time:d+'T'+timeVal,inOut,workMode})});
+        ok++;
+      }catch(e){fail++;}
+    }
+    btn.disabled=false;
+    prog.style.display='none';
+    toast(ok+' entr'+(ok===1?'y':'ies')+' logged'+(fail?', '+fail+' failed':'')+'.',fail?'err':'ok');
+    if(canSee('Human Resources'))await otLoadAll();
+    return;
+  }
+  const workDate=document.getElementById('otad-date').value;
+  const timeVal=document.getElementById('otad-time').value;
   if(!workDate||!timeVal){err.textContent='Pick a date and time.';err.style.display='block';return;}
   try{
     await api('/api/late-sittings/admin-log',{method:'POST',body:JSON.stringify({employeeId,workDate,time:workDate+'T'+timeVal+':00',inOut,workMode})});
