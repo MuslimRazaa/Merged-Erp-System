@@ -3126,6 +3126,13 @@ function otPickDate(btn){
 // changes what HR's audit list shows this entry as. Kept server-side too,
 // see backend/routes/lateSitting.js's WORK_MODES.
 const OT_WORK_MODES=['Offsite working','Work From Home'];
+// Hidden HR-admin flow: lets exactly emp code 1551 log a WFH/Offsite In or
+// Out entry on ANY employee's behalf, any date — flip this to false and the
+// whole card disappears for everyone, 1551 included (its backend route,
+// POST /api/late-sittings/admin-log, has the matching switch and emp-code
+// check — see backend/routes/lateSitting.js).
+const OT_ADMIN_LOG_ENABLED=true;
+const OT_ADMIN_EMP_CODE='1551';
 function otPickMode(btn){
   btn.parentElement.querySelectorAll('.att-tab').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
@@ -3167,7 +3174,8 @@ async function renderOvertime(){
    (hasHr?'<div class="card"><div class="card-h">All Employees — Late Sitting Log<span class="hint" style="font-weight:400"> — every manually logged late sitting, newest first</span></div><div class="card-b">'+
      '<div class="kpis" id="ot-all-kpis" style="margin-bottom:16px"></div>'+
      '<div class="tblwrap" id="ot-all-body"><div class="empty">Loading…</div></div>'+
-    '</div></div>':'');
+    '</div></div>':'')+
+   ((OT_ADMIN_LOG_ENABLED&&SESSION&&String(SESSION.user)===OT_ADMIN_EMP_CODE)?otAdminLogCardHtml():'');
   otTickClock();
   await otLoadMine();
   if(hasHr)await otLoadAll();
@@ -3230,6 +3238,42 @@ async function otDelete(id){
     await otLoadAll();
     await otLoadMine();
   }catch(e){toast(e.message,'err');}
+}
+// Hidden admin-only card (see OT_ADMIN_LOG_ENABLED above) — picks any
+// employee, any date/time, In or Out, Offsite/WFH, and logs it straight
+// into the exact same two tables the self-service flow writes, so it shows
+// up for that employee exactly as if they'd logged it themselves.
+function otAdminLogCardHtml(){
+  return '<div class="card"><div class="card-h">Manual Entry</div><div class="card-b">'+
+   '<div class="hint" style="margin-bottom:14px">Logs a Work From Home / Offsite entry on an employee\'s behalf — it shows up for them exactly as if they logged it themselves.</div>'+
+   '<div class="field"><label>Employee</label>'+selxId('otad-emp','',coll('employees').filter(e=>e.name).map(e=>({id:e.isoId,label:e.empno+' — '+e.name})),null,'— choose —')+'</div>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>Date</label><input id="otad-date" type="date" value="'+esc(today())+'"></div>'+
+    '<div class="field"><label>Time</label><input id="otad-time" type="time"></div>'+
+   '</div>'+
+   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px">'+
+    '<div class="field"><label>In / Out</label><select id="otad-inout"><option value="out">Out</option><option value="in">In</option></select></div>'+
+    '<div class="field"><label>Working</label><select id="otad-mode">'+OT_WORK_MODES.map(wm=>'<option>'+esc(wm)+'</option>').join('')+'</select></div>'+
+   '</div>'+
+   '<div class="lerr" id="otad-err" style="display:none"></div>'+
+   '<div class="actions" style="margin-top:14px"><button class="btn" onclick="otAdminLogSubmit()">Log Entry</button></div>'+
+  '</div></div>';
+}
+async function otAdminLogSubmit(){
+  const err=document.getElementById('otad-err');err.style.display='none';
+  const employeeId=+document.getElementById('otad-emp').value||null;
+  const workDate=document.getElementById('otad-date').value;
+  const timeVal=document.getElementById('otad-time').value;
+  const inOut=document.getElementById('otad-inout').value;
+  const workMode=document.getElementById('otad-mode').value;
+  if(!employeeId){err.textContent='Pick an employee.';err.style.display='block';return;}
+  if(!workDate||!timeVal){err.textContent='Pick a date and time.';err.style.display='block';return;}
+  try{
+    await api('/api/late-sittings/admin-log',{method:'POST',body:JSON.stringify({employeeId,workDate,time:workDate+'T'+timeVal+':00',inOut,workMode})});
+    toast('Entry logged.','ok');
+    document.getElementById('otad-time').value='';
+    if(canSee('Human Resources'))await otLoadAll();
+  }catch(e){err.textContent=e.message;err.style.display='block';}
 }
 // Clicking "Log Late Sitting" never saves straight away — it freezes the
 // exact time right then (shown in the confirm dialog) and opens it for the
