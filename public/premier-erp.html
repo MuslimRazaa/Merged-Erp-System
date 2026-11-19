@@ -1318,7 +1318,7 @@ function calibMigrate(){
 /* ============ navigation / routing ============ */
 const GROUPS=['Home','CRM','Sales & AR','Inventory','Procurement','Fixed Assets','Human Resources','Compliance','Accounting','Inspection'];
 const EXTRA_NAV={
-  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Overtime'}],
+  'Home':[{id:'dashboard',ic:'⌂',name:'Dashboard'},{id:'leave_requests',ic:'☐',name:'Leave Requests'},{id:'overtime',ic:'⏱',name:'Remote Work Attendance'}],
   'CRM':[{id:'crm_customers',ic:'◆',name:'Customers'},{id:'crm_services',ic:'⚙',name:'Service Catalogue'},{id:'crm_quotations',ic:'▤',name:'Quotations'}],
   'Inventory':[{id:'inv_stock_report',ic:'📊',name:'Stock Reports'}],
   // RFQ used to live under CRM > Quotations — now its own Procurement
@@ -3148,7 +3148,7 @@ async function renderOvertime(){
   const c=document.getElementById('content');
   const opts=otDateOptions();
   c.innerHTML=
-   '<div class="card"><div class="card-h">⏱ Log Offsite / WFH Time</div><div class="card-b">'+
+   '<div class="card"><div class="card-h">Remote Work Attendance</div><div class="card-b">'+
     '<div class="hint" style="margin-bottom:16px">Only you can log your own Offsite/WFH time. The time below is read straight off this device\'s clock and counts exactly like a normal machine punch — log it from here while you\'re actually working, or right after.</div>'+
     '<div style="background:linear-gradient(135deg,var(--brand),#0b4fa8);border-radius:14px;padding:22px 26px;color:#fff;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
      '<div>'+
@@ -3196,7 +3196,7 @@ function otFeedRow(r,withEmployee){
   return '<div class="att-row">'+
    '<span style="font-size:17px;flex:0 0 auto">🕗</span>'+
    '<div style="flex:1;min-width:0">'+
-    '<b>'+rptFmtDate(r.workDate)+'</b>'+(r.inOut?' <span class="pill '+(r.inOut==='in'?'g':'a')+'" style="margin-left:4px">'+(r.inOut==='in'?'In':'Out')+'</span>':'')+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
+    '<b>'+rptFmtDate(r.workDate)+'</b> <span style="font-variant-numeric:tabular-nums">'+new Date(r.outTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</span>'+(r.inOut?' <span class="pill '+(r.inOut==='in'?'g':'a')+'" style="margin-left:4px">'+(r.inOut==='in'?'In':'Out')+'</span>':'')+(r.workMode?' <span class="pill b" style="margin-left:4px">'+esc(r.workMode)+'</span>':'')+(withEmployee?' <span class="hint">— '+esc(r.employeeName)+' ('+esc(r.employeeCode)+')'+(r.department?' · '+esc(r.department):'')+'</span>':'')+
    '</div>'+
    (r.hasAttachment?'<button class="btn ghost small" onclick="otViewAttachment('+r.id+')">📎 View</button>':'<span class="hint" style="white-space:nowrap">No attachment</span>')+
    (withEmployee?' <button class="btn ghost small" style="color:#b42318;border-color:#f3b6ac" onclick="otDelete('+r.id+')">🗑</button>':'')+
@@ -3216,13 +3216,12 @@ async function otLoadAll(){
     OT_ALL=await api('/api/late-sittings');
     const byEmp={};
     OT_ALL.forEach(r=>{(byEmp[r.employeeCode]=byEmp[r.employeeCode]||{name:r.employeeName,days:new Set()}).days.add(r.workDate);});
-    if(kEl)kEl.innerHTML='<div class="kpi"><span>Total entries</span><b>'+OT_ALL.length+'</b></div>'+
-     '<div class="kpi"><span>Employees with manual entries</span><b>'+Object.keys(byEmp).length+'</b></div>';
+    if(kEl)kEl.innerHTML='<div class="kpi"><span>Total entries</span><b>'+OT_ALL.length+'</b></div>';
     const summaryRows=Object.entries(byEmp).sort((a,b)=>b[1].days.size-a[1].days.size)
      .map(([code,v])=>'<tr><td>'+esc(code)+'</td><td>'+esc(v.name)+'</td><td class="num">'+v.days.size+'</td></tr>').join('');
     bEl.innerHTML=
      (OT_ALL.length?'<div style="font-weight:700;margin-bottom:8px">By Employee</div>'+
-      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Manual Entry Days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
+      '<table style="margin-bottom:20px"><thead><tr><th>Emp Code</th><th>Name</th><th class="num">Total days</th></tr></thead><tbody>'+summaryRows+'</tbody></table>':'')+
      '<div style="font-weight:700;margin-bottom:8px">Every Entry</div>'+
      (OT_ALL.length?'<div class="att-feed">'+OT_ALL.map(r=>otFeedRow(r,true)).join('')+'</div>'
       :'<div class="empty">No entries logged by anyone yet.</div>');
@@ -17039,7 +17038,7 @@ function renderInspMap(){
    :'<div class="empty">No contracts or work orders yet. Add clients under CRM, then create contracts and work orders in the Inspection section.</div>')+
   '</div></div>';
 }
-const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Overtime'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
+const TITLES={dashboard:['Home','Dashboard'],leave_requests:['Home','Leave Requests'],overtime:['Home','Remote Work Attendance'],crm_customers:['CRM','Customers & Vendors'],crm_customer_form:['CRM','Add / Edit Customer or Vendor'],crm_services:['CRM','Service Catalogue'],crm_rfqs:['Procurement','RFQs'],crm_rfq_view:['Procurement','RFQ Detail'],crm_recyclebin:['Procurement','Recycle Bin'],crm_quotations:['CRM','Quotations'],crm_quotation_add:['CRM','Add Quotation'],crm_quotation_edit:['CRM','Edit Quotation'],crm_quotation_view:['CRM','Quotation Detail'],crm_quotation_recyclebin:['CRM','Quotations Recycle Bin'],hr_employees:['Human Resources','Employees'],hr_employee_view:['Human Resources','Employee Detail'],hr_attendance:['Human Resources','Live Attendance'],hr_report:['Human Resources','Attendance Report'],hr_leave_records:['Human Resources','Leave Records'],hr_payroll_slips:['Human Resources','Payroll / Slips'],gl_companies:['Accounting','Companies'],gl_fx:['Accounting','Currencies & FX'],gl_coa:['Accounting','Chart of Accounts'],gl_je:['Accounting','Journal Entries'],gl_ledger:['Accounting','General Ledger'],gl_tb:['Accounting','Trial Balance'],gl_pl:['Accounting','Profit & Loss'],gl_bs:['Accounting','Balance Sheet'],gl_cons:['Accounting','Consolidated'],gl_refs:['Accounting','Purpose & Bank Codes'],insp_report:['Inspection','Detailed Report'],insp_list:['Inspection','Saved Reports'],insp_wo_view:['Inspection','View Work Orders'],insp_map:['Inspection','Contract Map'],inv_stock_report:['Inventory','Stock Reports'],dcr_list:['Compliance','Document Change Request'],users:['Administration','Users & Roles']};
 function render(){
   let crumb,title;
   if(!SESSION){return;}

@@ -348,7 +348,10 @@ async function computeAttendanceRows(from, to, filter = {}) {
       if (punches.length) {
         const hasKnownStatus = punches.some((p) => p.mode !== null && p.mode !== undefined);
         if (hasKnownStatus) {
-          const ins = punches.filter((p) => p.mode === 0);
+          // A Remote Work Attendance "In" (routes/lateSitting.js) is written
+          // as OT-in (4) with source 'late-sitting' — it's the day's check-in.
+          // A real device OT-in stays a mid-day event and isn't counted.
+          const ins = punches.filter((p) => p.mode === 0 || (p.mode === 4 && p.source === 'late-sitting'));
           // Check-out (1) and OT-out (5) are the same event as far as the
           // day's recorded "out" time is concerned — whichever one the K70
           // reports, and whichever of them is latest, is THE check-out time
