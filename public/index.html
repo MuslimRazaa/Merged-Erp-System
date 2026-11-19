@@ -1897,7 +1897,7 @@ async function renderLiveAttendance(){
             '<td>'+attEmpCell(r,'name','employeeCode')+'</td><td>'+esc(r.department||'')+(r.department&&r.location?' · ':'')+esc(r.location||'')+'</td>'+
             (dtLabel
              ?'<td colspan="3"><span class="pill '+pillClass+'">'+esc(dtLabel)+'</span></td>'
-             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—')+'</td><td class="num">'+hrs+'</td>')+
+             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkInMode?' <span class="hint">('+esc(r.checkInMode)+')</span>':''):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkOutMode?' <span class="hint">('+esc(r.checkOutMode)+')</span>':''):'—')+'</td><td class="num">'+hrs+'</td>')+
             '<td>'+(dtLabel||r.unmapped||!ci?'—':'<span class="pill '+(r.late?'a':'g')+'">'+(r.late?'Late':'On time')+'</span>')+'</td></tr>';
          }).join('')+
          '</tbody></table>';
@@ -1973,7 +1973,7 @@ function attExportCsv(){
     ATT_ROWS.forEach(r=>{
       const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
       const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1):'';
-      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString():'',co?co.toLocaleTimeString():'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
+      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString()+(r.checkInMode?' ('+r.checkInMode+')':''):'',co?co.toLocaleTimeString()+(r.checkOutMode?' ('+r.checkOutMode+')':''):'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
     });
   }
   const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
@@ -2136,6 +2136,9 @@ function rptFmtDay(d){return new Date(d+'T00:00:00').toLocaleDateString('en-US',
 // show for a day that isn't a normal punched attendance day — Holiday/
 // CompanyOff/WeeklyOff/Absent all come from the server's own calendar +
 // Saturday-rotation + leave logic now, not from a manually-filled sheet.
+// A Remote Work Attendance punch (Offsite working / Work From Home) is
+// labelled next to its time, e.g. "09:05 AM (Work From Home)".
+function rptTimeMode(t,mode){const s=rptFmtTime(t);return s&&mode?s+' ('+mode+')':s;}
 function rptDayTypeLabel(r){
   switch(r.dayType){
     case 'Holiday': return 'Holiday — '+(r.holidayName||'');
@@ -2161,7 +2164,7 @@ function rptBuildDetailed(){
   const rows=sorted.map((r,i)=>{
     const label=rptDayTypeLabel(r);
     return [i+1,r.department||'',r.employeeCode||'',r.name||'(Unmapped)',rptFmtDate(r.date),rptFmtDay(r.date),
-      label||rptFmtTime(r.checkIn), label?(r.leaveDocNo||''):rptFmtTime(r.checkOut)];
+      label||rptTimeMode(r.checkIn,r.checkInMode), label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode)];
   });
   return {headers,rows};
 }
@@ -3144,7 +3147,10 @@ function otPickInOut(btn){
   const el=document.getElementById('ot-inout');if(el)el.value=btn.dataset.v;
 }
 async function renderOvertime(){
-  const hasHr=canSee('Human Resources');
+  // The every-employee list is only ever for the one HR account (1551) —
+  // everyone else, Administrator included, sees just their own entries.
+  // Independent of OT_ADMIN_LOG_ENABLED (that only hides the Manual Entry card).
+  const hasHr=!!SESSION&&String(SESSION.user)===OT_ADMIN_EMP_CODE;
   const c=document.getElementById('content');
   const opts=otDateOptions();
   c.innerHTML=
@@ -5516,7 +5522,7 @@ function evAttBuildDetailed(){
   const headers=['Sr#','Date','Day','Time In','Time Out'];
   const rows=EV_ATT_ROWS.map((r,i)=>{
     const label=rptDayTypeLabel(r);
-    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptFmtTime(r.checkIn),label?(r.leaveDocNo||''):rptFmtTime(r.checkOut)];
+    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptTimeMode(r.checkIn,r.checkInMode),label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode)];
   });
   return{headers,rows};
 }

@@ -60,6 +60,13 @@ function requireHr(req, res, next) {
 // role check on purpose: this isn't "any HR user", it's exactly one person.
 const OT_ADMIN_LOG_ENABLED = true;
 const OT_ADMIN_EMP_CODE = '1551';
+// The every-employee list (GET /) and deleting entries are for that same one
+// HR account only — not any HR role. Not tied to OT_ADMIN_LOG_ENABLED.
+// employee_id is an INT column, so compare as strings.
+function requireRemoteAdmin(req, res, next) {
+  if (String(req.erpUser.employeeId) !== OT_ADMIN_EMP_CODE) return res.status(403).json({ error: "Only HR can see every employee's entries." });
+  next();
+}
 // Local-calendar-day arithmetic — see attendance.js's identical note: NOT
 // toISOString(), which is UTC-based and shifts a date back a day in
 // timezones ahead of UTC (Pakistan Standard Time).
@@ -89,7 +96,7 @@ router.get('/mine', async (req, res) => {
 // GET /api/late-sittings — EVERY employee's submissions. HR/Admin only —
 // this is the audit list: who logged an Offsite/WFH entry, which day, what
 // time, In or Out, which work mode, and whether they attached proof.
-router.get('/', requireHr, async (req, res) => {
+router.get('/', requireRemoteAdmin, async (req, res) => {
   const [rows] = await pool.query(
     `SELECT ls.id, ls.employee_id, ls.work_date, ls.out_time, ls.work_mode, ls.in_out_mode, ls.attachment_name, ls.created_at,
             e.employee_id AS emp_code, e.full_name AS emp_name, e.department
@@ -323,7 +330,7 @@ router.get('/:id/attachment', async (req, res) => {
   );
   if (!rows.length || !rows[0].attachment_data) return res.status(404).json({ error: 'No attachment on this entry.' });
   const row = rows[0];
-  if (row.employee_id !== req.erpUser.id && !canAccess(req.erpUser.role, 'Human Resources')) {
+  if (row.employee_id !== req.erpUser.id && String(req.erpUser.employeeId) !== OT_ADMIN_EMP_CODE) {
     return res.status(403).json({ error: 'You cannot view this.' });
   }
   res.setHeader('Content-Type', row.attachment_mime || 'application/octet-stream');
@@ -335,7 +342,7 @@ router.get('/:id/attachment', async (req, res) => {
 // erp_attendance_logs row it wrote (if any), so a mistaken/test entry's
 // effect on Attendance Report/Payroll is fully undone too, not just hidden
 // from this feature's own list.
-router.delete('/:id', requireHr, async (req, res) => {
+router.delete('/:id', requireRemoteAdmin, async (req, res) => {
   const [rows] = await pool.query('SELECT attendance_log_id FROM erp_late_sittings WHERE id = ?', [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'Entry not found.' });
   if (rows[0].attendance_log_id) {
