@@ -165,6 +165,14 @@ input.nospin-num::-webkit-outer-spin-button,input.nospin-num::-webkit-inner-spin
 .selx-list{max-height:min(420px,60vh);overflow:auto}
 .selx-opt{padding:9px 13px;cursor:pointer;font-size:13.5px;line-height:1.35}
 .selx-opt:hover,.selx-opt.on{background:var(--bg)}
+/* Checkbox rows of the multi-select (selxMulti). Each row is a <label>
+   holding an <input>, so inside a form the generic ".field label" (tiny
+   uppercase caption) and ".field input" (full-width box) rules would
+   restyle it — these put it back to a plain checkbox + option text. */
+.selx-pan .selx-mopt{display:flex!important;align-items:center;gap:10px;margin:0!important;padding:9px 13px!important;font-size:13.5px!important;font-weight:400!important;line-height:1.35;text-transform:none!important;letter-spacing:normal!important;color:var(--ink)!important;cursor:pointer}
+.selx-pan .selx-mopt input[type=checkbox]{width:16px!important;height:16px!important;min-width:16px;flex:0 0 16px;margin:0!important;padding:0!important;border-radius:4px;accent-color:var(--brand);cursor:pointer}
+.selx-pan .selx-mopt span{flex:1;text-align:left}
+.selx-pan .selx-mopt.on span{font-weight:600}
 .selx-grp{padding:9px 13px 5px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);background:var(--bg);position:sticky;top:0}
 .selx-none{padding:12px 13px;color:var(--faint);font-size:13px}
 
@@ -7888,7 +7896,7 @@ function selxMulti(id,value,options,onpick,placeholder){
     '</div></div>';
 }
 function selxMultiOptsHtml(id,opts,sel){
-  return opts.map(o=>'<label class="selx-opt'+(sel.has(o)?' on':'')+'" data-v="'+esc(o)+'" style="display:flex;align-items:center;gap:8px" onclick="event.stopPropagation()">'+
+  return opts.map(o=>'<label class="selx-opt selx-mopt'+(sel.has(o)?' on':'')+'" data-v="'+esc(o)+'" onclick="event.stopPropagation()">'+
     '<input type="checkbox"'+(sel.has(o)?' checked':'')+' onchange="selxMultiToggle(\''+id+'\',this.closest(\'.selx-opt\').dataset.v,this.checked)">'+
     '<span>'+esc(o)+'</span></label>').join('');
 }
