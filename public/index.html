@@ -880,6 +880,9 @@ const T=(k,l,ph)=>({k,l,t:'text',ph});
 const N=(k,l,opt)=>({k,l,t:'number',...opt});
 const D=(k,l)=>({k,l,t:'date'});
 const S=(k,l,o,extra)=>({k,l,t:'select',o,...(extra||{})});
+// Pick-several version of S (checkbox list) — e.g. Compliance's Standard(s).
+// Stored comma-joined like REFM, so lists, search and print need nothing new.
+const SM=(k,l,o)=>({k,l,t:'selectm',o});
 const A=(k,l)=>({k,l,t:'area'});
 const A2=(k,l)=>({k,l,t:'area',half:1});  // textarea that stays in its column instead of spanning the row
 const FILEF=(k,l)=>({k,l,t:'file'});  // a single optional image/PDF attachment, right in the fields grid like any other field
@@ -1290,10 +1293,10 @@ trainings:{g:'Human Resources',ic:'✎',name:'Training & Competence',cols:2,att:
     {n:d.filter(r=>trainingStatus(r)==='Expiring').length,l:'Expiring within 30 days',warn:1},
     {n:d.filter(r=>trainingStatus(r)==='Planned').length,l:'Not yet completed'}]},
 /* ---------------- COMPLIANCE ---------------- */
-docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),S('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
-audits:{g:'Compliance',ic:'☑',name:'Audits',fields:[T('no','Audit no.','AUD-2026-01'),S('atype','Type',['Internal','External / CB','Client','Supplier']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Integrated']),D('date','Date'),T('auditor','Auditor(s)'),T('scope','Scope / area'),N('findings','Findings count'),S('status','Status',['Planned','In progress','Report issued','Closed']),A('summary','Summary')],list:['no','atype','std','date','auditor','findings','status'],badge:r=>r.status},
-ncrs:{g:'Compliance',ic:'⚠',name:'NCR / CAPA',fields:[T('no','NCR no.','NCR-2026-01'),D('date','Raised'),S('source','Source',['Internal audit','External audit','Customer complaint','Inspection','Process','Supplier','HSE incident']),S('std','Standard',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Multiple','N/A']),A('desc','Nonconformity description'),A('rootcause','Root cause'),A('correction','Correction'),A('ca','Corrective action'),REFM('owner','Owner','employees','name'),D('due','CA due date'),S('status','Status',['Open','CA in progress','Verification','Closed']),D('closed','Closed date')],list:['no','date','source','std','owner','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status!=='Closed').length,l:'Open NCRs',warn:1}]},
-risks:{g:'Compliance',ic:'◮',name:'Risk & Opportunity',fields:[T('no','Risk no.','RSK-01'),S('cat','Category',['Quality','Environment','OH&S','Business','Impartiality (17020/17025)','Legal']),A('desc','Risk / opportunity description'),S('like','Likelihood',['1 - Rare','2 - Unlikely','3 - Possible','4 - Likely','5 - Almost certain']),S('sev','Severity',['1 - Negligible','2 - Minor','3 - Moderate','4 - Major','5 - Severe']),A('controls','Existing controls'),A('actions','Planned actions'),T('owner','Owner'),D('review','Review date'),S('status','Status',['Open','Mitigating','Accepted','Closed'])],list:['no','cat','like','sev','owner','review','status'],badge:r=>r.status},
+docs:{g:'Compliance',ic:'§',name:'Controlled Documents',fields:[T('docno','Doc no.','QMS-PR-01'),T('title','Title'),SM('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','Other']),S('dtype','Type',['Manual','Procedure','Work instruction','Form','Policy','Plan']),T('rev','Revision','0'),D('effdate','Effective date'),D('review','Next review'),T('owner','Owner'),S('status','Status',['Draft','Under review','Approved','Obsolete'])],list:['docno','title','std','dtype','rev','review','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Approved').length,l:'Approved documents'}]},
+audits:{g:'Compliance',ic:'☑',name:'Audits',fields:[T('no','Audit no.','AUD-2026-01'),S('atype','Type',['Internal','External / CB','Client','Supplier']),SM('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025']),D('date','Date'),T('auditor','Auditor(s)'),T('scope','Scope / area'),N('findings','Findings count'),S('status','Status',['Planned','In progress','Report issued','Closed']),A('summary','Summary')],list:['no','atype','std','date','auditor','findings','status'],badge:r=>r.status},
+ncrs:{g:'Compliance',ic:'⚠',name:'NCR / CAPA',fields:[T('no','NCR no.','NCR-2026-01'),D('date','Raised'),S('source','Source',['Internal audit','External audit','Customer complaint','Inspection','Process','Supplier','HSE incident']),SM('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025','N/A']),A('desc','Nonconformity description'),A('rootcause','Root cause'),A('correction','Correction'),A('ca','Corrective action'),REFM('owner','Owner','employees','name'),D('due','CA due date'),S('status','Status',['Open','CA in progress','Verification','Closed']),D('closed','Closed date')],list:['no','date','source','std','owner','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status!=='Closed').length,l:'Open NCRs',warn:1}]},
+risks:{g:'Compliance',ic:'◮',name:'Risk & Opportunity',fields:[T('no','Risk no.','RSK-01'),S('cat','Category',['Quality','Environment','OH&S','Business','Impartiality (17020/17025)','Legal']),SM('std','Standard(s)',['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025']),A('desc','Risk / opportunity description'),S('like','Likelihood',['1 - Rare','2 - Unlikely','3 - Possible','4 - Likely','5 - Almost certain']),S('sev','Severity',['1 - Negligible','2 - Minor','3 - Moderate','4 - Major','5 - Severe']),A('controls','Existing controls'),A('actions','Planned actions'),T('owner','Owner'),D('review','Review date'),S('status','Status',['Open','Mitigating','Accepted','Closed'])],list:['no','cat','std','like','sev','owner','review','status'],badge:r=>r.status},
 hse:{g:'Compliance',ic:'✚',name:'HSE Incidents',fields:[T('no','Incident no.','HSE-2026-01'),D('date','Date'),S('itype','Type',['Near miss','First aid','Medical treatment','LTI','Property damage','Environmental','Observation']),T('loc','Location'),A('desc','Description'),A('cause','Immediate cause'),A('action','Action taken'),S('status','Status',['Reported','Under investigation','Closed'])],list:['no','date','itype','loc','status'],badge:r=>r.itype,kpi:d=>[{n:d.filter(r=>r.itype==='LTI').length,l:'LTIs',warn:1}]},
 mgtreviews:{g:'Compliance',ic:'◫',name:'Management Reviews',fields:[D('date','Date'),T('ref','Reference','MR-2026-01'),S('std','Scope',['Integrated IMS','ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025']),T('chair','Chaired by'),A('inputs','Key inputs discussed'),A('outputs','Decisions / actions'),D('next','Next review')],list:['date','ref','std','chair','next'],badge:r=>r.std},
 calibrations:{g:'Compliance',ic:'◎',name:'M&TE / Calibration',fields:[T('eqid','Equipment ID','MTE-001'),T('name','Equipment / instrument'),T('make','Make / model'),T('sn','Serial no.'),T('certno','Cal. cert no.'),T('provider','Calibrated by'),D('caldate','Cal. date'),D('due','Cal. due'),T('trace','Traceability (NMI/SI route)'),S('status','Status',['In service','Due soon','Overdue','Out of service'])],list:['eqid','name','sn','certno','caldate','due','status'],badge:r=>r.status,kpi:d=>[{n:d.filter(r=>r.status==='Overdue').length,l:'Calibration overdue',warn:1}]},
@@ -8128,6 +8131,7 @@ function fieldInput(f,v,idPrefix,onSelectChange){
     const opts=[...new Set(rows.map(r=>r[f.dk]).filter(Boolean))];
     return selx(idPrefix+f.k,v,opts,onSelectChange||null,'\u2014 choose \u2014');
   }
+  if(f.t==='selectm')return selxMulti(idPrefix+f.k,v,f.o,onSelectChange||null,'— choose —');
   if(f.t==='refm')return selxMulti(idPrefix+f.k,v,coll(f.coll).map(r=>r[f.dk]).filter(Boolean),onSelectChange||null,'\u2014 choose \u2014');
   if(f.t==='area')return '<textarea id="'+idPrefix+f.k+'" rows="2">'+esc(v)+'</textarea>';
   if(f.t==='computed')return '<input id="'+idPrefix+f.k+'" value="'+esc(v)+'" disabled placeholder="auto">';
@@ -18317,17 +18321,25 @@ function renderDashboard(){
   quick.map(q=>'<button class="btn ghost" style="justify-content:center" onclick="go(\''+q[0]+'\')">'+q[1]+'</button>').join('')+'</div></div></div>'+
   '<div class="card"><div class="card-h">Compliance snapshot — ISO 9001 / 14001 / 45001 · API Q2 · ISO 17020 / 17025</div><div class="card-b tblwrap">'+complianceSnapshot()+'</div></div>';
 }
+// A record's Standard(s) field holds one or several standards, comma-joined
+// ("ISO 9001, ISO 14001"); it counts once under every standard it names.
+function stdList(r){return String(r.std||'').split(',').map(x=>x.trim()).filter(Boolean);}
 function complianceSnapshot(){
   const docs=coll('docs'),audits=coll('audits'),ncrs=coll('ncrs'),risks=coll('risks'),tr=coll('trainings');
   const stds=['ISO 9001','ISO 14001','ISO 45001','API Q2','ISO 17020','ISO 17025'];
+  const yr=String(new Date().getFullYear());
+  const openRisks=risks.filter(r=>r.status!=='Closed'&&r.status!=='Accepted');
+  const noStdRisks=openRisks.filter(r=>!stdList(r).some(x=>stds.includes(x))).length;
   return '<table><thead><tr><th>Standard</th><th class="num">Approved docs</th><th class="num">Audits (year)</th><th class="num">Open NCRs</th><th class="num">Open risks</th></tr></thead><tbody>'+
   stds.map(s=>{
-    const d=docs.filter(r=>r.std===s&&r.status==='Approved').length;
-    const a=audits.filter(r=>(r.std===s||r.std==='Integrated')&&String(r.date||'').slice(0,4)===String(new Date().getFullYear())).length;
-    const n=ncrs.filter(r=>r.std===s&&r.status!=='Closed').length;
-    const rk=risks.filter(r=>r.status!=='Closed'&&r.status!=='Accepted').length;
-    return '<tr><td><b>'+s+'</b></td><td class="num">'+d+'</td><td class="num">'+a+'</td><td class="num'+(n?'" style="color:var(--rose);font-weight:700':'')+'">'+n+'</td><td class="num">'+(s===stds[0]?rk:'')+'</td></tr>';}).join('')+
-  '</tbody></table><div class="hint">Expired training certificates: '+tr.filter(r=>r.status==='Expired').length+' · Docs due for review in 30 days: '+docs.filter(r=>r.review&&r.review<=today(new Date(Date.now()+30*864e5))&&r.status==='Approved').length+'</div>';
+    const d=docs.filter(r=>stdList(r).includes(s)&&r.status==='Approved').length;
+    // an older audit saved as "Integrated" covered every standard
+    const a=audits.filter(r=>(stdList(r).includes(s)||r.std==='Integrated')&&String(r.date||'').slice(0,4)===yr).length;
+    const n=ncrs.filter(r=>stdList(r).includes(s)&&r.status!=='Closed').length;
+    const rk=openRisks.filter(r=>stdList(r).includes(s)).length;
+    return '<tr><td><b>'+s+'</b></td><td class="num">'+d+'</td><td class="num">'+a+'</td><td class="num'+(n?'" style="color:var(--rose);font-weight:700':'')+'">'+n+'</td><td class="num">'+rk+'</td></tr>';}).join('')+
+  '</tbody></table><div class="hint">Expired training certificates: '+tr.filter(r=>r.status==='Expired').length+' · Docs due for review in 30 days: '+docs.filter(r=>r.review&&r.review<=today(new Date(Date.now()+30*864e5))&&r.status==='Approved').length+
+  (noStdRisks?' · Open risks with no standard set: '+noStdRisks:'')+'</div>';
 }
 
 /* ================================================================
