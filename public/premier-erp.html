@@ -33,10 +33,18 @@ input,select,textarea{font:inherit;color:inherit}
 /* ---------- sidebar ---------- */
 /* hello child */
 aside{width:248px;flex:none;background:linear-gradient(180deg,#0D1F47 0%,#0A1836 55%,#09152E 100%);color:#E7EDF5;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#22345C transparent}
-.brand{display:flex;gap:12px;align-items:center;padding:22px 18px 16px}
-.brand .mark{width:42px;height:42px;border-radius:12px;background:linear-gradient(145deg,#3B82F6,#1D4ED8);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:20px;flex:none;box-shadow:0 8px 18px -8px rgba(59,130,246,.85),inset 0 1px 0 rgba(255,255,255,.25)}
-.brand b{font-family:var(--disp);font-size:17px;letter-spacing:-.01em;color:#fff}
-.brand span{display:block;font-size:10.5px;color:#9FB1D3;margin-top:2px;letter-spacing:.13em;text-transform:uppercase;font-weight:600}
+/* PTIS logo on a white card (the mark is grey + red, unreadable on navy);
+   the whole card opens the ISO portal in a new tab. */
+.brand{display:block;margin:16px 14px 4px;text-decoration:none;color:inherit;flex:none}
+.brand-logo{position:relative;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:14px;padding:10px 14px;box-shadow:0 10px 24px -14px rgba(0,0,0,.65);transition:transform .15s,box-shadow .15s}
+.brand-logo img{height:64px;width:auto;display:block}
+.brand:hover .brand-logo{transform:translateY(-1px);box-shadow:0 14px 28px -14px rgba(0,0,0,.75),0 0 0 2px rgba(59,130,246,.6)}
+.brand-go{position:absolute;top:7px;right:7px;width:22px;height:22px;border-radius:7px;background:var(--brand-t);color:var(--brand);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s}
+.brand:hover .brand-go{opacity:1}
+.brand-go svg{width:13px;height:13px}
+.brand-cap{display:flex;justify-content:space-between;align-items:center;padding:8px 4px 0;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:#9FB1D3;font-weight:600}
+.brand-cap .iso{letter-spacing:.01em;text-transform:none;color:#82A9F7;font-weight:500}
+.brand:hover .brand-cap .iso{color:#B9CFFB}
 .ngrp{padding:6px 12px 2px}
 .ngrp h5{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#7F93BB;padding:12px 10px 6px;font-weight:600}
 .nitem{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:9px 12px;border-radius:10px;color:#D7E0F1;font-size:13.5px;font-weight:500;margin-bottom:2px;transition:background .12s,color .12s}
@@ -78,9 +86,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .tb-icon svg{width:23px;height:23px}
 #lv-inbox-badge .pill{position:absolute;top:4px;right:3px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#EF4444;color:#fff;font-size:10px;line-height:14px;font-weight:700;border:2px solid #fff;text-align:center}
 .tb-sep{width:1px;height:30px;background:var(--line);flex:none}
-.tb-link{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:11px;background:var(--brand-t);color:var(--brand);font-weight:600;font-size:13px;text-decoration:none;white-space:nowrap;flex:none;transition:background .12s,color .12s}
-.tb-link:hover{background:var(--brand);color:#fff}
-.tb-link .tl-ic svg{width:17px;height:17px;display:block}
 .chip-sync{display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:11.5px;font-weight:600;color:var(--soft);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .chip-sync:hover{border-color:#C6D0DE}
 .chip-sync .dot{width:8px;height:8px;border-radius:50%;background:#94A3B8;flex:none}
@@ -383,8 +388,7 @@ body.locked #app{display:none}
   aside.open{left:0;box-shadow:12px 0 40px rgba(0,0,0,.35)}
   #menu-toggle{display:inline-flex}
   .topbar{padding:10px 14px;gap:10px}
-  .uc-txt,.uc-btn>svg,.chip-sync span,.tb-sep,.tl-txt{display:none}
-  .tb-link{padding:0 11px}
+  .uc-txt,.uc-btn>svg,.chip-sync span,.tb-sep{display:none}
   .pagehero{margin:14px 14px 0;padding:16px 18px;gap:14px}
   .ph-ic{width:48px;height:48px;border-radius:13px}.ph-ic svg{width:24px;height:24px}
   .pagehero h1{font-size:20px}
@@ -421,7 +425,10 @@ body.locked #app{display:none}
 </div>
 <div id="app">
 <aside id="sidebar">
-  <div class="brand"><div class="mark">P</div><div><b>Premier ERP</b><span>Tubular Services</span></div></div>
+  <a class="brand" href="https://iso.ptis.co" target="_blank" rel="noopener" title="Open the PTIS ISO portal (iso.ptis.co) in a new tab">
+    <span class="brand-logo"><img src="/ptis-logo.png" alt="PTIS — The Strongest Link"><span class="brand-go" id="brand-go"></span></span>
+    <span class="brand-cap"><span>Premier ERP</span><span class="iso">iso.ptis.co ↗</span></span>
+  </a>
   <div id="nav"></div>
   <div class="sidehelp" title="Offline-first: all work saves locally and syncs when online.">
     <svg class="wave" viewBox="0 0 248 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 30 C70 46 150 2 248 16 L248 120 L0 120 Z" fill="rgba(29,64,160,.38)"/><path d="M0 30 C70 46 150 2 248 16" fill="none" stroke="#3B82F6" stroke-width="1.6" opacity=".9"/></svg>
@@ -437,7 +444,6 @@ body.locked #app{display:none}
       <div class="gs-list" id="gs-list"></div>
     </div>
     <div class="top-actions">
-      <a class="tb-link" id="iso-link" href="https://iso.ptis.co" target="_blank" rel="noopener" title="Open the ISO portal (iso.ptis.co) in a new tab"><span class="tl-ic" id="iso-ic"></span><span class="tl-txt">ISO Portal</span></a>
       <button class="chip-sync offline" id="syncchip" onclick="syncNow()" title="Sync status — click to sync now"><div class="dot"></div><span id="synctext">Local only</span></button>
       <span id="lv-inbox-slot" style="position:relative;display:flex"></span>
       <span class="tb-sep"></span>
@@ -2035,7 +2041,7 @@ function supportOpen(){
 // static shell icons (the markup is plain HTML, drawn before any script)
 (function(){
   const put=(id,n)=>{const e=document.getElementById(id);if(e)e.innerHTML=navSvg(n);};
-  put('menu-toggle','menu');put('iso-ic','external');put('gs-ic','search');put('help-ic','headset');put('help-arrow','chevright');
+  put('menu-toggle','menu');put('brand-go','external');put('gs-ic','search');put('help-ic','headset');put('help-arrow','chevright');
 })();
 function userChip(){
   if(!SESSION)return '<span id="userchip"></span>';
