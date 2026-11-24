@@ -78,6 +78,9 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .tb-icon svg{width:23px;height:23px}
 #lv-inbox-badge .pill{position:absolute;top:4px;right:3px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#EF4444;color:#fff;font-size:10px;line-height:14px;font-weight:700;border:2px solid #fff;text-align:center}
 .tb-sep{width:1px;height:30px;background:var(--line);flex:none}
+.tb-link{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:11px;background:var(--brand-t);color:var(--brand);font-weight:600;font-size:13px;text-decoration:none;white-space:nowrap;flex:none;transition:background .12s,color .12s}
+.tb-link:hover{background:var(--brand);color:#fff}
+.tb-link .tl-ic svg{width:17px;height:17px;display:block}
 .chip-sync{display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:11.5px;font-weight:600;color:var(--soft);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .chip-sync:hover{border-color:#C6D0DE}
 .chip-sync .dot{width:8px;height:8px;border-radius:50%;background:#94A3B8;flex:none}
@@ -380,7 +383,8 @@ body.locked #app{display:none}
   aside.open{left:0;box-shadow:12px 0 40px rgba(0,0,0,.35)}
   #menu-toggle{display:inline-flex}
   .topbar{padding:10px 14px;gap:10px}
-  .uc-txt,.uc-btn>svg,.chip-sync span,.tb-sep{display:none}
+  .uc-txt,.uc-btn>svg,.chip-sync span,.tb-sep,.tl-txt{display:none}
+  .tb-link{padding:0 11px}
   .pagehero{margin:14px 14px 0;padding:16px 18px;gap:14px}
   .ph-ic{width:48px;height:48px;border-radius:13px}.ph-ic svg{width:24px;height:24px}
   .pagehero h1{font-size:20px}
@@ -433,6 +437,7 @@ body.locked #app{display:none}
       <div class="gs-list" id="gs-list"></div>
     </div>
     <div class="top-actions">
+      <a class="tb-link" id="iso-link" href="https://iso.ptis.co" target="_blank" rel="noopener" title="Open the ISO portal (iso.ptis.co) in a new tab"><span class="tl-ic" id="iso-ic"></span><span class="tl-txt">ISO Portal</span></a>
       <button class="chip-sync offline" id="syncchip" onclick="syncNow()" title="Sync status — click to sync now"><div class="dot"></div><span id="synctext">Local only</span></button>
       <span id="lv-inbox-slot" style="position:relative;display:flex"></span>
       <span class="tb-sep"></span>
@@ -1923,6 +1928,7 @@ const NAV_SVG={
   chevdown:'<path d="m6 9 6 6 6-6"/>',
   chevright:'<path d="m9 6 6 6-6 6"/>',
   menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  external:'<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
   headset:'<path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 15a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2zM3 15a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2z"/><path d="M19 17v1a3 3 0 0 1-3 3h-3"/>',
   logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   server:'<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>',
@@ -2029,7 +2035,7 @@ function supportOpen(){
 // static shell icons (the markup is plain HTML, drawn before any script)
 (function(){
   const put=(id,n)=>{const e=document.getElementById(id);if(e)e.innerHTML=navSvg(n);};
-  put('menu-toggle','menu');put('gs-ic','search');put('help-ic','headset');put('help-arrow','chevright');
+  put('menu-toggle','menu');put('iso-ic','external');put('gs-ic','search');put('help-ic','headset');put('help-arrow','chevright');
 })();
 function userChip(){
   if(!SESSION)return '<span id="userchip"></span>';
