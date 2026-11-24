@@ -12,6 +12,7 @@ const bcrypt = require('bcrypt');
 const pool = require('../db');
 const { issue, verify } = require('../token');
 const { ROLES, GROUPS_ALL, canAccess } = require('../roles');
+const sso = require('../sso');
 
 // A role is valid if it's one of the 9 named presets, OR a comma-separated
 // list of module names picked directly on the Employees form's multi-select
@@ -69,6 +70,12 @@ async function requireAuth(req, res, next) {
   if (!m) return res.status(401).json({ error: 'Not signed in.' });
   const p = verify(m[1]);
   if (!p) return res.status(401).json({ error: 'Session expired — please log in again.' });
+  // A token minted from a shared ERP/ISO sign-in dies with it: signing out in
+  // the ISO portal (or anywhere else) revokes the sid this token carries.
+  // Tokens without one (older sessions, the attendance agent) are unaffected.
+  if (p.sid && !(await sso.isActive(p.sid, p.sub))) {
+    return res.status(401).json({ error: 'You have been signed out — please log in again.', ssoRevoked: true });
+  }
   const [rows] = await pool.query(
     `SELECT e.id, e.employee_id, e.full_name, e.email, e.department, e.location, e.status,
             r.role, r.desig, r.active AS erp_active
@@ -97,6 +104,13 @@ function requireRoleManager(req, res, next) {
   next();
 }
 
+/* ---------------- shared ERP / ISO sign-in (see ../sso.js) ---------------- */
+// Never lets a problem with the shared session stop an ordinary sign-in.
+async function ssoStart(req, res, employeePk) {
+  try { return await sso.create(req, res, employeePk, 'erp'); }
+  catch (err) { console.error('[sso] could not start a shared session:', err.message); return null; }
+}
+
 /* ---------------- routes ---------------- */
 
 // Has anyone claimed the first Administrator seat yet?
@@ -119,7 +133,8 @@ router.post('/login', async (req, res) => {
     return res.status(403).json({ error: 'This account has no ERP access yet. Ask your ERP Administrator to grant a role.' });
   }
   FAILS.delete(key);
-  const { token, expires } = issue(e.id, { role: e.role });
+  const sid = await ssoStart(req, res, e.id);
+  const { token, expires } = issue(e.id, { role: e.role, ...(sid ? { sid } : {}) });
   await audit(employeeId, 'login', employeeId);
   res.json({ token, expires, user: pubEmployee(e) });
 });
@@ -141,13 +156,52 @@ router.post('/claim-admin', async (req, res) => {
     'INSERT INTO erp_employee_roles (employee_id, role, desig, active) VALUES (?,?,?,1) ON DUPLICATE KEY UPDATE role=VALUES(role), active=1',
     [e.id, 'Administrator', req.body.desig || '']
   );
-  const { token, expires } = issue(e.id, { role: 'Administrator' });
+  const sid = await ssoStart(req, res, e.id);
+  const { token, expires } = issue(e.id, { role: 'Administrator', ...(sid ? { sid } : {}) });
   await audit(employeeId, 'claim-admin', employeeId);
   e.role = 'Administrator';
   res.status(201).json({ token, expires, user: pubEmployee(e) });
 });
 
 router.get('/me', requireAuth, (req, res) => res.json(req.erpUser));
+
+// Signed in already in the ISO portal (or another ERP tab) on this browser?
+// Then the shared cookie is enough — no password asked. Same checks as
+// /login: an active employee with an ERP role.
+router.post('/sso', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const s = await sso.fromRequest(req);
+  if (!s) return res.status(401).json({ error: 'Not signed in.', sso: false });
+  const [rows] = await pool.query(
+    `SELECT e.id, e.employee_id, e.full_name, e.email, e.department, e.location, e.status,
+            r.role, r.desig, r.active AS erp_active
+     FROM employees e LEFT JOIN erp_employee_roles r ON r.employee_id = e.id
+     WHERE e.id = ?`,
+    [s.employeePk]
+  );
+  const e = rows[0];
+  if (!e || e.status === 'Inactive') return res.status(401).json({ error: 'Not signed in.', sso: false });
+  if (!e.role || e.erp_active === 0) {
+    return res.status(403).json({
+      error: `You are signed in to the ISO portal as ${e.full_name || e.employee_id}, but this account has no ERP access yet. Ask your ERP Administrator to grant a role.`,
+      noErpAccess: true,
+    });
+  }
+  const { token, expires } = issue(e.id, { role: e.role, sid: s.sid });
+  await audit(e.employee_id, 'sso-login', e.employee_id);
+  res.json({ token, expires, user: pubEmployee(e) });
+});
+
+// Sign out of BOTH apps on this browser. No requireAuth: an expired token
+// must still be able to sign out, and the cookie alone identifies the session.
+router.post('/logout', async (req, res) => {
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
+  const p = m ? verify(m[1]) : null;
+  try { await sso.logout(req, res, p && p.sid); }
+  catch (err) { console.error('[sso] logout:', err.message); }
+  if (p) await audit(null, 'logout', String(p.sub));
+  res.json({ ok: true });
+});
 
 router.get('/roles', (req, res) => res.json(Object.keys(ROLES)));
 

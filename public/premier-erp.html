@@ -1578,7 +1578,16 @@ async function api(path,opts={}){
     res=await fetch(path,{...opts,headers:{...(isFormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:'Bearer '+token}:{}),...(opts.headers||{})}});
   }catch(e){throw Object.assign(new Error('No connection to the server.'),{offline:true,cause:e});}
   const body=await res.json().catch(()=>({}));
-  if(res.status===401){localStorage.removeItem('erp_jwt');throw Object.assign(new Error(body.error||'Session expired \u2014 please log in again.'),{authFailed:true});}
+  if(res.status===401){
+    const own=/^\/api\/auth\//.test(path);
+    /* The token ran out (12h) while the shared ERP/ISO sign-in is still live:
+       a fresh token is fetched once and the request tried again, so nobody
+       is asked for a password mid-way through their work. */
+    if(!own&&token&&!opts._ssoRetry&&await ssoRenew())return api(path,{...opts,_ssoRetry:true});
+    localStorage.removeItem('erp_jwt');
+    if(!own&&SESSION&&!SESSION.offline)setTimeout(ssoWatch,0);
+    throw Object.assign(new Error(body.error||'Session expired \u2014 please log in again.'),{authFailed:true});
+  }
   // Extra fields an endpoint's error body carries beyond .message (e.g.
   // payroll's {locked:true, monthLabel:'September 2026'}) ride along on the
   // thrown Error itself, so a caller that needs them doesn't have to
@@ -1586,6 +1595,62 @@ async function api(path,opts={}){
   // are unaffected.
   if(!res.ok)throw Object.assign(new Error(body.error||res.statusText),body);
   return body;
+}
+/* ================================================================
+   ONE SIGN-IN FOR ERP AND THE ISO PORTAL
+
+   Signing in here or on iso.ptis.co leaves a shared session cookie on
+   .ptis.co (HttpOnly - no script here ever sees it; see backend/sso.js).
+   - Opening the ERP with no session of its own asks /api/auth/sso, which
+     signs in from that cookie without a password.
+   - Signing out here revokes it for both; signing out in the ISO portal
+     revokes the session this ERP token belongs to, and ssoWatch notices
+     (on focus, and every minute) and signs this tab out too.
+   - Somebody else signing in on this browser (in either app) replaces the
+     shared session, and this tab follows them.
+   Offline sessions are left alone: there is no server to ask.
+   ================================================================ */
+let SSO_RENEWING=null,SSO_WATCHING=false;
+/* A new token for the SAME person, from the still-live shared session. */
+function ssoRenew(){
+  if(!SSO_RENEWING)SSO_RENEWING=(async()=>{
+    try{
+      if(!SESSION||SESSION.offline)return false;
+      const res=await fetch('/api/auth/sso',{method:'POST',cache:'no-store'});
+      if(!res.ok)return false;
+      const r=await res.json();
+      if(!r.token||!r.user||r.user.id!==SESSION.uid)return false;
+      localStorage.setItem('erp_jwt',r.token);
+      const cfg=syncCfg();cfg.token=r.token;localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
+      return true;
+    }catch(e){return false;}
+    finally{setTimeout(()=>{SSO_RENEWING=null;},0);}
+  })();
+  return SSO_RENEWING;
+}
+/* Is this tab still signed in as far as the shared session is concerned? */
+async function ssoWatch(){
+  if(SSO_WATCHING||!SESSION||SESSION.offline||document.hidden||navigator.onLine===false)return;
+  SSO_WATCHING=true;
+  try{
+    if(localStorage.getItem('erp_jwt')){
+      try{await api('/api/auth/me');return;}
+      catch(e){if(!e.authFailed)return;}
+    }
+    let r=null,err=null;
+    try{r=await api('/api/auth/sso',{method:'POST'});}
+    catch(e){if(e.offline)return;err=e;}
+    if(r&&r.token){
+      const other=r.user.id!==SESSION.uid;
+      applySession(r);
+      if(other)toast('Signed in as '+r.user.name+' \u2014 they signed in on this browser.','info');
+      return;
+    }
+    /* Local only: the shared session is already gone (or belongs to someone
+       who has no ERP access - theirs must not be ended from here). */
+    await logout(true);
+    lerr(err&&err.noErpAccess?err.message:'You were signed out \u2014 you signed out in the ISO portal or another ERP tab.');
+  }finally{SSO_WATCHING=false;}
 }
 /* ================================================================
    SIGNING IN WITH NO INTERNET
@@ -1766,14 +1831,16 @@ function applySession(r){
   });
   if(navigator.onLine)setTimeout(syncNow,800);
 }
-function logout(){
+function logout(localOnly){
+  const tok=localStorage.getItem('erp_jwt');
+  if(localOnly!==true)fetch('/api/auth/logout',{method:'POST',keepalive:true,headers:tok?{Authorization:'Bearer '+tok}:{}}).catch(()=>{});
   SESSION=null;lsSet('session',null);localStorage.removeItem('erp_jwt');recClearCache();
   const cfg=syncCfg();cfg.token='';localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(cfg));
   const slot=document.getElementById('lv-inbox-slot');if(slot)slot.innerHTML='';
   LEAVE_PENDING_COUNT=0;PO_PENDING_COUNT=0;
   /* Whether this person may approve went with their session. */
   APPR_PENDING_COUNT=0;APPR_PENDING=[];APPR_IS_HOD=false;
-  document.getElementById('l-user').value='';document.getElementById('l-pass').value='';showLogin();
+  document.getElementById('l-user').value='';document.getElementById('l-pass').value='';return showLogin();
 }
 /* ---------------- shared master data (employees / departments / locations — same rows ISO uses) ---------------- */
 async function pullSharedMaster(){
@@ -19024,7 +19091,16 @@ irMigrateReportNos();
       }
     }
   }
-  if(!restored)await showLogin();
+  /* Signed in already in the ISO portal on this browser? No password then. */
+  let ssoMsg='';
+  if(!restored&&navigator.onLine!==false){
+    try{applySession(await api('/api/auth/sso',{method:'POST'}));restored=true;}
+    catch(e){if(e.noErpAccess)ssoMsg=e.message;}
+  }
+  if(!restored){await showLogin();if(ssoMsg)lerr(ssoMsg);}
+  setInterval(ssoWatch,60000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)ssoWatch();});
+  window.addEventListener('focus',()=>ssoWatch());
   updateSyncBar();scheduleAutoSync();
   /* Whatever was still owed when this machine was last closed - a report
      filed on a rig last week - goes up now, before anything is pulled down

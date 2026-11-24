@@ -890,7 +890,11 @@ async function migrate() {
     }
   }
 
-  console.log('[erp-migrate] erp_tax_rates, erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
+  // Shared ERP / ISO sign-in sessions. Not erp_-prefixed on purpose: the ISO
+  // backend creates and reads the very same table (see sso.js).
+  await require('./sso').ensureTable();
+
+  console.log('[erp-migrate] sso_sessions, erp_tax_rates,erp_employee_files, erp_records, erp_record_files, erp_kv_store, erp_employee_roles, erp_audit, erp_attendance_logs, erp_employee_shifts, erp_employee_profile, erp_leave_requests, erp_holidays, erp_employee_loans, erp_loan_payments, erp_late_sittings, erp_crm_customers, erp_crm_rfqs, erp_crm_rfq_items, erp_crm_rfq_attachments, erp_crm_equipment, erp_crm_standards, erp_crm_item_descriptions, erp_crm_services, erp_crm_quotations, erp_crm_quotation_items, erp_crm_config, erp_banks, erp_payroll_runs, erp_notifications ready (no ISO tables were altered).');
 }
 
 module.exports = migrate;
