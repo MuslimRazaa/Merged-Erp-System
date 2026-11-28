@@ -388,6 +388,17 @@ body.locked #app{display:none}
 .dimtable input.oor{background:#FDE8E8!important;border:1.5px solid #E02424!important;color:#B91C1C;font-weight:700}
 .dimtable input.inr{background:#F0FDF4}
 .dimtable thead .grp th{text-align:center;background:#F1F1F4;font-size:9.5px;letter-spacing:.08em}
+/* ---------- Employees: Bulk Shift Time ---------- */
+.eshift-cap{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:6px}
+.eshift-depts{display:flex;flex-wrap:wrap;gap:8px}
+.eshift-dept{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border:1px solid #DCDCE3;border-radius:999px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink);background:#fff;user-select:none}
+.eshift-dept input{accent-color:var(--brand);margin:0;cursor:pointer}
+.eshift-dept small{color:var(--faint);font-weight:700;font-size:11px}
+.eshift-dept.on{border-color:var(--brand);background:var(--brand-t);color:var(--brand)}
+.eshift-inact{display:inline-flex;align-items:center;gap:7px;margin-top:10px;font-size:12.5px;color:var(--soft);cursor:pointer}
+.eshift-list{max-height:300px;overflow:auto}
+.eshift-list td.new{font-weight:700;color:var(--brand)}
+.eshift-list tr.same td{color:var(--faint)}
 /* ---------- responsive / print ---------- */
 #menu-toggle{display:none}
 @media(max-width:900px){
@@ -697,6 +708,25 @@ body.locked #app{display:none}
   <div class="actions" style="justify-content:flex-end">
     <button class="btn ghost" onclick="closeModal('empimportmodal')">Cancel</button>
     <button class="btn" id="empimport-go" onclick="empImportRun()" disabled>Import</button>
+  </div>
+</div></div>
+
+<div class="modal" id="empshiftmodal"><div class="box" style="max-width:720px">
+  <h3>Bulk Shift Time</h3>
+  <div class="hint" style="margin-bottom:12px">Pick one or more departments and the shift time — every employee of those departments gets this Shift Start / Shift End. Each employee keeps their own grace minutes.</div>
+  <div class="eshift-cap">Departments</div>
+  <div class="eshift-depts" id="empshift-depts"></div>
+  <div class="fgrid" style="margin-top:14px">
+    <div class="field"><label>Shift Start</label><input type="time" id="empshift-start" value="09:00" oninput="empShiftPreview()"></div>
+    <div class="field"><label>Shift End</label><input type="time" id="empshift-end" oninput="empShiftPreview()"></div>
+  </div>
+  <div class="hint" style="margin-top:6px">Leave Shift End empty to keep each employee's current end time.</div>
+  <label class="eshift-inact"><input type="checkbox" id="empshift-inactive" onchange="empShiftPreview()"> Include Inactive employees</label>
+  <div id="empshift-preview" style="margin-top:12px"></div>
+  <div class="lerr" id="empshift-err" style="display:none"></div>
+  <div class="actions" style="justify-content:flex-end">
+    <button class="btn ghost" onclick="closeModal('empshiftmodal')">Cancel</button>
+    <button class="btn" id="empshift-go" onclick="empShiftRun()" disabled>Apply</button>
   </div>
 </div></div>
 
@@ -5399,6 +5429,7 @@ async function renderHrEmployees(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="card"><div class="card-h">Employees<span class="hint" style="font-weight:400"> — HR master list, shared with ISO</span>'+
    '<span style="margin-left:auto;display:flex;gap:8px"><input id="emp-search" placeholder="Search ID or name" oninput="empFilterList()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">'+
+   '<button class="btn ghost" onclick="empOpenShiftBulk()">🕘 Bulk Shift Time</button>'+
    '<button class="btn ghost" onclick="empOpenImport()">⇪ Import Employees</button>'+
    '<button class="btn" onclick="empOpenForm(null)">+ Add Employee</button></span></div>'+
    '<div class="card-b">'+
@@ -6016,6 +6047,76 @@ async function empViewDelete(){
   }catch(err){toast(err.message,'err');}
 }
 
+/* ---------- Bulk Shift Time (Employees screen) ----------
+   HR picks one or more departments and a shift; every employee of those departments gets that
+   Shift Start / Shift End in one request (PUT /api/attendance/shift-bulk). The preview lists exactly
+   the employees that are sent - nothing outside it changes. */
+function empShiftDeptKey(d){return String(d||'').trim().toLowerCase();}
+function empShiftDepts(){
+  const m=new Map();
+  (EMP_LIST||[]).forEach(e=>{
+    const k=empShiftDeptKey(e.department);if(!k)return;
+    const g=m.get(k)||{key:k,label:String(e.department).trim(),n:0};g.n++;m.set(k,g);
+  });
+  return [...m.values()].sort((a,b)=>a.label.localeCompare(b.label));
+}
+async function empOpenShiftBulk(){
+  if(!EMP_LIST||!EMP_LIST.length)await empRefresh();
+  const depts=empShiftDepts();
+  document.getElementById('empshift-depts').innerHTML=depts.length
+    ?depts.map(d=>'<label class="eshift-dept"><input type="checkbox" value="'+esc(d.key)+'" onchange="this.parentNode.classList.toggle(\'on\',this.checked);empShiftPreview()"><span>'+esc(d.label)+'</span><small>'+d.n+'</small></label>').join('')
+    :'<div class="empty">No departments found on the employees.</div>';
+  document.getElementById('empshift-start').value='09:00';
+  document.getElementById('empshift-end').value='';
+  document.getElementById('empshift-inactive').checked=false;
+  empShiftPreview();
+  openModal('empshiftmodal');
+}
+function empShiftTargets(){
+  const keys=new Set([...document.querySelectorAll('#empshift-depts input:checked')].map(i=>i.value));
+  const inactive=document.getElementById('empshift-inactive').checked;
+  return (EMP_LIST||[])
+    .filter(e=>keys.has(empShiftDeptKey(e.department))&&(inactive||e.status!=='Inactive'))
+    .sort((a,b)=>String(a.department||'').localeCompare(String(b.department||''))||String(a.name||'').localeCompare(String(b.name||'')));
+}
+function empShiftPreview(){
+  const rows=empShiftTargets();
+  const s=document.getElementById('empshift-start').value,en=document.getElementById('empshift-end').value;
+  const err=document.getElementById('empshift-err');err.style.display='none';
+  const go=document.getElementById('empshift-go');
+  go.disabled=!rows.length||!s;
+  go.textContent=rows.length?'Apply to '+rows.length+' employee'+(rows.length===1?'':'s'):'Apply';
+  const box=document.getElementById('empshift-preview');
+  if(!rows.length){box.innerHTML='<div class="hint">Select a department to see the employees it will change.</div>';return;}
+  const cur=e=>(e.shiftStart||'09:00')+' – '+(e.shiftEnd||'—');
+  const nxt=e=>(s||'—')+' – '+(en||e.shiftEnd||'—');
+  const same=rows.filter(e=>cur(e)===nxt(e)).length;
+  box.innerHTML='<div style="font-size:12.5px;margin-bottom:6px"><b>'+rows.length+'</b> employee'+(rows.length===1?'':'s')+' will be set to <b>'+esc(s||'—')+' – '+esc(en||'(current end)')+'</b>'+
+    (same?' <span class="hint">('+same+' already on this time)</span>':'')+'</div>'+
+    '<div class="tblwrap eshift-list"><table><thead><tr><th>ID</th><th>Name</th><th>Department</th><th>Status</th><th>Current shift</th><th>New shift</th></tr></thead><tbody>'+
+    rows.map(e=>'<tr class="'+(cur(e)===nxt(e)?'same':'')+'"><td>'+esc(e.employeeId)+'</td><td>'+esc(e.name||'')+'</td><td>'+esc(e.department||'')+'</td><td>'+esc(e.status||'')+'</td><td>'+esc(cur(e))+'</td><td class="new">'+esc(nxt(e))+'</td></tr>').join('')+
+    '</tbody></table></div>';
+}
+async function empShiftRun(){
+  const rows=empShiftTargets();
+  const s=document.getElementById('empshift-start').value,en=document.getElementById('empshift-end').value;
+  const err=document.getElementById('empshift-err');
+  if(!rows.length||!s)return;
+  if(en&&en===s){err.textContent='Shift End cannot be the same as Shift Start.';err.style.display='block';return;}
+  const depts=[...new Set(rows.map(e=>String(e.department||'').trim()))];
+  if(!confirm('Set shift '+s+(en?' – '+en:' (end time unchanged)')+' for '+rows.length+' employee'+(rows.length===1?'':'s')+'?\n\nDepartments: '+depts.join(', ')))return;
+  const go=document.getElementById('empshift-go');go.disabled=true;go.textContent='Saving…';
+  try{
+    const r=await api('/api/attendance/shift-bulk',{method:'PUT',body:JSON.stringify({employeeIds:rows.map(e=>e.id),shiftStart:s,shiftEnd:en,departments:depts})});
+    closeModal('empshiftmodal');
+    toast('Shift updated for '+r.updated+' employee'+(r.updated===1?'':'s')+'.','ok');
+    await empRefresh();
+    pullSharedMaster();
+  }catch(e){
+    err.textContent=e.message;err.style.display='block';
+    empShiftPreview();
+  }
+}
 /* ---------- Import Employees from CSV ---------- */
 // header text (lowercased, non-alnum stripped) -> our field key. Covers the
 // exact header row this company's HR CSV export uses, plus a few natural

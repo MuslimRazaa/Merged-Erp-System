@@ -532,6 +532,55 @@ router.put('/shift/:employeeId', requireHr, async (req, res) => {
   res.json({ ok: true });
 });
 
+// PUT /api/attendance/shift-bulk
+//   { employeeIds:[12,15,…], shiftStart:'09:00', shiftEnd:'18:00' (optional), departments:['Operations'] (for the log) }
+// The Employees screen's "Bulk Shift Time": one shift for every employee of the chosen department(s),
+// in one go. The screen sends exactly the employees its preview listed. Each employee keeps their own
+// grace minutes (a new row gets the default 15); an empty shiftEnd leaves each end time as it was.
+const validHHMM = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); return !!m && +m[1] < 24 && +m[2] < 60; };
+router.put('/shift-bulk', requireHr, async (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body.employeeIds) ? req.body.employeeIds : []).map(Number))]
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (!ids.length) return res.status(400).json({ error: 'Pick at least one employee.' });
+  if (ids.length > 5000) return res.status(400).json({ error: 'Too many employees in one go.' });
+  if (!validHHMM(req.body.shiftStart)) return res.status(400).json({ error: 'Shift Start must be a time (HH:MM).' });
+  const hasEnd = req.body.shiftEnd !== undefined && req.body.shiftEnd !== null && req.body.shiftEnd !== '';
+  if (hasEnd && !validHHMM(req.body.shiftEnd)) return res.status(400).json({ error: 'Shift End must be a time (HH:MM).' });
+  const shiftStart = req.body.shiftStart + ':00';
+  const shiftEnd = hasEnd ? req.body.shiftEnd + ':00' : null;
+
+  const [found] = await pool.query('SELECT id FROM employees WHERE id IN (?)', [ids]);
+  if (found.length !== ids.length) return res.status(400).json({ error: 'Some of these employees no longer exist — reload the Employees list and try again.' });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    if (hasEnd) {
+      await conn.query(
+        `INSERT INTO erp_employee_shifts (employee_id, shift_start, shift_end) VALUES ?
+         ON DUPLICATE KEY UPDATE shift_start = VALUES(shift_start), shift_end = VALUES(shift_end)`,
+        [ids.map((id) => [id, shiftStart, shiftEnd])]
+      );
+    } else {
+      await conn.query(
+        `INSERT INTO erp_employee_shifts (employee_id, shift_start) VALUES ?
+         ON DUPLICATE KEY UPDATE shift_start = VALUES(shift_start)`,
+        [ids.map((id) => [id, shiftStart])]
+      );
+    }
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+  const depts = (Array.isArray(req.body.departments) ? req.body.departments : []).map(String).join(', ');
+  await audit(req.erpUser.employeeId, 'attendance-shift-bulk',
+    `${ids.length} employees -> ${req.body.shiftStart}-${hasEnd ? req.body.shiftEnd : '(end unchanged)'}${depts ? ' [' + depts + ']' : ''}`.slice(0, 250));
+  res.json({ ok: true, updated: ids.length });
+});
+
 // Manual single-entry attendance and bulk sheet import have been retired —
 // they were papering over gaps (Sundays, holidays, machine mismatches) that
 // the erp_holidays calendar + Saturday-quota logic in GET /summary above now
