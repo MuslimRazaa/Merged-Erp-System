@@ -2294,7 +2294,7 @@ async function renderLiveAttendance(){
             '<td>'+attEmpCell(r,'name','employeeCode')+'</td><td>'+esc(r.department||'')+(r.department&&r.location?' · ':'')+esc(r.location||'')+'</td>'+
             (dtLabel
              ?'<td colspan="3"><span class="pill '+pillClass+'">'+esc(dtLabel)+'</span></td>'
-             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkInMode?' <span class="hint">('+esc(r.checkInMode)+')</span>':''):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkOutMode?' <span class="hint">('+esc(r.checkOutMode)+')</span>':''):'—')+'</td><td class="num">'+hrs+'</td>')+
+             :'<td>'+(ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+(r.checkInMode?' <span class="hint">('+esc(r.checkInMode)+')</span>':''):'—')+'</td><td>'+(co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+attDayTag(r.checkOut,r.date)+(r.checkOutMode?' <span class="hint">('+esc(r.checkOutMode)+')</span>':''):'—')+'</td><td class="num">'+hrs+'</td>')+
             '<td>'+(dtLabel||r.unmapped||!ci?'—':'<span class="pill '+(r.late?'a':'g')+'">'+(r.late?'Late':'On time')+'</span>')+'</td></tr>';
          }).join('')+
          '</tbody></table>';
@@ -2341,10 +2341,14 @@ async function attShowDay(employeeCode,name,date){
   document.getElementById('attmodal-body').innerHTML='<div class="empty">Loading…</div>';
   openModal('attmodal');
   try{
-    const rows=await api('/api/attendance/logs?from='+date+'&to='+date+'&q='+encodeURIComponent(employeeCode));
+    // A work day can start the evening before and end the morning after (night shifts, late
+    // sittings): read a day either side and keep the punches the server puts on this work day.
+    const shift=n=>{const d=new Date(date+'T00:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+    const rows=(await api('/api/attendance/logs?from='+shift(-1)+'&to='+shift(1)+'&q='+encodeURIComponent(employeeCode)))
+      .filter(r=>(r.workDate||'')===date).sort((a,b)=>new Date(a.time)-new Date(b.time));
     document.getElementById('attmodal-body').innerHTML=rows.length
      ?'<table><thead><tr><th>Time</th><th>Type</th></tr></thead><tbody>'+
-       rows.map(r=>'<tr><td>'+new Date(r.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</td>'+
+       rows.map(r=>'<tr><td>'+new Date(r.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})+attDayTag(r.time,date)+'</td>'+
         '<td><span class="pill '+(r.type==='Check-in'?'g':r.type==='Check-out'?'v':'a')+'">'+esc(r.type)+'</span></td></tr>').join('')+
        '</tbody></table>'
      :'<div class="empty">No punches found.</div>';
@@ -2370,7 +2374,7 @@ function attExportCsv(){
     ATT_ROWS.forEach(r=>{
       const ci=r.checkIn?new Date(r.checkIn):null,co=r.checkOut?new Date(r.checkOut):null;
       const hrs=(ci&&co)?((co-ci)/3600000).toFixed(1):'';
-      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString()+(r.checkInMode?' ('+r.checkInMode+')':''):'',co?co.toLocaleTimeString()+(r.checkOutMode?' ('+r.checkOutMode+')':''):'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
+      lines.push([r.date,r.employeeCode,r.name||'',r.department||'',r.location||'',ci?ci.toLocaleTimeString()+(r.checkInMode?' ('+r.checkInMode+')':''):'',co?co.toLocaleTimeString()+attDayTag(r.checkOut,r.date)+(r.checkOutMode?' ('+r.checkOutMode+')':''):'',hrs,r.unmapped?'':(r.late?'Late':'On time'),r.unmapped?'Yes':''].map(cell).join(','));
     });
   }
   const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
@@ -2535,7 +2539,15 @@ function rptFmtDay(d){return new Date(d+'T00:00:00').toLocaleDateString('en-US',
 // Saturday-rotation + leave logic now, not from a manually-filled sheet.
 // A Remote Work Attendance punch (Offsite working / Work From Home) is
 // labelled next to its time, e.g. "09:05 AM (Work From Home)".
-function rptTimeMode(t,mode){const s=rptFmtTime(t);return s&&mode?s+' ('+mode+')':s;}
+/* A punch counts on its shift's work day (server: workdayOf), so a night shift's or a late sitting's
+   check-out can fall on the next calendar day: shown as "03:10 (+1)". */
+function attDayTag(t,day){
+  if(!t||!day)return '';
+  const d=new Date(t);
+  const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return k>day?' (+1)':k<day?' (-1)':'';
+}
+function rptTimeMode(t,mode,day){const s=rptFmtTime(t);if(!t)return s;const v=s+attDayTag(t,day);return mode?v+' ('+mode+')':v;}
 function rptDayTypeLabel(r){
   switch(r.dayType){
     case 'Holiday': return 'Holiday — '+(r.holidayName||'');
@@ -2561,7 +2573,7 @@ function rptBuildDetailed(){
   const rows=sorted.map((r,i)=>{
     const label=rptDayTypeLabel(r);
     return [i+1,r.department||'',r.employeeCode||'',r.name||'(Unmapped)',rptFmtDate(r.date),rptFmtDay(r.date),
-      label||rptTimeMode(r.checkIn,r.checkInMode), label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode)];
+      label||rptTimeMode(r.checkIn,r.checkInMode,r.date), label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode,r.date)];
   });
   return {headers,rows};
 }
@@ -2617,7 +2629,7 @@ function rptShowLateSittingDays(empId){
   document.getElementById('attmodal-title').textContent=(name?name+' — ':'')+'Late sitting days';
   document.getElementById('attmodal-body').innerHTML=days.length
    ?'<table><thead><tr><th>Date</th><th>Check Out</th><th class="num">Minutes past shift end</th></tr></thead><tbody>'+
-     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+'</td><td class="num">'+(r.lateSittingMinutes||0)+'</td></tr>').join('')+
+     days.map(r=>'<tr><td>'+rptFmtDate(r.date)+'</td><td>'+rptFmtTime(r.checkOut)+attDayTag(r.checkOut,r.date)+'</td><td class="num">'+(r.lateSittingMinutes||0)+'</td></tr>').join('')+
      '</tbody></table>'
    :'<div class="empty">No late sittings in this range.</div>';
   openModal('attmodal');
@@ -5920,7 +5932,7 @@ function evAttBuildDetailed(){
   const headers=['Sr#','Date','Day','Time In','Time Out'];
   const rows=EV_ATT_ROWS.map((r,i)=>{
     const label=rptDayTypeLabel(r);
-    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptTimeMode(r.checkIn,r.checkInMode),label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode)];
+    return [i+1,rptFmtDate(r.date),rptFmtDay(r.date),label||rptTimeMode(r.checkIn,r.checkInMode,r.date),label?(r.leaveDocNo||''):rptTimeMode(r.checkOut,r.checkOutMode,r.date)];
   });
   return{headers,rows};
 }

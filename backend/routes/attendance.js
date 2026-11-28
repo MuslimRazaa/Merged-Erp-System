@@ -101,6 +101,30 @@ function rangeParams(req) {
 // DATE columns as real JS Date objects, not strings, so parseYMD branches.
 const parseYMD = (s) => (s instanceof Date ? new Date(s.getFullYear(), s.getMonth(), s.getDate()) : (() => { const [y, m, d] = String(s).slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d); })());
 const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+/* ---------------- work day: which shift a punch belongs to ----------------
+   A punch counts on the day its SHIFT started, not on the calendar date it happened on. Each employee's
+   work day runs from a little before their shift start to the same time the next day:
+     lead = min(4 h, half the off-duty gap)        work day starts at  shift_start - lead
+     09:00-17:30 -> 05:00   (a late sitting until 01:00 still belongs to that day)
+     14:00-22:00 -> 10:00   (out at 01:00 after a late sitting -> same day, not tomorrow's check-out)
+     20:00-03:00 -> 16:00   (night shift: in at 20:00, out at 03:00 -> one day)
+   Forgetting to punch out just leaves that day with no check-out; the next day starts clean at the next
+   shift. A shift starting just after midnight (e.g. 02:00) gets a negative offset: its day starts the
+   evening before, and it is still labelled with the date the shift starts. */
+const WORKDAY_LEAD_MAX_MIN = 240;
+const hhmmToMin = (t) => { const [h, m] = String(t || '').slice(0, 5).split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+function workdayOffsetMin(shiftStart, shiftEnd) {
+  const s = hhmmToMin(shiftStart || '09:00');
+  let dur = shiftEnd ? (hhmmToMin(shiftEnd) - s + 1440) % 1440 : 540; // no end set: assume 9 hours
+  if (!dur) dur = 540;
+  return s - Math.min(WORKDAY_LEAD_MAX_MIN, Math.floor((1440 - dur) / 2));
+}
+function workdayOf(punchTime, offsetMin) {
+  const d = new Date(punchTime);
+  d.setMinutes(d.getMinutes() - offsetMin);
+  return ymd(d);
+}
+
 function saturdaysInMonth(year, month /* 1-12 */) {
   const days = [];
   const d = new Date(year, month - 1, 1);
@@ -121,9 +145,11 @@ router.get('/logs', requireHr, async (req, res) => {
   const params = [from, to];
   let sql = `
     SELECT l.id, l.device_user_id, l.device_user_name, l.employee_id, l.punch_time, l.verify_mode, l.in_out_mode, l.device_location,
-           e.employee_id AS emp_code, e.full_name
+           e.employee_id AS emp_code, e.full_name, sft.shift_start, sft.shift_end, ls.work_date
     FROM erp_attendance_logs l
     LEFT JOIN employees e ON e.id = l.employee_id
+    LEFT JOIN erp_employee_shifts sft ON sft.employee_id = l.employee_id
+    LEFT JOIN erp_late_sittings ls ON ls.attendance_log_id = l.id
     WHERE DATE(l.punch_time) BETWEEN ? AND ?`;
   if (req.query.employeeId) { sql += ' AND l.employee_id = ?'; params.push(req.query.employeeId); }
   if (req.query.location) { sql += ' AND l.device_location = ?'; params.push(req.query.location); }
@@ -131,9 +157,13 @@ router.get('/logs', requireHr, async (req, res) => {
   sql += ' ORDER BY l.device_user_id ASC, l.punch_time ASC'; // grouped per person, ascending, so the fallback alternating-type math below is correct
 
   const [rows] = await pool.query(sql, params);
-  const seq = {}; // device_user_id|day -> count so far, only used for rows with no real in_out_mode
+  const seq = {}; // device_user_id|work day -> count so far, only used for rows with no real in_out_mode
   const out = rows.map((r) => {
-    const day = new Date(r.punch_time).toISOString().slice(0, 10);
+    // workDate: the day this punch counts on (its shift's day — see workdayOf); unlinked device IDs
+    // have no shift, so they keep their local calendar date.
+    const day = r.work_date ? ymd(parseYMD(r.work_date))
+      : r.employee_id ? workdayOf(r.punch_time, workdayOffsetMin(r.shift_start || '09:00', r.shift_end))
+      : ymd(new Date(r.punch_time));
     const key = r.device_user_id + '|' + day;
     seq[key] = (seq[key] || 0) + 1;
     const type = VERIFY_STATE_LABELS[r.in_out_mode] || (seq[key] % 2 === 1 ? 'Check-in' : 'Check-out');
@@ -141,7 +171,7 @@ router.get('/logs', requireHr, async (req, res) => {
       id: r.id, deviceUserId: r.device_user_id, employeeId: r.employee_id,
       employeeCode: r.emp_code || r.device_user_id, employeeName: r.full_name || r.device_user_name || null,
       unmapped: !r.employee_id, location: r.device_location || null,
-      time: r.punch_time, type,
+      time: r.punch_time, type, workDate: day,
       verifyMode: r.verify_mode, inOutMode: r.in_out_mode,
     };
   });
@@ -253,14 +283,24 @@ async function computeAttendanceRows(from, to, filter = {}) {
     // Remote Work Attendance entries (source 'late-sitting') carry their
     // Offsite / WFH label in erp_late_sittings — joined in so the report can
     // show it next to the time.
-    `SELECT DATE_FORMAT(l.punch_time, '%Y-%m-%d') AS day, l.employee_id, l.punch_time, l.in_out_mode, l.source, l.device_location, ls.work_mode
+    // One calendar day either side: a work day can start the evening before (shift just after
+    // midnight) or end the morning after (late sitting / night shift) — see workdayOf().
+    `SELECT l.employee_id, l.punch_time, l.in_out_mode, l.source, l.device_location, ls.work_mode, ls.work_date
      FROM erp_attendance_logs l LEFT JOIN erp_late_sittings ls ON ls.attendance_log_id = l.id
      WHERE l.employee_id IS NOT NULL AND DATE(l.punch_time) BETWEEN ? AND ?${filter.employeeIds && filter.employeeIds.length ? ` AND l.employee_id IN (${filter.employeeIds.map(() => '?').join(',')})` : ''}`,
-    [ymd(monthStart), ymd(monthEnd), ...(filter.employeeIds && filter.employeeIds.length ? filter.employeeIds : [])]
+    [ymd(new Date(monthStart.getFullYear(), monthStart.getMonth(), monthStart.getDate() - 1)),
+     ymd(new Date(monthEnd.getFullYear(), monthEnd.getMonth(), monthEnd.getDate() + 1)),
+     ...(filter.employeeIds && filter.employeeIds.length ? filter.employeeIds : [])]
   );
-  const punchesByEmpDay = new Map(); // "empId|day" -> [{time, mode, source, location}]
+  const offsetByEmp = new Map(employees.map((e) => [e.id, workdayOffsetMin(e.shift_start, e.shift_end)]));
+  const punchesByEmpDay = new Map(); // "empId|work day" -> [{time, mode, source, location}]
   for (const r of punchRows) {
-    const key = r.employee_id + '|' + r.day;
+    const off = offsetByEmp.get(r.employee_id);
+    if (off === undefined) continue; // not one of the employees asked for
+    // A Remote Work Attendance entry names its own day (erp_late_sittings.work_date) — that wins;
+    // a device punch goes to the work day of the shift it fell in.
+    const day = r.work_date ? ymd(parseYMD(r.work_date)) : workdayOf(r.punch_time, off);
+    const key = r.employee_id + '|' + day;
     if (!punchesByEmpDay.has(key)) punchesByEmpDay.set(key, []);
     punchesByEmpDay.get(key).push({ time: r.punch_time, mode: r.in_out_mode, source: r.source, location: r.device_location, workMode: r.work_mode || null });
   }
@@ -346,7 +386,11 @@ async function computeAttendanceRows(from, to, filter = {}) {
       const leave = leaveByEmpDate.get(key);
       // Permanent employees' Saturday shift starts later than their weekday
       // shift; every other employment type works Saturday on their normal start.
-      const shiftStart = (dow === 6 && emp.employment_type === 'Permanent') ? SATURDAY_SHIFT_START_PERMANENT : weekdayShiftStart;
+      // (The later of the two: the 11:00 Saturday start is for morning shifts; someone whose own shift
+      // already starts later — 14:00, a 20:00 night shift — keeps their own start instead of being
+      // judged against 11:00.)
+      const shiftStart = (dow === 6 && emp.employment_type === 'Permanent' && hhmmToMin(weekdayShiftStart) < hhmmToMin(SATURDAY_SHIFT_START_PERMANENT))
+        ? SATURDAY_SHIFT_START_PERMANENT : weekdayShiftStart;
 
       let checkInMode = null, checkOutMode = null;
       let checkIn = null, checkOut = null, late = false, lateMinutes = 0, lateSitting = false, lateSittingMinutes = 0;
@@ -372,8 +416,10 @@ async function computeAttendanceRows(from, to, filter = {}) {
           checkOut = punches.length > 1 ? punches[punches.length - 1].time : null;
         }
         if (checkIn) {
+          // Measured from the shift start ON THIS WORK DAY — not on the check-in's calendar date,
+          // which for a night shift checked into after midnight would be the next day.
           const [sh, sm] = shiftStart.split(':').map(Number);
-          const cutoff = new Date(checkIn);
+          const cutoff = parseYMD(day);
           cutoff.setHours(sh, sm + emp.grace_minutes, 0, 0);
           late = checkIn > cutoff;
           if (late) lateMinutes = Math.round((checkIn - cutoff) / 60000);
@@ -401,9 +447,12 @@ async function computeAttendanceRows(from, to, filter = {}) {
         // double-penalized if a late sitting covers it) — no longer a
         // minutes-for-minutes offset.
         if (checkOut && emp.shift_end) {
+          // The shift's end on THIS work day: the next calendar day when the shift crosses midnight
+          // (20:00-03:00 ends at 03:00 tomorrow), so a 03:10 check-out is 10 minutes, not -17 hours.
           const [eh, em2] = String(emp.shift_end).slice(0, 5).split(':').map(Number);
-          const shiftEndAt = new Date(checkOut);
+          const shiftEndAt = parseYMD(day);
           shiftEndAt.setHours(eh, em2, 0, 0);
+          if (hhmmToMin(emp.shift_end) <= hhmmToMin(weekdayShiftStart)) shiftEndAt.setDate(shiftEndAt.getDate() + 1);
           const mins = Math.round((checkOut - shiftEndAt) / 60000);
           if (mins >= LATE_SITTING_MIN_MINUTES) { lateSitting = true; lateSittingMinutes = mins; }
         }
@@ -665,3 +714,5 @@ router.get('/field-days/:employeeId', async (req, res) => {
 module.exports = router;
 module.exports.computeAttendanceRows = computeAttendanceRows;
 module.exports.computeFieldBreaks = computeFieldBreaks;
+module.exports.workdayOffsetMin = workdayOffsetMin;
+module.exports.workdayOf = workdayOf;
